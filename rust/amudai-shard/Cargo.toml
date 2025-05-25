@@ -1,0 +1,33 @@
+[package]
+name = "amudai-shard"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ahash = { workspace = true }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-data = { workspace = true }
+arrow-schema = { workspace = true }
+fastrand = { workspace = true }
+prost = { workspace = true }
+tempfile = { workspace = true }
+
+amudai-arrow-compat = { workspace = true }
+amudai-blockstream = { workspace = true }
+amudai-bytes = { workspace = true }
+amudai-common = { workspace = true }
+amudai-format = { workspace = true }
+amudai-io = { workspace = true }
+amudai-io-impl = { workspace = true }
+amudai-keyed-vector = { workspace = true }
+amudai-objectstore = { workspace = true }
+amudai-sequence = { workspace = true }
+amudai-encodings = { workspace = true }
+arrow-processing = { workspace = true }
+
+[dev-dependencies]

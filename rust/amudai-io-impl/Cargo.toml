@@ -1,0 +1,17 @@
+[package]
+name = "amudai-io-impl"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+amudai-budget-tracker = { workspace = true }
+amudai-bytes = { workspace = true }
+amudai-common = { workspace = true }
+amudai-io = { workspace = true }
+once_cell = { workspace = true }
+rayon = { workspace = true }
+tempfile = { workspace = true }

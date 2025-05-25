@@ -1,0 +1,36 @@
+[package]
+name = "amudai-encodings"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anymap = { workspace = true }
+arrayref = { workspace = true }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-schema = { workspace = true }
+bitflags = { workspace = true }
+bytemuck = { workspace = true }
+byteorder = { workspace = true }
+const_for = { workspace = true }
+fastrand = { workspace = true }
+fsst-rs = { workspace = true }
+itertools = { workspace = true }
+lz4 = { workspace = true }
+num-traits = { workspace = true }
+ordered-float = { workspace = true }
+paste = { workspace = true }
+roaring = { workspace = true }
+seq-macro = { workspace = true }
+tinyvec = { workspace = true }
+zstd = { workspace = true }
+
+amudai-bytes = { workspace = true }
+amudai-common = { workspace = true }
+amudai-format = { workspace = true }
+amudai-io = { workspace = true }
+amudai-sequence = { workspace = true }

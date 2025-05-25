@@ -1,0 +1,30 @@
+[package]
+name = "amudai-blockstream"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-data = { workspace = true }
+arrow-schema = { workspace = true }
+bytemuck = { workspace = true }
+itertools = { workspace = true }
+
+amudai-bytes = { workspace = true }
+amudai-common = { workspace = true }
+amudai-encodings = { workspace = true }
+amudai-format = { workspace = true }
+amudai-io = { workspace = true }
+amudai-io-impl = { workspace = true }
+amudai-objectstore = { workspace = true }
+amudai-sequence = { workspace = true }
+arrow-processing = { workspace = true }
+
+[dev-dependencies]
+amudai-io-impl = { workspace = true }
+fastrand = { workspace = true }

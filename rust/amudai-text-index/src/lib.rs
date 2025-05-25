@@ -1,0 +1,1 @@
+//! Inverted text index implementation.

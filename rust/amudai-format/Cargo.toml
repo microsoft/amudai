@@ -1,0 +1,18 @@
+[package]
+name = "amudai-format"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ahash = { workspace = true }
+planus = { workspace = true }
+prost = { workspace = true }
+serde = { workspace = true }
+xxhash-rust = { workspace = true }
+
+amudai-bytes = { workspace = true }
+amudai-common = { workspace = true }

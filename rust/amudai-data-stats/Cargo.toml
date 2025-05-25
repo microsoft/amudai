@@ -1,0 +1,21 @@
+[package]
+name = "amudai-data-stats"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ahash = { workspace = true }
+arrow-arith = { workspace = true }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-data = { workspace = true }
+arrow-schema = { workspace = true }
+
+amudai-arrow-compat = { workspace = true }
+amudai-common = { workspace = true }
+amudai-format = { workspace = true }
+amudai-io = { workspace = true }

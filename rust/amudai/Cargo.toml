@@ -1,0 +1,17 @@
+[package]
+name = "amudai"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+amudai-common = { workspace = true }
+amudai-encodings = { workspace = true }
+amudai-format = { workspace = true }
+amudai-io = { workspace = true }
+amudai-objectstore = { workspace = true }
+amudai-shard = { workspace = true }
+amudai-text-index = { workspace = true }

@@ -1,0 +1,110 @@
+enum BasicType : ubyte {
+    Unit = 0,
+    Boolean = 1,
+    Int8 = 2,
+    Int16 = 3,
+    Int32 = 4,
+    Int64 = 5,
+    Float32 = 6,
+    Float64 = 7,
+    Binary = 8,
+    FixedSizeBinary = 9,
+    String = 10,
+    Guid = 11,
+    DateTime = 12,
+    List = 13,
+    FixedSizeList = 14,
+    Struct = 15,
+    Map = 16,
+    Union = 17,
+}
+
+// DataType node in the hierarchical schema.
+table DataType {
+    // Basic type (primitive or composite)
+    basic_type: BasicType;
+
+    // Schema ID of the field.
+    schema_id: uint32;
+
+    // Field name, relevant for `Struct` fields and `Union` variants.
+    // Otherwise, it should be empty, and is ignored by the implementation.
+    field_name: string (required);
+
+    // Optional aliases field aliases, relevant only for `Struct` fields.
+    field_aliases: [string];
+
+    // Child type nodes for the composite types.
+    // Remains empty for the primitive types.
+    children: [DataType] (required);
+
+    // Whether the type is signed (meaningful only for integer types).
+    signed: bool;
+
+    // Fixed size, meaningful only for `FixedSizeBinary` and `FixedSizeList`.
+    // For `FixedSizeBinary`: this is the type size in bytes.
+    // For `FixedSizeList`: this is the number of list elements.
+    fixed_size: uint64;
+
+    // Optional extended type annotation
+    extended_type: ExtendedTypeAnnotation;
+
+    // Child by name lookup helper.
+    lookup: HashLookup;
+}
+
+// Top-level record field.
+table Field {
+    data_type: DataType (required);
+    // Optional internal field marker
+    // (e.g. deleted records, ingestion timestamp, unique record id).
+    internal_field_annotation: InternalFieldAnnotation;
+}
+
+table Schema {
+    fields: [Field] (required);
+    // The next available `schema_id` that is not currently in use.
+    schema_id_count: uint32;
+    // Field by name lookup helper.
+    field_lookup: HashLookup;
+}
+
+table ExtendedTypeAnnotation {
+    label: string (required);
+    properties: [ExtendedTypeProperty] (required);
+}
+
+table ExtendedTypeProperty {
+    name: string (required);
+    value: PropertyValue (required);
+}
+
+enum PropertyValueKind : ubyte {
+    // Null value
+    Null = 0,
+    // Simple string
+    String = 1,
+    // Json string
+    JsonString = 2,
+    // Protobuf `AnyValue` as defined in the `common.proto`.
+    AnyValueProto = 3,
+}
+
+table PropertyValue {
+    kind: PropertyValueKind;
+    data: [ubyte] (required);
+}
+
+table InternalFieldAnnotation {
+    kind: string (required);
+}
+
+// Auxiliary data structure to accelerate lookup by name in the list of child items.
+// Given a child's `name`, its bucket index is given by
+// `b = xxh3_64(name) % (buckets.len() - 1)`.
+// Then the range of entries `entries[buckets[b]..buckets[b + 1]]` contains the indexes
+// of the *candidate* items in the child list.
+table HashLookup {
+    buckets: [uint32] (required);
+    entries: [uint32] (required);
+}
