@@ -6,7 +6,7 @@ use super::{
 use crate::encodings::{
     numeric::value::{ValueReader, ValueWriter},
     AlignedEncMetadata, AnalysisOutcome, EncodingConfig, EncodingContext, EncodingKind,
-    EncodingParameters, EncodingPlan, NullMask,
+    EncodingParameters, EncodingPlan, NullMask, ALIGNMENT_BYTES,
 };
 use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::error::Error;
@@ -61,6 +61,7 @@ impl StringEncoding for FSSTEncoding {
         encoded_size += compressor.symbol_table().len() * std::mem::size_of::<u64>();
         encoded_size += compressor.symbol_lengths().len();
         encoded_size += compressed_values.len();
+        encoded_size = encoded_size.next_multiple_of(ALIGNMENT_BYTES);
 
         let (offsets_outcome, offsets_size) = analyze_offsets(values, config, context)?;
         encoded_size += offsets_size;
@@ -101,6 +102,9 @@ impl StringEncoding for FSSTEncoding {
         target.write_values(&compressed_values);
         metadata.values_size = compressed_values.len();
 
+        let alignment = target.len().next_multiple_of(ALIGNMENT_BYTES);
+        target.resize(alignment, 0);
+
         let (offset_width, offsets_cascading, _) = encode_offsets(
             values,
             target,
@@ -134,26 +138,27 @@ impl StringEncoding for FSSTEncoding {
         let mut symbols = context.buffers.get_buffer();
         symbols.extend_from_slice(&buffer[..symbols_size]);
         let symbols: &[fsst::Symbol] = unsafe { std::mem::transmute(symbols.typed_data::<u64>()) };
-        let buffer = &buffer[symbols_size..];
+        let offset = symbols_size;
 
         // Read FSST symbol lengths.
-        let symbol_lengths = &buffer[..metadata.symbols_count];
-        let buffer = &buffer[metadata.symbols_count..];
-
+        let symbol_lengths = &buffer[offset..offset + metadata.symbols_count];
         let decompressor = fsst::Decompressor::new(symbols, &symbol_lengths);
+        let offset = offset + metadata.symbols_count;
 
         // Decode values.
-        let compressed = &buffer[..metadata.values_size];
+        let compressed = &buffer[offset..offset + metadata.values_size];
         let mut values = AlignedByteVec::new();
         // Size as required by the FSST API.
         values.resize_zeroed::<u8>(decompressor.max_decompression_capacity(compressed));
         let decoded = unsafe { std::mem::transmute(values.as_mut_slice()) };
         let size = decompressor.decompress_into(compressed, decoded);
         values.truncate(size);
-        let buffer = &buffer[metadata.values_size as usize..];
+
+        let offset = offset + metadata.values_size;
+        let offset = offset.next_multiple_of(ALIGNMENT_BYTES);
 
         decode_offsets_and_make_sequence(
-            buffer,
+            &buffer[offset..],
             values,
             presence,
             type_desc,

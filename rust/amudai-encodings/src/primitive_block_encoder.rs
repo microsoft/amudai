@@ -23,7 +23,7 @@ pub struct PrimitiveBlockEncoder {
 }
 
 impl PrimitiveBlockEncoder {
-    const DEFAULT_SAMPLE_VALUE_COUNT: usize = 128;
+    const DEFAULT_SAMPLE_VALUE_COUNT: usize = 1024;
     const NUMERIC_ENC_BLOCK_VALUE_COUNT: usize = 8000;
     const GENERIC_ENC_BLOCK_VALUE_COUNT: usize = 64000;
 
@@ -185,6 +185,16 @@ impl PrimitiveBlockEncoder {
                     context,
                 )
             }
+            amudai_format::schema::BasicType::DateTime => {
+                context.numeric_encoders.get::<u64>().analyze(
+                    values
+                        .as_primitive::<arrow_array::types::UInt64Type>()
+                        .values(),
+                    &null_mask,
+                    &config,
+                    context,
+                )
+            }
             _ => panic!("unexpected type: {:?}", basic_type.basic_type),
         }
     }
@@ -318,6 +328,17 @@ impl PrimitiveBlockEncoder {
                 }
                 context.numeric_encoders.get::<FloatValue<f64>>().encode(
                     adapted_values.typed_data(),
+                    &null_mask,
+                    target,
+                    encoding_plan,
+                    context,
+                )
+            }
+            amudai_format::schema::BasicType::DateTime => {
+                context.numeric_encoders.get::<u64>().encode(
+                    values
+                        .as_primitive::<arrow_array::types::UInt64Type>()
+                        .values(),
                     &null_mask,
                     target,
                     encoding_plan,

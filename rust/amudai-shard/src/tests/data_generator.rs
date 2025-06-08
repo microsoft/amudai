@@ -7,7 +7,8 @@ use std::{
 
 use arrow_array::{
     builder::{
-        BinaryBuilder, Float32Builder, Float64Builder, Int32Builder, Int64Builder, StringBuilder,
+        BinaryBuilder, BooleanBuilder, Float32Builder, Float64Builder, Int32Builder, Int64Builder,
+        StringBuilder,
     },
     Array, ArrayRef, ListArray, RecordBatch, StructArray,
 };
@@ -113,6 +114,18 @@ pub fn create_primitive_flat_test_schema() -> Arc<Schema> {
     ]))
 }
 
+pub fn create_boolean_test_schema() -> Arc<Schema> {
+    Arc::new(Schema::new(vec![make_field(
+        "x",
+        DataType::Boolean,
+        FieldProperties {
+            kind: FieldKind::Unspecified,
+            nulls_fraction: 0.1,
+            ..Default::default()
+        },
+    )]))
+}
+
 pub fn create_bytes_flat_test_schema() -> Arc<Schema> {
     Arc::new(Schema::new(vec![
         make_field(
@@ -176,6 +189,7 @@ pub fn generate_field(field: &arrow_schema::Field, len: usize) -> Arc<dyn Array>
         DataType::Int64 => generate_int64_field(field, len),
         DataType::Float32 => generate_float32_field(field, len),
         DataType::Float64 => generate_float64_field(field, len),
+        DataType::Boolean => generate_boolean_field(field, len),
         DataType::Struct(fields) => generate_struct(
             &FieldProperties::from_metadata(field.metadata()),
             fields,
@@ -370,6 +384,20 @@ pub fn generate_binary_field(field: &arrow_schema::Field, len: usize) -> Arc<dyn
                     fastrand::u32(..)
                 )),
             }
+        }
+    }
+    Arc::new(builder.finish())
+}
+
+pub fn generate_boolean_field(field: &arrow_schema::Field, len: usize) -> Arc<dyn Array> {
+    let props = FieldProperties::from_metadata(field.metadata());
+    let mut builder = BooleanBuilder::new();
+    for _ in 0..len {
+        if props.nulls_fraction > 0.0 && fastrand::f64() < props.nulls_fraction {
+            builder.append_null();
+        } else {
+            let value = fastrand::bool();
+            builder.append_value(value);
         }
     }
     Arc::new(builder.finish())

@@ -6,7 +6,6 @@ mod bytes;
 mod empty;
 mod list_container;
 mod primitive;
-mod staging_buffer;
 mod unit_container;
 
 use std::sync::Arc;
@@ -84,7 +83,7 @@ impl FieldEncoder {
     ) -> Result<Box<dyn FieldEncoderOps>> {
         match basic_type.basic_type {
             BasicType::Unit => Ok(empty::EmptyFieldEncoder::create()),
-            BasicType::Boolean => boolean::BooleanFieldEncoder::create(basic_type),
+            BasicType::Boolean => boolean::BooleanFieldEncoder::create(basic_type, temp_store),
             BasicType::Int8 => {
                 let arrow_type = if basic_type.signed {
                     arrow_schema::DataType::Int8
@@ -143,7 +142,7 @@ impl FieldEncoder {
                 list_container::ListContainerFieldEncoder::create(basic_type, temp_store)
             }
             BasicType::FixedSizeList | BasicType::Struct => {
-                unit_container::UnitContainerFieldEncoder::create(basic_type)
+                unit_container::UnitContainerFieldEncoder::create(basic_type, temp_store)
             }
             BasicType::Union => todo!(),
         }

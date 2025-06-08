@@ -131,6 +131,15 @@ impl PrimitiveBlockDecoder {
                     context,
                 )?;
             }
+            amudai_format::schema::BasicType::DateTime => {
+                context.numeric_encoders.get::<u64>().decode(
+                    encoded,
+                    value_count,
+                    &Default::default(),
+                    &mut values,
+                    context,
+                )?;
+            }
             _ => panic!("unexpected type: {:?}", type_desc.basic_type),
         }
 
@@ -176,6 +185,7 @@ impl BlockDecoder for PrimitiveBlockDecoder {
 
 #[cfg(test)]
 mod tests {
+    use super::PrimitiveBlockDecoder;
     use crate::{
         block_decoder::BlockDecoder,
         block_encoder::{
@@ -185,14 +195,81 @@ mod tests {
         encodings::EncodingContext,
         primitive_block_encoder::PrimitiveBlockEncoder,
     };
-    use amudai_format::schema::BasicTypeDescriptor;
-
-    use super::PrimitiveBlockDecoder;
     use amudai_bytes::buffer::AlignedByteVec;
+    use amudai_format::schema::BasicTypeDescriptor;
+    use amudai_sequence::presence::Presence;
+    use bytemuck::Pod;
+    use core::panic;
+    use itertools::Itertools;
     use std::sync::Arc;
 
+    fn run_round_trip_test<ArrowType, Gen, I>(
+        policy: BlockEncodingPolicy,
+        basic_type: BasicTypeDescriptor,
+        data_gen: Gen,
+    ) where
+        ArrowType: arrow_array::ArrowPrimitiveType,
+        ArrowType::Native: Pod,
+        Gen: Fn(usize) -> I,
+        I: IntoIterator<Item = ArrowType::Native>,
+    {
+        let context = Arc::new(EncodingContext::default());
+        let mut encoder =
+            PrimitiveBlockEncoder::new(policy.clone(), basic_type, Arc::clone(&context));
+
+        // Generate a sample to analyze it.
+        let sample_len = encoder.sample_size().unwrap().value_count.start;
+        let sample =
+            arrow_array::array::PrimitiveArray::<ArrowType>::from_iter_values(data_gen(sample_len));
+        let block_constraints = encoder.analyze_sample(&sample).unwrap();
+
+        // Generate multiple blocks of data and encode them.
+        let blocks_count = 16;
+        let mut encoded = AlignedByteVec::new();
+        let values_len = block_constraints.value_count.start;
+        let mut block_offsets = vec![0];
+        let mut original_data = vec![];
+        let mut original_presence = vec![];
+        for _ in 0..blocks_count {
+            let nulls = arrow_buffer::NullBuffer::from_iter(
+                (0..values_len).map(|_| fastrand::f64() >= 0.1),
+            );
+            original_presence.push(nulls.iter().map(|p| if p { 1 } else { 0 }).collect_vec());
+            let values =
+                arrow_array::array::PrimitiveArray::<ArrowType>::from_iter_values_with_nulls(
+                    data_gen(values_len),
+                    Some(nulls),
+                );
+            let encoded_block = encoder.encode(&values).unwrap();
+            encoded.extend_from_slice(encoded_block.as_ref());
+            block_offsets.push(encoded.len());
+            original_data.push(values);
+        }
+
+        // Decode the encoded data and compare with original one.
+        let decoder =
+            PrimitiveBlockDecoder::new(policy.parameters, basic_type, Arc::clone(&context));
+        for block in 0..blocks_count {
+            let encoded_block =
+                EncodedBlock::Borrowed(&encoded[block_offsets[block]..block_offsets[block + 1]]);
+            let decoded = decoder.decode(encoded_block.as_ref(), values_len).unwrap();
+            assert_eq!(decoded.type_desc, basic_type);
+            assert_eq!(
+                original_data[block].values().iter().as_slice(),
+                decoded.values.as_slice::<ArrowType::Native>()
+            );
+            let Presence::Bytes(presence_bytes) = decoded.presence else {
+                panic!("Expected decoded presence to be Presence::Bytes");
+            };
+            assert_eq!(
+                original_presence[block].as_slice(),
+                presence_bytes.as_slice()
+            );
+        }
+    }
+
     #[test]
-    fn test_round_trip() {
+    fn test_round_trip_int64() {
         let policy = BlockEncodingPolicy {
             profile: BlockEncodingProfile::Balanced,
             parameters: BlockEncodingParameters {
@@ -207,44 +284,71 @@ mod tests {
             fixed_size: std::mem::size_of::<i64>(),
         };
 
-        let context = Arc::new(EncodingContext::default());
-        let mut encoder =
-            PrimitiveBlockEncoder::new(policy.clone(), basic_type, Arc::clone(&context));
-        let sample_len = encoder.sample_size().unwrap().value_count.start;
-        let sample = arrow_array::array::Int64Array::from_iter(
-            (0..sample_len).map(|_| fastrand::i64(-100..100) + 1000000),
-        );
-        let block_constraints = encoder.analyze_sample(&sample).unwrap();
+        run_round_trip_test::<arrow_array::types::Int64Type, _, _>(policy, basic_type, |len| {
+            (0..len).map(|_| fastrand::i64(-100..100) + 1000000)
+        });
+    }
 
-        let blocks_count = 16;
-        let mut encoded = AlignedByteVec::new();
-        let values_len = block_constraints.value_count.start;
-        let mut block_offsets = vec![0];
-        let mut original_data = vec![];
-        for _ in 0..blocks_count {
-            let nulls = arrow_buffer::NullBuffer::from_iter(
-                (0..values_len).map(|_| fastrand::f64() >= 0.1),
-            );
-            let values = arrow_array::array::Int64Array::from_iter_values_with_nulls(
-                (0..values_len).map(|_| fastrand::i64(-100..100) + 1000000),
-                Some(nulls),
-            );
-            let encoded_block = encoder.encode(&values).unwrap();
-            encoded.extend_from_slice(encoded_block.as_ref());
-            block_offsets.push(encoded.len());
-            original_data.push(values);
-        }
+    #[test]
+    fn test_round_trip_float32() {
+        let policy = BlockEncodingPolicy {
+            profile: BlockEncodingProfile::Balanced,
+            parameters: BlockEncodingParameters {
+                presence: PresenceEncoding::Enabled,
+                checksum: BlockChecksum::Enabled,
+            },
+            size_constraints: None,
+        };
+        let basic_type = BasicTypeDescriptor {
+            basic_type: amudai_format::schema::BasicType::Float32,
+            signed: true,
+            fixed_size: std::mem::size_of::<f32>(),
+        };
 
-        let decoder =
-            PrimitiveBlockDecoder::new(policy.parameters, basic_type, Arc::clone(&context));
-        for block in 0..blocks_count {
-            let encoded_block =
-                EncodedBlock::Borrowed(&encoded[block_offsets[block]..block_offsets[block + 1]]);
-            let decoded = decoder.decode(encoded_block.as_ref(), values_len).unwrap();
-            assert_eq!(
-                original_data[block].values().iter().as_slice(),
-                decoded.values.as_slice::<i64>()
-            );
-        }
+        run_round_trip_test::<arrow_array::types::Float32Type, _, _>(policy, basic_type, |len| {
+            (0..len).map(|_| fastrand::f32())
+        });
+    }
+
+    #[test]
+    fn test_round_trip_float64() {
+        let policy = BlockEncodingPolicy {
+            profile: BlockEncodingProfile::Balanced,
+            parameters: BlockEncodingParameters {
+                presence: PresenceEncoding::Enabled,
+                checksum: BlockChecksum::Enabled,
+            },
+            size_constraints: None,
+        };
+        let basic_type = BasicTypeDescriptor {
+            basic_type: amudai_format::schema::BasicType::Float64,
+            signed: true,
+            fixed_size: std::mem::size_of::<f64>(),
+        };
+
+        run_round_trip_test::<arrow_array::types::Float64Type, _, _>(policy, basic_type, |len| {
+            (0..len).map(|_| fastrand::f64())
+        });
+    }
+
+    #[test]
+    fn test_round_trip_datetime() {
+        let policy = BlockEncodingPolicy {
+            profile: BlockEncodingProfile::Balanced,
+            parameters: BlockEncodingParameters {
+                presence: PresenceEncoding::Enabled,
+                checksum: BlockChecksum::Enabled,
+            },
+            size_constraints: None,
+        };
+        let basic_type = BasicTypeDescriptor {
+            basic_type: amudai_format::schema::BasicType::DateTime,
+            signed: false,
+            fixed_size: std::mem::size_of::<u64>(),
+        };
+
+        run_round_trip_test::<arrow_array::types::UInt64Type, _, _>(policy, basic_type, |len| {
+            (0..len).map(|_| 638843822550000000 + fastrand::u64(0..1000))
+        });
     }
 }

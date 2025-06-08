@@ -405,7 +405,7 @@ pub enum BufferKind {
     /// for each logical position, conceptually as a sequence of bool values, where `true`
     /// indicates the presence of a value at the corresponding position and `false`
     /// indicates a null.
-    Presense = 1,
+    Presence = 1,
     /// Works alongside the DATA buffer for variable-sized types such as string and binary.
     /// It stores the end-of-value offsets of the corresponding byte slices in the DATA buffer.
     /// Logically, this is a sequence of `uint64` values starting from zero, with a length
@@ -430,7 +430,7 @@ impl BufferKind {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::Data => "DATA",
-            Self::Presense => "PRESENSE",
+            Self::Presence => "PRESENCE",
             Self::Offsets => "OFFSETS",
             Self::ValueDictionary => "VALUE_DICTIONARY",
             Self::OpaqueDictionary => "OPAQUE_DICTIONARY",
@@ -440,7 +440,7 @@ impl BufferKind {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "DATA" => Some(Self::Data),
-            "PRESENSE" => Some(Self::Presense),
+            "PRESENCE" => Some(Self::Presence),
             "OFFSETS" => Some(Self::Offsets),
             "VALUE_DICTIONARY" => Some(Self::ValueDictionary),
             "OPAQUE_DICTIONARY" => Some(Self::OpaqueDictionary),

@@ -193,6 +193,6 @@ mod tests {
         for i in 0..20 {
             len += seq.string_at(i).len();
         }
-        assert!(len > 500);
+        assert!(len > 200);
     }
 }

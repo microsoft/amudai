@@ -11,3 +11,4 @@ rust-version.workspace = true
 amudai-bytes = { workspace = true }
 amudai-sequence = { workspace = true }
 bytemuck = { workspace = true }
+fastrand = { workspace = true }

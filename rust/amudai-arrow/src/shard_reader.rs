@@ -184,9 +184,10 @@ impl StripeRecordBatchReader {
 
         let mut readers = Vec::<ArrayReader>::with_capacity(arrow_schema.fields().len());
         for field in arrow_schema.fields() {
-            let amudai_type = Self::resolve_field(stripe, &field_list, &field)?;
-            let reader = Self::create_array_reader(
+            let amudai_type = resolve_field(stripe, &field_list, &field)?;
+            let reader = create_array_reader(
                 stripe,
+                None,
                 amudai_type,
                 field.data_type().clone(),
                 pos_ranges_hint.clone(),
@@ -195,52 +196,6 @@ impl StripeRecordBatchReader {
         }
 
         Ok(readers)
-    }
-
-    /// Constructs an `ArrayReader` for a specific field, given its Amudai and Arrow
-    /// data types and position ranges.
-    ///
-    /// Returns an error if the field is missing or if the reader cannot be created.
-    fn create_array_reader(
-        stripe: &Stripe,
-        amudai_type: Option<amudai_format::schema::DataType>,
-        arrow_type: arrow::datatypes::DataType,
-        pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
-    ) -> Result<ArrayReader, ArrowError> {
-        let amudai_type = match amudai_type {
-            Some(t) => t,
-            None => {
-                return Err(ArrowError::NotYetImplemented(
-                    "nulls for missing fields".to_string(),
-                ))
-            }
-        };
-
-        let stripe_field = stripe.open_field(amudai_type).to_arrow_res()?;
-        ArrayReader::new(arrow_type, stripe_field, pos_ranges_hint)
-    }
-
-    /// Resolves the Amudai data type for a given Arrow field by consulting
-    /// the stripe's field list.
-    ///
-    /// Returns `Ok(Some(data_type))` if the field is found and compatible,
-    /// `Ok(None)` if not found or incompatible, or an error if resolution
-    /// fails.
-    fn resolve_field(
-        _stripe: &Stripe,
-        field_list: &FieldList,
-        arrow_field: &ArrowField,
-    ) -> Result<Option<amudai_format::schema::DataType>, ArrowError> {
-        let Some(data_type) = field_list
-            .find(arrow_field.name())
-            .to_arrow_res()?
-            .map(|(_, data_type)| data_type)
-        else {
-            return Ok(None);
-        };
-        // TODO: check whether data_type is "compatible" with the requested Arrow type.
-        // Otherwise, return None.
-        Ok(Some(data_type))
     }
 }
 
@@ -266,15 +221,129 @@ impl Iterator for StripeRecordBatchReader {
     }
 }
 
+/// Constructs an `ArrayReader` for a specific field in the Arrow conversion pipeline.
+///
+/// This function serves as a factory for creating appropriate array readers that can convert
+/// Amudai field data into Arrow-compatible arrays. It handles the mapping between Amudai's
+/// internal data representation and Arrow's type system, creating readers optimized for
+/// the specific data types involved.
+///
+/// The function is a core component of the stripe reading process, where each Arrow schema
+/// field needs a corresponding reader to extract and convert data from the underlying
+/// Amudai stripe storage format.
+///
+/// # Arguments
+///
+/// * `stripe` - The Amudai stripe containing the field data to be read
+/// * `parent_stripe_field` - Optional parent field for nested field readers.
+///   The parent field context is requried in order to properly construct the readers
+///   for missing (null) child fields, where the child position count is determined
+///   by the parent's position count and data type.
+/// * `amudai_type` - The Amudai data type definition for the field. If `None`, the field
+///   is considered missing and will result in a null reader (not yet implemented)
+/// * `arrow_type` - The target Arrow data type that the reader should produce
+/// * `pos_ranges_hint` - An iterator over position ranges that provides hints about which
+///   data ranges will be read. This allows the reader to optimize its internal structure
+///   and pre-allocate resources appropriately
+///
+/// # Returns
+///
+/// Returns a configured `ArrayReader` that can convert data from the Amudai field format
+/// to the specified Arrow array type.
+///
+/// # Errors
+///
+/// * Returns conversion errors if the stripe field cannot be opened from the Amudai type
+/// * May return errors if there are incompatibilities between the Amudai and Arrow types
+pub(crate) fn create_array_reader(
+    stripe: &Stripe,
+    _parent_stripe_field: Option<&amudai_shard::read::field::Field>,
+    amudai_type: Option<amudai_format::schema::DataType>,
+    arrow_type: arrow::datatypes::DataType,
+    pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
+) -> Result<ArrayReader, ArrowError> {
+    let amudai_type = match amudai_type {
+        Some(t) => t,
+        None => {
+            return Err(ArrowError::NotYetImplemented(
+                "nulls for missing fields".to_string(),
+            ))
+        }
+    };
+
+    let stripe_field = stripe.open_field(amudai_type).to_arrow_res()?;
+    ArrayReader::new(arrow_type, stripe_field, pos_ranges_hint)
+}
+
+/// Resolves the Amudai data type for a given Arrow field by performing field name lookup.
+///
+/// This function is a critical component of the schema mapping process between Arrow and Amudai
+/// formats. It searches for a field by name in the provided Amudai field list and returns the
+/// corresponding Amudai data type if found. This enables the Arrow-to-Amudai conversion pipeline
+/// to understand how to read and convert data from Amudai's internal storage format.
+///
+/// The function performs field resolution at different levels of the schema hierarchy:
+/// - **Top-level (stripe) resolution**: Used when resolving fields directly in the stripe schema
+/// - **Nested resolution**: Used when resolving fields within complex types like structs
+///
+/// Field compatibility checking is planned but not yet implemented (see TODO comment in code).
+///
+/// # Arguments
+///
+/// * `stripe` - The Amudai stripe context.
+/// * `field_list` - The Amudai field list to search within. This can be either a top-level
+///   stripe field list or a nested field list from within a complex type (e.g., struct fields)
+/// * `arrow_field` - The Arrow field definition containing the field name to search for and
+///   the target Arrow data type. The field name is used for lookup, while the data type
+///   is used for compatibility validation
+///
+/// # Returns
+///
+/// * `Ok(Some(data_type))` - Field was found by name in the field list. The returned
+///   `DataType` is the Amudai type definition that can be used to create appropriate
+///   field readers and decoders
+/// * `Ok(None)` - Field was not found in the field list, indicating either a missing
+///   field or a schema mismatch between Arrow and Amudai representations
+/// * `Err(ArrowError)` - An error occurred during field lookup, typically due to
+///   internal field list access issues
+///
+/// # Future Enhancements
+///
+/// The function includes a TODO for implementing compatibility checking between Arrow
+/// and Amudai data types. This should validate that the found Amudai field type can be
+/// properly converted to the requested Arrow type, returning `None` for incompatible
+/// type combinations.
+pub(crate) fn resolve_field(
+    _stripe: &Stripe,
+    field_list: &FieldList,
+    arrow_field: &ArrowField,
+) -> Result<Option<amudai_format::schema::DataType>, ArrowError> {
+    let Some(data_type) = field_list
+        .find(arrow_field.name())
+        .to_arrow_res()?
+        .map(|(_, data_type)| data_type)
+    else {
+        return Ok(None);
+    };
+    // TODO: check whether data_type is "compatible" with the requested Arrow type.
+    // Otherwise, return None.
+    Ok(Some(data_type))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::builder::ArrowReaderBuilder;
 
     use amudai_format::defs::common::DataRef;
     use amudai_shard::tests::{
-        data_generator::{create_bytes_flat_test_schema, create_primitive_flat_test_schema},
+        data_generator::{
+            create_bytes_flat_test_schema, create_nested_test_schema,
+            create_primitive_flat_test_schema,
+        },
         shard_store::ShardStore,
     };
+    use amudai_testkit::data_gen::create_qlog_batch_iterator;
+    use arrow::array::RecordBatchIterator;
 
     #[test]
     fn test_basic_arrow_reader_primitives() {
@@ -313,5 +382,82 @@ mod tests {
         assert_eq!(frame.num_rows(), 8);
         dbg!(&frame);
         reader.collect::<Result<Vec<_>, _>>().unwrap();
+    }
+
+    #[test]
+    fn test_nested_schema_reader() {
+        let schema = create_nested_test_schema();
+
+        let shard_store = ShardStore::new();
+
+        let shard_ref: DataRef = shard_store.ingest_shard_with_schema(&schema, 10000);
+
+        let reader_builder = ArrowReaderBuilder::try_new(&shard_ref.url)
+            .expect("Failed to create ArrowReaderBuilder")
+            .with_object_store(shard_store.object_store.clone());
+
+        let mut reader = reader_builder.build().unwrap();
+        while let Some(frame) = reader.next() {
+            let frame = frame.unwrap();
+            dbg!(frame.num_rows());
+        }
+    }
+
+    // TODO: reenable once unsupported types and all decoders/readers are implemented.
+    // Current blocker: `unexpected type: DateTime` in rust\amudai-encodings\src\primitive_block_encoder.rs:188:18
+    // #[test]
+    #[allow(dead_code)]
+    fn test_complex_nested_schema_reader() {
+        // Generate 10K qlog records with nested schema
+        let reader =
+            create_qlog_batch_iterator(10000, 1000).expect("Failed to create qlog batch iterator");
+        let schema = reader.schema();
+
+        // Convert to RecordBatchIterator for ingestion
+        let batch_iterator = RecordBatchIterator::new(reader, schema.clone());
+
+        // Create shard store and ingest the data
+        let shard_store = ShardStore::new();
+        let shard_ref: DataRef = shard_store.ingest_shard_from_record_batches(batch_iterator);
+
+        // Create Arrow reader builder
+        let reader_builder = ArrowReaderBuilder::try_new(&shard_ref.url)
+            .expect("Failed to create ArrowReaderBuilder")
+            .with_object_store(shard_store.object_store.clone())
+            .with_batch_size(500);
+
+        // Verify we can fetch the schema
+        let fetched_schema = reader_builder
+            .fetch_arrow_schema()
+            .expect("Failed to fetch arrow schema");
+        assert_eq!(fetched_schema.fields().len(), schema.fields().len());
+
+        // Build and consume the reader
+        let mut reader = reader_builder.build().expect("Failed to build reader");
+        let mut total_rows = 0;
+        let mut batch_count = 0;
+
+        while let Some(batch_result) = reader.next() {
+            let batch = batch_result.expect("Failed to read batch");
+            total_rows += batch.num_rows();
+            batch_count += 1;
+
+            // Verify batch has expected schema structure
+            assert_eq!(batch.schema(), fetched_schema);
+            assert!(batch.num_rows() > 0);
+            assert!(batch.num_rows() <= 500); // Should respect batch size
+        }
+
+        // Verify we read all 10K records
+        assert_eq!(total_rows, 10000);
+        assert!(batch_count > 0);
+
+        // Verify the schema contains expected qlog fields
+        let field_names: Vec<&str> = fetched_schema
+            .fields()
+            .iter()
+            .map(|f| f.name().as_str())
+            .collect();
+        assert!(field_names.contains(&"recordId"));
     }
 }

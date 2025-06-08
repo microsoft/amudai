@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use amudai_blockstream::write::bytes_buffer::BytesBufferEncoder;
+use amudai_blockstream::write::{
+    bytes_buffer::BytesBufferEncoder, staging_buffer::BytesStagingBuffer,
+};
 use amudai_common::Result;
 use amudai_encodings::{
     binary_block_encoder::BinaryBlockEncoder, block_encoder::BlockSizeConstraints,
@@ -9,7 +11,7 @@ use amudai_format::{defs::schema_ext::BasicTypeDescriptor, schema::BasicType};
 use amudai_io::temp_file_store::TemporaryFileStore;
 use arrow_array::Array;
 
-use super::{staging_buffer::BytesStagingBuffer, EncodedField, FieldEncoderOps};
+use super::{EncodedField, FieldEncoderOps};
 
 /// Encodes variable-sized and fixed-size binary-like fields (`Binary`,
 /// `FixedSizeBinary`, `String`, `Guid`).

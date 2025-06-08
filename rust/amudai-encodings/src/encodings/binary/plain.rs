@@ -62,9 +62,8 @@ impl StringEncoding for PlainEncoding {
         let offset_width_pos = target.len();
         target.write_value::<u8>(0u8);
 
-        if let Some(fixed_size) = values.fixed_value_size() {
+        if values.fixed_value_size().is_some() {
             // Zero offset width indicates fixed size values.
-            target.write_value::<u32>(fixed_size);
         } else if let Some(offsets) = values.offsets() {
             target.write_values(&offsets);
             target.write_value_at::<u8>(offset_width_pos, 8u8);
@@ -92,22 +91,13 @@ impl StringEncoding for PlainEncoding {
 
         let decoded = if offset_width == 0 {
             // Zero offset width indicates fixed size values.
-            let value_len = buffer.read_value::<u32>(0) as usize;
-
             let mut values = Values::new();
-            values.extend_from_slice(&buffer[4..]);
-
-            let mut offsets = Offsets::new();
-            let mut offset = 0;
-            for _ in 0..presence.len() {
-                offset += value_len;
-                offsets.push_offset(offset as u64);
-            }
+            values.extend_from_slice(&buffer);
 
             ValueSequence {
                 type_desc,
                 values,
-                offsets: Some(offsets),
+                offsets: None,
                 presence,
             }
         } else if offset_width == 8 {

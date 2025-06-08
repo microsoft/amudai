@@ -8,7 +8,7 @@ use amudai_encodings::{
 use amudai_format::{defs::shard, schema::BasicTypeDescriptor};
 use amudai_io::ReadAt;
 
-use crate::read::block_stream::BlockStreamDecoder;
+use crate::{read::block_stream::BlockStreamDecoder, write::PreparedEncodedBuffer};
 
 use super::{block_stream::BlockReaderPrefetch, generic_buffer::GenericBufferReader};
 
@@ -53,6 +53,34 @@ impl PrimitiveBufferDecoder {
         Ok(PrimitiveBufferDecoder {
             block_stream,
             embedded_presence: encoded_buffer.embedded_presence,
+            basic_type,
+        })
+    }
+
+    /// Creates a new `PrimitiveBufferDecoder` from a [`PreparedEncodedBuffer`].
+    ///
+    /// This constructor is used when you have a fully prepared, in-memory encoded buffer
+    /// (typically produced by an encoder in the same process) and want to create a decoder
+    /// for reading its contents.
+    ///
+    /// # Arguments
+    ///
+    /// * `prepared_buffer` - The prepared encoded buffer containing both the encoded data
+    ///   and its descriptor.
+    /// * `basic_type` - The primitive type descriptor for values in this buffer.
+    ///
+    /// # Returns
+    ///
+    /// Returns a [`Result`] containing the initialized [`PrimitiveBufferDecoder`] if successful,
+    /// or an error if the buffer could not be decoded.
+    pub fn from_prepared_buffer(
+        prepared_buffer: &PreparedEncodedBuffer,
+        basic_type: BasicTypeDescriptor,
+    ) -> Result<PrimitiveBufferDecoder> {
+        let block_stream = BlockStreamDecoder::from_prepared_buffer(prepared_buffer)?;
+        Ok(PrimitiveBufferDecoder {
+            block_stream,
+            embedded_presence: prepared_buffer.descriptor.embedded_presence,
             basic_type,
         })
     }
@@ -179,10 +207,10 @@ mod tests {
         assert_eq!(seq.values.as_slice::<i32>()[49], 349);
     }
 
-    fn create_test_buffer(
+    fn encode_test_buffer(
         num_blocks: usize,
         block_value_count: Range<usize>,
-    ) -> Result<PreparedEncodedBuffer> {
+    ) -> Result<PrimitiveBufferEncoder> {
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(16 * 1024 * 1024)?;
 
         let policy = BlockEncodingPolicy {
@@ -210,6 +238,14 @@ mod tests {
             let array = Int32Array::from(values);
             encoder.encode_block(&array)?;
         }
+        Ok(encoder)
+    }
+
+    fn create_test_buffer(
+        num_blocks: usize,
+        block_value_count: Range<usize>,
+    ) -> Result<PreparedEncodedBuffer> {
+        let encoder = encode_test_buffer(num_blocks, block_value_count)?;
         encoder.finish()
     }
 
@@ -512,5 +548,26 @@ mod tests {
             assert_eq!(values1[i + 100], values2[i]);
             assert_eq!(values1[i + 100], (i + 200) as i32);
         }
+    }
+
+    #[test]
+    fn test_consume() {
+        let encoder = encode_test_buffer(3, 10..11).unwrap();
+        let decoder = encoder.consume().unwrap();
+        let pos_count = decoder.block_stream().block_map().value_count().unwrap();
+
+        // Read back the data and verify
+        let mut reader = decoder
+            .create_reader(
+                vec![0..pos_count].into_iter(),
+                BlockReaderPrefetch::Disabled,
+            )
+            .unwrap();
+
+        let seq = reader.read(0..pos_count).unwrap();
+        assert_eq!(seq.len(), pos_count as usize);
+        let values = seq.values.as_slice::<i32>();
+        assert_eq!(values[0], 0);
+        assert_eq!(values[values.len() - 1], values.len() as i32 - 1);
     }
 }

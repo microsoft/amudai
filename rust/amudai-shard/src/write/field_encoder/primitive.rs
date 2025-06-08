@@ -2,13 +2,15 @@
 
 use std::sync::Arc;
 
-use amudai_blockstream::write::primitive_buffer::PrimitiveBufferEncoder;
+use amudai_blockstream::write::{
+    primitive_buffer::PrimitiveBufferEncoder, staging_buffer::PrimitiveStagingBuffer,
+};
 use amudai_common::Result;
 use amudai_format::defs::schema_ext::BasicTypeDescriptor;
 use amudai_io::temp_file_store::TemporaryFileStore;
 use arrow_array::Array;
 
-use super::{staging_buffer::PrimitiveStagingBuffer, EncodedField, FieldEncoderOps};
+use super::{EncodedField, FieldEncoderOps};
 
 /// Encoder implementation for primitive numeric fields: integers, FP, `DateTime`, `TimeSpan`.
 ///

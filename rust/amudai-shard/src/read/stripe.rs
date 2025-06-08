@@ -65,14 +65,13 @@ impl Stripe {
     /// Opens a field within this stripe using the provided `data_type` identifying the
     /// schema id of the field.
     ///
-    /// This method returns a [`Field`](super::field::Field) object, which provides access
+    /// This method returns a [`Field`] object, which provides access
     /// to the field's schema information, descriptor, and methods for reading data from
     /// the stripe.
     ///
     /// # Arguments
     ///
-    /// * `data_type` - The [`DataType`](amudai_format::schema::DataType) describing the
-    ///   field to open.
+    /// * `data_type` - The [`DataType`] describing the field to open.
     ///
     /// # Errors
     ///

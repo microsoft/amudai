@@ -12,6 +12,8 @@ use amudai_format::defs::shard;
 use amudai_io::{sliced_read::SlicedReadAt, ReadAt};
 use amudai_io_impl::prefetch_read::PrefetchReadAt;
 
+use crate::write::PreparedEncodedBuffer;
+
 use super::{block_map::BlockMap, block_map_ops::BlockDescriptor};
 
 /// A decoder for the BlockStream format which provides access to encoded data blocks.
@@ -126,6 +128,33 @@ impl BlockStreamDecoder {
             block_map_reader,
             checksum_config,
         ))
+    }
+
+    /// Creates a [`BlockStreamDecoder`] from a [`PreparedEncodedBuffer`].
+    ///
+    /// This method is a convenience wrapper that constructs a decoder using the
+    /// data and descriptor from a newly encoded, in-memory buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `prepared_buffer` - The prepared encoded buffer containing both the encoded data
+    ///   and its descriptor.
+    ///
+    /// # Returns
+    ///
+    /// Returns a [`Result`] containing an [`Arc<BlockStreamDecoder>`] if successful,
+    /// or an error if the buffer could not be decoded.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The buffer or block map references are missing from the descriptor.
+    /// - The block map range is invalid.
+    /// - The block map size is invalid.
+    pub fn from_prepared_buffer(
+        prepared_buffer: &PreparedEncodedBuffer,
+    ) -> Result<Arc<BlockStreamDecoder>> {
+        Self::from_encoded_buffer(prepared_buffer.data.clone(), &prepared_buffer.descriptor)
     }
 
     /// Returns an Arc to this decoder.

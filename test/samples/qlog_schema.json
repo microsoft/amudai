@@ -1,0 +1,667 @@
+{
+    "fields": [
+        {
+            "name": "clientInfo",
+            "data_type": {
+                "Struct": [
+                    {
+                        "name": "clientType",
+                        "data_type": "Utf8",
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "clientVersion",
+                        "data_type": "Utf8",
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "originIp",
+                        "data_type": "Utf8",
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "userAgent",
+                        "data_type": "Utf8",
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    }
+                ]
+            },
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "correlationId",
+            "data_type": "Utf8",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "details",
+            "data_type": "Utf8",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "environment",
+            "data_type": "Utf8",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "eventDetails",
+            "data_type": {
+                "Struct": [
+                    {
+                        "name": "anomalyScore",
+                        "data_type": "Float64",
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "confidence",
+                        "data_type": "Float64",
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "eventType",
+                        "data_type": "Utf8",
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "isConfirmed",
+                        "data_type": "Boolean",
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "mitigationAttempt",
+                        "data_type": {
+                            "Struct": [
+                                {
+                                    "name": "attemptId",
+                                    "data_type": "Utf8",
+                                    "nullable": true,
+                                    "dict_id": 0,
+                                    "dict_is_ordered": false,
+                                    "metadata": {}
+                                },
+                                {
+                                    "name": "outcome",
+                                    "data_type": "Utf8",
+                                    "nullable": true,
+                                    "dict_id": 0,
+                                    "dict_is_ordered": false,
+                                    "metadata": {}
+                                },
+                                {
+                                    "name": "parameters",
+                                    "data_type": {
+                                        "Struct": [
+                                            {
+                                                "name": "targetRegion",
+                                                "data_type": "Utf8",
+                                                "nullable": true,
+                                                "dict_id": 0,
+                                                "dict_is_ordered": false,
+                                                "metadata": {}
+                                            }
+                                        ]
+                                    },
+                                    "nullable": true,
+                                    "dict_id": 0,
+                                    "dict_is_ordered": false,
+                                    "metadata": {}
+                                },
+                                {
+                                    "name": "scheduledTime",
+                                    "data_type": {
+                                        "Timestamp": [
+                                            "Microsecond",
+                                            "+00"
+                                        ]
+                                    },
+                                    "nullable": true,
+                                    "dict_id": 0,
+                                    "dict_is_ordered": false,
+                                    "metadata": {}
+                                },
+                                {
+                                    "name": "strategyUsed",
+                                    "data_type": "Utf8",
+                                    "nullable": true,
+                                    "dict_id": 0,
+                                    "dict_is_ordered": false,
+                                    "metadata": {}
+                                }
+                            ]
+                        },
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "monitoredPairs",
+                        "data_type": {
+                            "List": {
+                                "name": "item",
+                                "data_type": {
+                                    "Struct": [
+                                        {
+                                            "name": "currentState",
+                                            "data_type": {
+                                                "Struct": [
+                                                    {
+                                                        "name": "decoherenceFactor",
+                                                        "data_type": "Float64",
+                                                        "nullable": true,
+                                                        "dict_id": 0,
+                                                        "dict_is_ordered": false,
+                                                        "metadata": {}
+                                                    },
+                                                    {
+                                                        "name": "lastMeasurementTimestamp",
+                                                        "data_type": {
+                                                            "Timestamp": [
+                                                                "Microsecond",
+                                                                "+00"
+                                                            ]
+                                                        },
+                                                        "nullable": true,
+                                                        "dict_id": 0,
+                                                        "dict_is_ordered": false,
+                                                        "metadata": {}
+                                                    },
+                                                    {
+                                                        "name": "measurementDevice",
+                                                        "data_type": {
+                                                            "Struct": [
+                                                                {
+                                                                    "name": "calibrationStatus",
+                                                                    "data_type": "Utf8",
+                                                                    "nullable": true,
+                                                                    "dict_id": 0,
+                                                                    "dict_is_ordered": false,
+                                                                    "metadata": {}
+                                                                },
+                                                                {
+                                                                    "name": "deviceId",
+                                                                    "data_type": "Utf8",
+                                                                    "nullable": true,
+                                                                    "dict_id": 0,
+                                                                    "dict_is_ordered": false,
+                                                                    "metadata": {}
+                                                                },
+                                                                {
+                                                                    "name": "lastCalibrated",
+                                                                    "data_type": {
+                                                                        "Timestamp": [
+                                                                            "Microsecond",
+                                                                            "+00"
+                                                                        ]
+                                                                    },
+                                                                    "nullable": true,
+                                                                    "dict_id": 0,
+                                                                    "dict_is_ordered": false,
+                                                                    "metadata": {}
+                                                                },
+                                                                {
+                                                                    "name": "sensorReadings",
+                                                                    "data_type": {
+                                                                        "List": {
+                                                                            "name": "item",
+                                                                            "data_type": {
+                                                                                "Struct": [
+                                                                                    {
+                                                                                        "name": "sensor",
+                                                                                        "data_type": "Utf8",
+                                                                                        "nullable": true,
+                                                                                        "dict_id": 0,
+                                                                                        "dict_is_ordered": false,
+                                                                                        "metadata": {}
+                                                                                    },
+                                                                                    {
+                                                                                        "name": "unit",
+                                                                                        "data_type": "Utf8",
+                                                                                        "nullable": true,
+                                                                                        "dict_id": 0,
+                                                                                        "dict_is_ordered": false,
+                                                                                        "metadata": {}
+                                                                                    },
+                                                                                    {
+                                                                                        "name": "value",
+                                                                                        "data_type": "Float64",
+                                                                                        "nullable": true,
+                                                                                        "dict_id": 0,
+                                                                                        "dict_is_ordered": false,
+                                                                                        "metadata": {}
+                                                                                    }
+                                                                                ]
+                                                                            },
+                                                                            "nullable": true,
+                                                                            "dict_id": 0,
+                                                                            "dict_is_ordered": false,
+                                                                            "metadata": {}
+                                                                        }
+                                                                    },
+                                                                    "nullable": true,
+                                                                    "dict_id": 0,
+                                                                    "dict_is_ordered": false,
+                                                                    "metadata": {}
+                                                                }
+                                                            ]
+                                                        },
+                                                        "nullable": true,
+                                                        "dict_id": 0,
+                                                        "dict_is_ordered": false,
+                                                        "metadata": {}
+                                                    },
+                                                    {
+                                                        "name": "spin_A",
+                                                        "data_type": "Utf8",
+                                                        "nullable": true,
+                                                        "dict_id": 0,
+                                                        "dict_is_ordered": false,
+                                                        "metadata": {}
+                                                    },
+                                                    {
+                                                        "name": "spin_B",
+                                                        "data_type": "Utf8",
+                                                        "nullable": true,
+                                                        "dict_id": 0,
+                                                        "dict_is_ordered": false,
+                                                        "metadata": {}
+                                                    }
+                                                ]
+                                            },
+                                            "nullable": true,
+                                            "dict_id": 0,
+                                            "dict_is_ordered": false,
+                                            "metadata": {}
+                                        },
+                                        {
+                                            "name": "deviation",
+                                            "data_type": "Float64",
+                                            "nullable": true,
+                                            "dict_id": 0,
+                                            "dict_is_ordered": false,
+                                            "metadata": {}
+                                        },
+                                        {
+                                            "name": "expectedBehavior",
+                                            "data_type": {
+                                                "Struct": [
+                                                    {
+                                                        "name": "correlationType",
+                                                        "data_type": "Utf8",
+                                                        "nullable": true,
+                                                        "dict_id": 0,
+                                                        "dict_is_ordered": false,
+                                                        "metadata": {}
+                                                    },
+                                                    {
+                                                        "name": "expectedValue",
+                                                        "data_type": "Float64",
+                                                        "nullable": true,
+                                                        "dict_id": 0,
+                                                        "dict_is_ordered": false,
+                                                        "metadata": {}
+                                                    },
+                                                    {
+                                                        "name": "threshold",
+                                                        "data_type": "Float64",
+                                                        "nullable": true,
+                                                        "dict_id": 0,
+                                                        "dict_is_ordered": false,
+                                                        "metadata": {}
+                                                    }
+                                                ]
+                                            },
+                                            "nullable": true,
+                                            "dict_id": 0,
+                                            "dict_is_ordered": false,
+                                            "metadata": {}
+                                        },
+                                        {
+                                            "name": "initialStateVector",
+                                            "data_type": {
+                                                "List": {
+                                                    "name": "item",
+                                                    "data_type": "Float64",
+                                                    "nullable": true,
+                                                    "dict_id": 0,
+                                                    "dict_is_ordered": false,
+                                                    "metadata": {}
+                                                }
+                                            },
+                                            "nullable": true,
+                                            "dict_id": 0,
+                                            "dict_is_ordered": false,
+                                            "metadata": {}
+                                        },
+                                        {
+                                            "name": "linkedAnomalies",
+                                            "data_type": {
+                                                "List": {
+                                                    "name": "item",
+                                                    "data_type": "Utf8",
+                                                    "nullable": true,
+                                                    "dict_id": 0,
+                                                    "dict_is_ordered": false,
+                                                    "metadata": {}
+                                                }
+                                            },
+                                            "nullable": true,
+                                            "dict_id": 0,
+                                            "dict_is_ordered": false,
+                                            "metadata": {}
+                                        },
+                                        {
+                                            "name": "observedValue",
+                                            "data_type": "Float64",
+                                            "nullable": true,
+                                            "dict_id": 0,
+                                            "dict_is_ordered": false,
+                                            "metadata": {}
+                                        },
+                                        {
+                                            "name": "pairId",
+                                            "data_type": "Utf8",
+                                            "nullable": true,
+                                            "dict_id": 0,
+                                            "dict_is_ordered": false,
+                                            "metadata": {}
+                                        },
+                                        {
+                                            "name": "particleA_id",
+                                            "data_type": "Utf8",
+                                            "nullable": true,
+                                            "dict_id": 0,
+                                            "dict_is_ordered": false,
+                                            "metadata": {}
+                                        },
+                                        {
+                                            "name": "particleB_id",
+                                            "data_type": "Utf8",
+                                            "nullable": true,
+                                            "dict_id": 0,
+                                            "dict_is_ordered": false,
+                                            "metadata": {}
+                                        }
+                                    ]
+                                },
+                                "nullable": true,
+                                "dict_id": 0,
+                                "dict_is_ordered": false,
+                                "metadata": {}
+                            }
+                        },
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "systemPerformance",
+                        "data_type": {
+                            "Struct": [
+                                {
+                                    "name": "cpuLoad",
+                                    "data_type": "Float64",
+                                    "nullable": true,
+                                    "dict_id": 0,
+                                    "dict_is_ordered": false,
+                                    "metadata": {}
+                                },
+                                {
+                                    "name": "memoryUsageMB",
+                                    "data_type": "Int64",
+                                    "nullable": true,
+                                    "dict_id": 0,
+                                    "dict_is_ordered": false,
+                                    "metadata": {}
+                                },
+                                {
+                                    "name": "networkLatencyMs",
+                                    "data_type": "Int64",
+                                    "nullable": true,
+                                    "dict_id": 0,
+                                    "dict_is_ordered": false,
+                                    "metadata": {}
+                                },
+                                {
+                                    "name": "qpuUtilization",
+                                    "data_type": "Float64",
+                                    "nullable": true,
+                                    "dict_id": 0,
+                                    "dict_is_ordered": false,
+                                    "metadata": {}
+                                }
+                            ]
+                        },
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "tags",
+                        "data_type": {
+                            "List": {
+                                "name": "item",
+                                "data_type": "Utf8",
+                                "nullable": true,
+                                "dict_id": 0,
+                                "dict_is_ordered": false,
+                                "metadata": {}
+                            }
+                        },
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "userData",
+                        "data_type": {
+                            "Struct": [
+                                {
+                                    "name": "permissions",
+                                    "data_type": {
+                                        "List": {
+                                            "name": "item",
+                                            "data_type": "Utf8",
+                                            "nullable": true,
+                                            "dict_id": 0,
+                                            "dict_is_ordered": false,
+                                            "metadata": {}
+                                        }
+                                    },
+                                    "nullable": true,
+                                    "dict_id": 0,
+                                    "dict_is_ordered": false,
+                                    "metadata": {}
+                                },
+                                {
+                                    "name": "sessionId",
+                                    "data_type": "Utf8",
+                                    "nullable": true,
+                                    "dict_id": 0,
+                                    "dict_is_ordered": false,
+                                    "metadata": {}
+                                },
+                                {
+                                    "name": "userId",
+                                    "data_type": "Utf8",
+                                    "nullable": true,
+                                    "dict_id": 0,
+                                    "dict_is_ordered": false,
+                                    "metadata": {}
+                                }
+                            ]
+                        },
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    }
+                ]
+            },
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "hostName",
+            "data_type": "Utf8",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "logId",
+            "data_type": "Utf8",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "logLevel",
+            "data_type": "Utf8",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "message",
+            "data_type": "Utf8",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "processingTimeMs",
+            "data_type": "Int64",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "recordId",
+            "data_type": "Int64",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "serviceName",
+            "data_type": "Utf8",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "serviceVersion",
+            "data_type": "Utf8",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "source",
+            "data_type": {
+                "Struct": [
+                    {
+                        "name": "component",
+                        "data_type": "Utf8",
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "function",
+                        "data_type": "Utf8",
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "ipAddress",
+                        "data_type": "Utf8",
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    },
+                    {
+                        "name": "lineNumber",
+                        "data_type": "Int64",
+                        "nullable": true,
+                        "dict_id": 0,
+                        "dict_is_ordered": false,
+                        "metadata": {}
+                    }
+                ]
+            },
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "timestamp",
+            "data_type": {
+                "Timestamp": [
+                    "Microsecond",
+                    "+00"
+                ]
+            },
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        }
+    ],
+    "metadata": {}
+}

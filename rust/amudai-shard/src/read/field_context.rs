@@ -11,8 +11,8 @@ use amudai_format::{
 use super::{
     artifact_reader::ArtifactReader,
     field_decoder::{
-        bytes::BytesFieldDecoder, list::ListFieldDecoder, primitive::PrimitiveFieldDecoder,
-        FieldDecoder,
+        boolean::BooleanFieldDecoder, bytes::BytesFieldDecoder, list::ListFieldDecoder,
+        primitive::PrimitiveFieldDecoder, unit::StructFieldDecoder, FieldDecoder,
     },
     stripe::StripeFieldDescriptor,
     stripe_context::StripeContext,
@@ -134,7 +134,10 @@ impl FieldContext {
 
         match basic_type.basic_type {
             BasicType::Unit => (),
-            BasicType::Boolean => (),
+            BasicType::Boolean => {
+                let decoder = BooleanFieldDecoder::from_field(self)?;
+                return Ok(FieldDecoder::Boolean(decoder));
+            }
             BasicType::Int8
             | BasicType::Int16
             | BasicType::Int32
@@ -156,8 +159,10 @@ impl FieldContext {
                 let decoder = ListFieldDecoder::from_field(self)?;
                 return Ok(FieldDecoder::List(decoder));
             }
-            BasicType::FixedSizeList => (),
-            BasicType::Struct => (),
+            BasicType::FixedSizeList | BasicType::Struct => {
+                let decoder = StructFieldDecoder::from_field(self)?;
+                return Ok(FieldDecoder::Struct(decoder));
+            }
             BasicType::Map => (),
             BasicType::Union => (),
         }

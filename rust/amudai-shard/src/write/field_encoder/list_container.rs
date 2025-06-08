@@ -2,7 +2,11 @@
 
 use std::sync::Arc;
 
-use amudai_blockstream::write::primitive_buffer::PrimitiveBufferEncoder;
+use amudai_blockstream::write::{
+    bit_buffer::{BitBufferEncoder, EncodedBitBuffer},
+    primitive_buffer::PrimitiveBufferEncoder,
+    staging_buffer::PrimitiveStagingBuffer,
+};
 use amudai_common::{error::Error, Result};
 use amudai_encodings::block_encoder::{
     BlockChecksum, BlockEncodingParameters, BlockEncodingPolicy, BlockEncodingProfile,
@@ -15,10 +19,7 @@ use amudai_format::{
 use amudai_io::temp_file_store::TemporaryFileStore;
 use arrow_array::{cast::AsArray, Array};
 
-use super::{
-    boolean::BooleanBufferEncoder, staging_buffer::PrimitiveStagingBuffer, EncodedField,
-    FieldEncoderOps,
-};
+use super::{EncodedField, FieldEncoderOps};
 
 /// Encoder for fields representing multi-item containers, such as `List` or `Map`.
 ///
@@ -39,7 +40,7 @@ pub struct ListContainerFieldEncoder {
     /// Offset buffer encoder.
     offsets_encoder: PrimitiveBufferEncoder,
     /// Presence buffer encoder.
-    presence_encoder: BooleanBufferEncoder,
+    presence_encoder: BitBufferEncoder,
 }
 
 impl ListContainerFieldEncoder {
@@ -71,9 +72,9 @@ impl ListContainerFieldEncoder {
                     fixed_size: 0,
                     signed: false,
                 },
-                temp_store,
+                temp_store.clone(),
             )?,
-            presence_encoder: BooleanBufferEncoder::new(),
+            presence_encoder: BitBufferEncoder::new(temp_store),
         }))
     }
 }
@@ -135,8 +136,7 @@ impl FieldEncoderOps for ListContainerFieldEncoder {
         self.staging.append(offsets);
 
         if let Some(presence) = array.nulls() {
-            self.presence_encoder
-                .append_buffer(presence.inner().clone())?;
+            self.presence_encoder.append(presence.inner())?;
         } else {
             self.presence_encoder.append_repeated(slot_count, true)?;
         }
@@ -165,14 +165,35 @@ impl FieldEncoderOps for ListContainerFieldEncoder {
         if !self.staging.is_empty() {
             self.flush(true)?;
         }
+
+        let mut buffers = Vec::new();
+
         let mut encoded_offsets = self.offsets_encoder.finish()?;
         encoded_offsets.descriptor.kind = shard::BufferKind::Offsets as i32;
         encoded_offsets.descriptor.embedded_presence = false;
         encoded_offsets.descriptor.embedded_offsets = false;
-        // TODO: finish and add encoded presence.
-        Ok(EncodedField {
-            buffers: vec![encoded_offsets],
-        })
+        buffers.push(encoded_offsets);
+
+        match self.presence_encoder.finish()? {
+            EncodedBitBuffer::Constant(value, _count) => {
+                if !value {
+                    // TODO: do not write out any buffers, mark the field as constant Null
+                    // in the field descriptor.
+                    return Err(Error::not_implemented("constant null encoding (list)"));
+                }
+
+                // The field has a trivial presence in all stripe positions, no need to write
+                // out dedicated presence buffer.
+            }
+            EncodedBitBuffer::Blocks(mut presence) => {
+                presence.descriptor.kind = shard::BufferKind::Presence as i32;
+                presence.descriptor.embedded_presence = false;
+                presence.descriptor.embedded_offsets = false;
+                buffers.push(presence);
+            }
+        }
+
+        Ok(EncodedField { buffers })
     }
 }
 

@@ -251,7 +251,7 @@ enum BufferKind {
     // for each logical position, conceptually as a sequence of bool values, where `true`
     // indicates the presence of a value at the corresponding position and `false`
     // indicates a null.
-    PRESENSE = 1;
+    PRESENCE = 1;
     // Works alongside the DATA buffer for variable-sized types such as string and binary.
     // It stores the end-of-value offsets of the corresponding byte slices in the DATA buffer.
     // Logically, this is a sequence of `uint64` values starting from zero, with a length

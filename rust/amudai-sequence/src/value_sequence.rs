@@ -275,8 +275,7 @@ impl ValueSequence {
     pub fn extend_from_sequence(&mut self, source: &ValueSequence, offset: usize, len: usize) {
         assert!(offset + len <= source.len());
         assert_eq!(self.type_desc, source.type_desc);
-        // TODO: stop creating offsets in fixed-size binary block decoder and restore this assert
-        // assert_eq!(self.offsets.is_some(), source.offsets.is_some());
+        assert_eq!(self.offsets.is_some(), source.offsets.is_some());
 
         match self.type_desc.basic_type {
             BasicType::Unit => (),
