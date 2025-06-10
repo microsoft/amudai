@@ -544,7 +544,7 @@ impl<'a, T> Iterator for RangeListIter<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for RangeListIter<'a, T> {}
+impl<T> ExactSizeIterator for RangeListIter<'_, T> {}
 
 impl<'a, T> IntoIterator for &'a RangeList<T> {
     type Item = &'a Range<T>;

@@ -1,7 +1,7 @@
 use super::{
+    AnalysisOutcome, EncodingContext, EncodingKind, NumericEncoding,
     stats::{NumericStats, NumericStatsCollectorFlags},
     value::{NumericValue, ValueWriter},
-    AnalysisOutcome, EncodingContext, EncodingKind, NumericEncoding,
 };
 use crate::encodings::{EncodingConfig, EncodingParameters, EncodingPlan, NullMask};
 use amudai_bytes::buffer::AlignedByteVec;
@@ -81,7 +81,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::encodings::{numeric::EncodingContext, EncodingKind, EncodingPlan, NullMask};
+    use crate::encodings::{EncodingKind, EncodingPlan, NullMask, numeric::EncodingContext};
     use amudai_bytes::buffer::AlignedByteVec;
 
     #[test]

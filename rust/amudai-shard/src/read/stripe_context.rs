@@ -1,6 +1,6 @@
 use std::sync::{Arc, OnceLock};
 
-use amudai_common::{verify_arg, verify_data, Result};
+use amudai_common::{Result, verify_arg, verify_data};
 use amudai_format::{
     defs::shard,
     schema::{DataType, SchemaId},

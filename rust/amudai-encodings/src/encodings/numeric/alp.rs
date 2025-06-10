@@ -1,11 +1,11 @@
 // ! This code is based on original code from repository: https://github.com/spiraldb/alp
 use super::{
+    NumericEncoding,
     stats::{NumericStats, NumericStatsCollectorFlags},
     value::{AsMutByteSlice, DecimalValue, FloatValue, IntegerValue, ValueReader, ValueWriter},
-    NumericEncoding,
 };
 use crate::encodings::{
-    ALPParameters, AlignedEncMetadata, AnalysisOutcome, EncodingConfig, EncodingContext,
+    AlignedEncMetadata, AlpParameters, AnalysisOutcome, EncodingConfig, EncodingContext,
     EncodingKind, EncodingParameters, EncodingPlan, NullMask,
 };
 use amudai_bytes::buffer::AlignedByteVec;
@@ -32,8 +32,8 @@ where
         integers: &mut Vec<T::ALPIntegerType>,
         patch_indices: &mut Vec<u32>,
         patch_values: &mut Vec<T>,
-    ) -> ALPParameters {
-        let mut best_params = ALPParameters {
+    ) -> AlpParameters {
+        let mut best_params = AlpParameters {
             exponent_e: 0,
             factor_f: 0,
         };
@@ -54,7 +54,7 @@ where
                 patch_values.clear();
                 Self::encode(
                     sample.as_deref().unwrap_or(values),
-                    ALPParameters {
+                    AlpParameters {
                         exponent_e: e,
                         factor_f: f,
                     },
@@ -65,14 +65,14 @@ where
                 let size = Self::estimate_encoded_size(integers, patch_values);
                 if size < best_nbytes {
                     best_nbytes = size;
-                    best_params = ALPParameters {
+                    best_params = AlpParameters {
                         exponent_e: e,
                         factor_f: f,
                     };
                 } else if size == best_nbytes
                     && e - f < best_params.exponent_e - best_params.factor_f
                 {
-                    best_params = ALPParameters {
+                    best_params = AlpParameters {
                         exponent_e: e,
                         factor_f: f,
                     };
@@ -100,7 +100,7 @@ where
             })
             .unwrap_or(size_of::<T::ALPIntegerType>() * 8);
 
-        let encoded_bytes = (encoded.len() * bits_per_encoded + 7) / 8;
+        let encoded_bytes = (encoded.len() * bits_per_encoded).div_ceil(8);
         // each patch is a value + a position
         // in practice, patch positions are in [0, u16::MAX] because of how we chunk
         let patch_bytes = patches.len() * (size_of::<Self>() + size_of::<u16>());
@@ -110,7 +110,7 @@ where
 
     fn encode(
         values: &[T],
-        params: ALPParameters,
+        params: AlpParameters,
         integers: &mut Vec<T::ALPIntegerType>,
         patch_indices: &mut Vec<u32>,
         patch_values: &mut Vec<T>,
@@ -134,7 +134,7 @@ where
 
     fn encode_chunk(
         chunk: &[T],
-        params: ALPParameters,
+        params: AlpParameters,
         integers: &mut Vec<T::ALPIntegerType>,
         patch_indices: &mut Vec<u32>,
         patch_values: &mut Vec<T>,
@@ -206,7 +206,7 @@ where
 
     fn decode_chunk(
         encoded: &[T::ALPIntegerType],
-        params: ALPParameters,
+        params: AlpParameters,
         patch_indices: &[u32],
         patch_values: &[T],
         target: &mut AlignedByteVec,
@@ -222,14 +222,14 @@ where
     }
 
     #[inline]
-    fn decode_single(encoded: T::ALPIntegerType, params: ALPParameters) -> T {
+    fn decode_single(encoded: T::ALPIntegerType, params: AlpParameters) -> T {
         T::from_int(encoded)
             * T::F10[params.factor_f as usize]
             * T::IF10[params.exponent_e as usize]
     }
 
     #[inline]
-    unsafe fn encode_single(value: T, params: ALPParameters) -> T::ALPIntegerType {
+    unsafe fn encode_single(value: T, params: AlpParameters) -> T::ALPIntegerType {
         (value * T::F10[params.exponent_e as usize] * T::IF10[params.factor_f as usize])
             .fast_round()
             .as_int()
@@ -294,7 +294,7 @@ impl ALPDecimalValue for FloatValue<f32> {
 
     #[inline]
     fn as_int(self) -> Self::ALPIntegerType {
-        self.0 .0 as _
+        self.0.0 as _
     }
 
     #[inline]
@@ -366,7 +366,7 @@ impl ALPDecimalValue for FloatValue<f64> {
 
     #[inline]
     fn as_int(self) -> Self::ALPIntegerType {
-        self.0 .0 as _
+        self.0.0 as _
     }
 
     #[inline]
@@ -380,7 +380,7 @@ where
     T: ALPDecimalValue,
 {
     fn kind(&self) -> EncodingKind {
-        EncodingKind::ALP
+        EncodingKind::Alp
     }
 
     fn is_suitable(&self, config: &EncodingConfig, _stats: &NumericStats<T>) -> bool {
@@ -404,8 +404,7 @@ where
         stats: &NumericStats<T>,
         context: &EncodingContext,
     ) -> amudai_common::Result<Option<AnalysisOutcome>> {
-        let mut integers = vec![];
-        integers.reserve(values.len());
+        let mut integers = Vec::with_capacity(values.len());
         let mut patch_indices = vec![];
         let mut patch_values = vec![];
 
@@ -458,7 +457,7 @@ where
                     cascading_outcomes: vec![Some(integers_outcome)],
                     encoded_size,
                     compression_ratio: stats.original_size as f64 / encoded_size as f64,
-                    parameters: EncodingParameters::ALP(alp_params),
+                    parameters: EncodingParameters::Alp(alp_params),
                 })
             })
             .transpose()
@@ -472,15 +471,14 @@ where
         plan: &EncodingPlan,
         context: &EncodingContext,
     ) -> amudai_common::Result<usize> {
-        let EncodingParameters::ALP(alp_params) = plan.parameters else {
+        let EncodingParameters::Alp(alp_params) = plan.parameters else {
             return Err(Error::invalid_arg(
                 "plan",
                 "ALP encoding parameters are missing",
             ));
         };
 
-        let mut integers = vec![];
-        integers.reserve(values.len());
+        let mut integers = Vec::with_capacity(values.len());
         let mut patch_indices = vec![];
         let mut patch_values = vec![];
 
@@ -583,7 +581,7 @@ struct ALPMetadata {
     /// Number of exceptions.
     pub exceptions_count: usize,
     /// ALP exponents.
-    pub parameters: ALPParameters,
+    pub parameters: AlpParameters,
 }
 
 impl AlignedEncMetadata for ALPMetadata {
@@ -598,7 +596,7 @@ impl AlignedEncMetadata for ALPMetadata {
             start_offset,
             integers_size: 0,
             exceptions_count: 0,
-            parameters: ALPParameters {
+            parameters: AlpParameters {
                 exponent_e: 0,
                 factor_f: 0,
             },
@@ -608,8 +606,8 @@ impl AlignedEncMetadata for ALPMetadata {
     fn finalize(self, target: &mut AlignedByteVec) {
         target.write_value_at::<u32>(self.start_offset, self.integers_size as u32);
         target.write_value_at::<u16>(self.start_offset + 4, self.exceptions_count as u16);
-        target.write_value_at::<u8>(self.start_offset + 6, self.parameters.exponent_e as u8);
-        target.write_value_at::<u8>(self.start_offset + 7, self.parameters.factor_f as u8);
+        target.write_value_at::<u8>(self.start_offset + 6, self.parameters.exponent_e);
+        target.write_value_at::<u8>(self.start_offset + 7, self.parameters.factor_f);
     }
 
     fn read_from(buffer: &[u8]) -> amudai_common::Result<(Self, &[u8])> {
@@ -621,7 +619,7 @@ impl AlignedEncMetadata for ALPMetadata {
                 start_offset: 0,
                 integers_size: buffer.read_value::<u32>(0) as usize,
                 exceptions_count: buffer.read_value::<u16>(4) as usize,
-                parameters: ALPParameters {
+                parameters: AlpParameters {
                     exponent_e: buffer.read_value::<u8>(6),
                     factor_f: buffer.read_value::<u8>(7),
                 },
@@ -634,14 +632,14 @@ impl AlignedEncMetadata for ALPMetadata {
 #[cfg(test)]
 mod tests {
     use crate::encodings::{
-        numeric::value::FloatValue, EncodingConfig, EncodingContext, EncodingKind, EncodingPlan,
-        NullMask,
+        EncodingConfig, EncodingContext, EncodingKind, EncodingPlan, NullMask,
+        numeric::value::FloatValue,
     };
     use amudai_bytes::buffer::AlignedByteVec;
 
     #[test]
     fn test_round_trip() {
-        let config = EncodingConfig::default().with_allowed_encodings(&[EncodingKind::ALP]);
+        let config = EncodingConfig::default().with_allowed_encodings(&[EncodingKind::Alp]);
         let context = EncodingContext::new();
         let data: Vec<FloatValue<f64>> = (0..10000)
             .map(|_| {
@@ -664,10 +662,10 @@ mod tests {
 
         assert_eq!(
             EncodingPlan {
-                encoding: EncodingKind::ALP,
+                encoding: EncodingKind::Alp,
                 parameters,
                 cascading_encodings: vec![Some(EncodingPlan {
-                    encoding: EncodingKind::FFOR,
+                    encoding: EncodingKind::FusedFrameOfReference,
                     parameters: Default::default(),
                     cascading_encodings: vec![]
                 })]

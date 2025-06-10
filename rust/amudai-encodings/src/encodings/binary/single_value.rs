@@ -1,10 +1,10 @@
 use super::{
-    stats::{BinaryStats, BinaryStatsCollectorFlags},
     AnalysisOutcome, BinaryValuesSequence, EncodingKind, StringEncoding,
+    stats::{BinaryStats, BinaryStatsCollectorFlags},
 };
 use crate::encodings::{
-    numeric::value::ValueWriter, EncodingConfig, EncodingContext, EncodingParameters, EncodingPlan,
-    NullMask,
+    EncodingConfig, EncodingContext, EncodingParameters, EncodingPlan, NullMask,
+    numeric::value::ValueWriter,
 };
 use amudai_bytes::buffer::AlignedByteVec;
 use amudai_format::schema::BasicTypeDescriptor;
@@ -122,8 +122,8 @@ impl StringEncoding for SingleValueEncoding {
 #[cfg(test)]
 mod tests {
     use crate::encodings::{
-        binary::BinaryValuesSequence, EncodingConfig, EncodingContext, EncodingKind, EncodingPlan,
-        NullMask,
+        EncodingConfig, EncodingContext, EncodingKind, EncodingPlan, NullMask,
+        binary::BinaryValuesSequence,
     };
     use amudai_bytes::buffer::AlignedByteVec;
     use amudai_sequence::presence::Presence;

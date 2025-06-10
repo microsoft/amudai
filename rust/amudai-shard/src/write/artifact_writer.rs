@@ -3,7 +3,7 @@
 
 use std::ops::Range;
 
-use amudai_format::defs::{common::DataRef, AMUDAI_FOOTER, AMUDAI_HEADER};
+use amudai_format::defs::{AMUDAI_FOOTER, AMUDAI_HEADER, common::DataRef};
 use amudai_io::{ReadAt, SealingWrite, StorageProfile};
 
 /// A writer designed for appending data to an artifact, such as a file, blob,

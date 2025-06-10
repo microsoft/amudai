@@ -1,13 +1,58 @@
 import json
 import random
-import uuid
 import datetime
 import sys
+
+class DeterministicUUID:
+    """A UUID-like object that provides deterministic generation using only random API."""
+    
+    def __init__(self, hex_string):
+        self.hex_string = hex_string
+        # Format as standard UUID: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+        self.formatted = f"{hex_string[:8]}-{hex_string[8:12]}-{hex_string[12:16]}-{hex_string[16:20]}-{hex_string[20:]}"
+    
+    @property
+    def hex(self):
+        return self.hex_string
+    
+    def __str__(self):
+        return self.formatted
+
+def gen_uuid():
+    """
+    Generates a UUID-like string using only the random API.
+    Returns a DeterministicUUID object that behaves like uuid.UUID.
+    All generated UUIDs are deterministic when random is initialized with a known seed.
+    """
+    # Generate 32 hex characters (128 bits)
+    hex_chars = "0123456789abcdef"
+    uuid_hex = ""
+    
+    # Generate first 12 hex chars (48 bits)
+    for _ in range(12):
+        uuid_hex += hex_chars[random.randint(0, 15)]
+    
+    # Add version 4 identifier (4 bits)
+    uuid_hex += "4"
+    
+    # Generate next 3 hex chars (12 bits)
+    for _ in range(3):
+        uuid_hex += hex_chars[random.randint(0, 15)]
+    
+    # Add variant bits (first 2 bits should be 10, so hex digit is 8, 9, a, or b)
+    variant_chars = "89ab"
+    uuid_hex += variant_chars[random.randint(0, 3)]
+    
+    # Generate remaining 15 hex chars (60 bits)
+    for _ in range(15):
+        uuid_hex += hex_chars[random.randint(0, 15)]
+    
+    return DeterministicUUID(uuid_hex)
 
 
 def generate_random_timestamp(start_days_ago=7, end_days_ago=0):
     """Generates a random ISO 8601 timestamp within a date range."""
-    now = datetime.datetime.now()
+    now = datetime.datetime(2025, 1, 10, 12, 30, 20)
     start_date = now - \
         datetime.timedelta(days=random.randint(end_days_ago, start_days_ago))
     random_seconds = random.randint(0, 24*60*60 - 1)
@@ -93,7 +138,7 @@ def generate_monitored_pair():
 
 def generate_log_entry(index: int):
     """Generates a single complex log entry."""
-    log_id = f"qeads-log-{uuid.uuid4()}"
+    log_id = f"qeads-log-{gen_uuid()}"
     timestamp = generate_random_timestamp()
     service_names = ["QuantumAnomalyDetector",
                      "EntanglementCorrelator", "DecoherenceMonitor", "QubitStabilizer"]
@@ -148,7 +193,7 @@ def generate_log_entry(index: int):
     details_text = ""
     for i, word in enumerate(detail_text_words):
         if random.randint(0, 20) == 1:
-            word = str(uuid.uuid4())
+            word = str(gen_uuid())
         details_text += word
         if i < len(detail_text_words) - 1:
             details_text += random.choice(delimiters)
@@ -163,7 +208,7 @@ def generate_log_entry(index: int):
         "logLevel": random.choice(log_levels) if anomaly_score < 0.7 else ("WARNING" if anomaly_score < 0.9 else "ERROR"),
         "message": random.choice(messages),
         "details": details_text,
-        "correlationId": f"corr-id-{uuid.uuid4().hex[:12]}",
+        "correlationId": f"corr-id-{gen_uuid().hex[:12]}",
         "environment": random.choice(environments),
         "source": {
             "component": random.choice(components),
@@ -179,7 +224,7 @@ def generate_log_entry(index: int):
             "tags": random.sample(tags_pool, k=random.randint(2, 4)),
             "monitoredPairs": [generate_monitored_pair() for _ in range(random.randint(1, 3))],
             "mitigationAttempt": {
-                "attemptId": f"mit-attempt-{uuid.uuid4().hex[:8]}",
+                "attemptId": f"mit-attempt-{gen_uuid().hex[:8]}",
                 "strategyUsed": random.choice(mitigation_strategies),
                 "parameters": {
                     "fieldStrengthTesla": round(random.uniform(0.001, 0.05), 5) if "FieldReconfiguration" in mitigation_strategies else None,
@@ -194,7 +239,7 @@ def generate_log_entry(index: int):
             } if random.random() > 0.4 else None,  # 60% chance of mitigation attempt
             "userData": {
                 "userId": random.choice(user_ids),
-                "sessionId": f"{random.choice(session_prefixes)}_{uuid.uuid4().hex[:10]}",
+                "sessionId": f"{random.choice(session_prefixes)}_{gen_uuid().hex[:10]}",
                 "permissions": random.sample(["read", "analyze", "mitigate_level_1", "mitigate_level_2", "configure_system"], k=random.randint(1, 3))
             },
             "systemPerformance": {

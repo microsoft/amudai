@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use ahash::AHashMap;
 use amudai_common::Result;
-use amudai_objectstore::{url::ObjectUrl, ObjectStore, ReferenceResolver};
+use amudai_objectstore::{ObjectStore, ReferenceResolver, url::ObjectUrl};
 
 use super::artifact_reader::ArtifactReader;
 

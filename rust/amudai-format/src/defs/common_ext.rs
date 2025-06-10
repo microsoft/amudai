@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use super::common::{any_value, AnyValue, DataRef, DataRefArray, UInt64Range};
+use super::common::{AnyValue, DataRef, DataRefArray, UInt64Range, any_value};
 
 impl AnyValue {
     pub fn as_i64(&self) -> Option<i64> {

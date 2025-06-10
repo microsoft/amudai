@@ -7,17 +7,18 @@ use amudai_blockstream::write::{
     primitive_buffer::PrimitiveBufferEncoder,
     staging_buffer::PrimitiveStagingBuffer,
 };
-use amudai_common::{error::Error, Result};
+use amudai_common::{Result, error::Error};
 use amudai_encodings::block_encoder::{
-    BlockChecksum, BlockEncodingParameters, BlockEncodingPolicy, BlockEncodingProfile,
-    BlockSizeConstraints, PresenceEncoding,
+    BlockChecksum, BlockEncodingParameters, BlockEncodingPolicy, BlockSizeConstraints,
+    PresenceEncoding,
 };
 use amudai_format::{
     defs::{schema_ext::BasicTypeDescriptor, shard},
     schema::BasicType,
 };
-use amudai_io::temp_file_store::TemporaryFileStore;
-use arrow_array::{cast::AsArray, Array};
+use arrow_array::{Array, cast::AsArray};
+
+use crate::write::field_encoder::FieldEncoderParams;
 
 use super::{EncodedField, FieldEncoderOps};
 
@@ -30,8 +31,8 @@ use super::{EncodedField, FieldEncoderOps};
 /// the flattened `i32` array. It also keeps track of the last offset to correctly calculate
 /// the absolute offsets within the stripe when appending new arrays.
 pub struct ListContainerFieldEncoder {
-    /// The basic type descriptor of the field being encoded.
-    _basic_type: BasicTypeDescriptor,
+    /// Field encoder parameters (temp store, encoding profile).
+    params: FieldEncoderParams,
     /// A staging buffer to store the encoded offsets.
     staging: PrimitiveStagingBuffer,
     /// The last offset used when encoding the previous array.
@@ -44,15 +45,12 @@ pub struct ListContainerFieldEncoder {
 }
 
 impl ListContainerFieldEncoder {
-    pub fn create(
-        basic_type: BasicTypeDescriptor,
-        temp_store: Arc<dyn TemporaryFileStore>,
-    ) -> Result<Box<dyn FieldEncoderOps>> {
+    pub fn create(params: &FieldEncoderParams) -> Result<Box<dyn FieldEncoderOps>> {
         let mut staging = PrimitiveStagingBuffer::new(arrow_schema::DataType::UInt64);
         staging.append(Arc::new(arrow_array::PrimitiveArray::from(vec![0u64])));
 
         Ok(Box::new(ListContainerFieldEncoder {
-            _basic_type: basic_type,
+            params: params.clone(),
             staging,
             last_offset: 0,
             offsets_encoder: PrimitiveBufferEncoder::new(
@@ -61,7 +59,7 @@ impl ListContainerFieldEncoder {
                         presence: PresenceEncoding::Disabled,
                         checksum: BlockChecksum::Enabled,
                     },
-                    profile: BlockEncodingProfile::Balanced,
+                    profile: params.encoding_profile,
                     size_constraints: Some(BlockSizeConstraints {
                         value_count: Self::DEFAULT_BLOCK_SIZE..Self::DEFAULT_BLOCK_SIZE + 1,
                         data_size: Self::DEFAULT_BLOCK_SIZE * 8..Self::DEFAULT_BLOCK_SIZE * 8 + 1,
@@ -72,9 +70,12 @@ impl ListContainerFieldEncoder {
                     fixed_size: 0,
                     signed: false,
                 },
-                temp_store.clone(),
+                params.temp_store.clone(),
             )?,
-            presence_encoder: BitBufferEncoder::new(temp_store),
+            presence_encoder: BitBufferEncoder::new(
+                params.temp_store.clone(),
+                params.encoding_profile,
+            ),
         }))
     }
 }
@@ -175,11 +176,19 @@ impl FieldEncoderOps for ListContainerFieldEncoder {
         buffers.push(encoded_offsets);
 
         match self.presence_encoder.finish()? {
-            EncodedBitBuffer::Constant(value, _count) => {
+            EncodedBitBuffer::Constant(value, count) => {
                 if !value {
                     // TODO: do not write out any buffers, mark the field as constant Null
                     // in the field descriptor.
-                    return Err(Error::not_implemented("constant null encoding (list)"));
+                    let mut presence = BitBufferEncoder::encode_blocks(
+                        count,
+                        value,
+                        self.params.temp_store.clone(),
+                    )?;
+                    presence.descriptor.kind = shard::BufferKind::Presence as i32;
+                    presence.descriptor.embedded_presence = false;
+                    presence.descriptor.embedded_offsets = false;
+                    buffers.push(presence);
                 }
 
                 // The field has a trivial presence in all stripe positions, no need to write
@@ -237,7 +246,7 @@ pub fn make_offsets_array(source: &dyn Array, last_offset: u64) -> Result<(Arc<d
             return Err(Error::invalid_arg(
                 "array",
                 "source array does not have offsets",
-            ))
+            ));
         }
     };
     let next_offset = offsets.last().copied().unwrap_or(last_offset);
@@ -250,10 +259,10 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_array::{
+        Array, Int32Array, PrimitiveArray,
         builder::{Int32Builder, ListBuilder, MapBuilder},
         cast::AsArray,
         types::{Int32Type, UInt64Type},
-        Array, Int32Array, PrimitiveArray,
     };
 
     use crate::write::field_encoder::list_container::make_offsets_array;

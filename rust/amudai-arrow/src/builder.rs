@@ -12,7 +12,7 @@ use amudai_arrow_compat::{
 };
 use amudai_collections::range_list::RangeList;
 use amudai_objectstore::{
-    local_store::LocalFsObjectStore, url::ObjectUrl, ObjectStore, ReferenceResolver,
+    ObjectStore, ReferenceResolver, local_store::LocalFsObjectStore, url::ObjectUrl,
 };
 use amudai_shard::read::shard::{Shard, ShardOptions};
 use arrow::error::ArrowError;
@@ -132,7 +132,7 @@ impl ArrowReaderBuilder {
         // TODO: decide whether we want to remove "internal fields" from this schema.
         self.fetch_amudai_schema()?
             .to_arrow_schema()
-            .map(|schema| Arc::new(schema))
+            .map(Arc::new)
             .to_arrow_res()
     }
 
@@ -140,14 +140,15 @@ impl ArrowReaderBuilder {
     ///
     /// # Errors
     /// Returns an error if the shard contains deleted records or if construction fails.
-    pub fn build(self) -> Result<ShardRecordBatchReader, ArrowError> {
+    pub fn build(&self) -> Result<ShardRecordBatchReader, ArrowError> {
         self.establish_shard()?;
         let projection = self
             .projection
             .clone()
             .map(Ok)
             .unwrap_or_else(|| self.fetch_arrow_schema())?;
-        let shard = self.shard.into_inner().expect("established shard");
+
+        let shard = self.shard.get().expect("established shard").clone();
 
         if shard.directory().deleted_record_count != 0 {
             return Err(ArrowError::NotYetImplemented(
@@ -155,7 +156,7 @@ impl ArrowReaderBuilder {
             ));
         }
 
-        ShardRecordBatchReader::new(shard, projection, self.batch_size, self.pos_ranges)
+        ShardRecordBatchReader::new(shard, projection, self.batch_size, self.pos_ranges.clone())
     }
 }
 

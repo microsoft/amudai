@@ -1,15 +1,16 @@
 use std::sync::{Arc, OnceLock};
 
-use amudai_common::{verify_arg, verify_data, Result};
+use amudai_common::{Result, verify_arg, verify_data};
 use amudai_format::{
     defs::{
+        AMUDAI_FOOTER_SIZE, CHECKSUM_SIZE, MESSAGE_LEN_SIZE,
         common::{self, DataRef},
-        shard, AMUDAI_FOOTER_SIZE, CHECKSUM_SIZE, MESSAGE_LEN_SIZE,
+        shard,
     },
     schema::{Schema, SchemaId, SchemaMessage},
 };
 use amudai_io::precached_read::PrecachedReadAt;
-use amudai_objectstore::{url::ObjectUrl, ObjectStore, ReferenceResolver};
+use amudai_objectstore::{ObjectStore, ReferenceResolver, url::ObjectUrl};
 
 use super::{
     anchored_element::AnchoredElement, artifact_reader::ArtifactReader, element_memo::Memo,

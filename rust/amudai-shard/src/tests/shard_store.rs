@@ -4,8 +4,8 @@ use amudai_arrow_compat::arrow_to_amudai_schema::FromArrowSchema;
 use amudai_format::{defs::common::DataRef, schema_builder::SchemaBuilder};
 use amudai_io_impl::temp_file_store;
 use amudai_objectstore::{
-    local_store::{LocalFsMode, LocalFsObjectStore},
     ObjectStore,
+    local_store::{LocalFsMode, LocalFsObjectStore},
 };
 use arrow_array::{RecordBatch, RecordBatchIterator, RecordBatchReader};
 use arrow_schema::Schema;
@@ -19,6 +19,12 @@ use crate::{
 pub struct ShardStore {
     pub object_store: Arc<dyn ObjectStore>,
     _temp_dir: TempDir,
+}
+
+impl Default for ShardStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ShardStore {
@@ -60,6 +66,7 @@ impl ShardStore {
             schema: shard_schema.into(),
             object_store: self.object_store.clone(),
             temp_store: temp_file_store::create_in_memory(32 * 1024 * 1024).unwrap(),
+            encoding_profile: Default::default(),
         })
         .unwrap();
 

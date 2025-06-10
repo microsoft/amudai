@@ -2,14 +2,14 @@
 
 use std::sync::Arc;
 
-use amudai_common::{error::Error, Result};
+use amudai_common::{Result, error::Error};
+use amudai_encodings::block_encoder::BlockEncodingProfile;
 use amudai_format::defs::common::DataRef;
 use amudai_format::defs::{self, shard};
 use amudai_format::schema::{DataType, FieldLocator, Schema, SchemaId};
 use amudai_io::temp_file_store::TemporaryFileStore;
 use amudai_keyed_vector::KeyedVector;
 use amudai_objectstore::url::ObjectUrl;
-use amudai_objectstore::ObjectStore;
 use arrow_array::RecordBatch;
 
 use super::format_elements_ext::{CompactDataRefs, DataRefExt};
@@ -124,8 +124,8 @@ impl StripeBuilder {
     ) -> Result<FieldBuilder> {
         let params = FieldBuilderParams {
             data_type: data_type.clone(),
-            object_store: params.object_store.clone(),
             temp_store: params.temp_store.clone(),
+            encoding_profile: params.encoding_profile,
         };
         FieldBuilder::new(params)
     }
@@ -248,10 +248,11 @@ impl CompactDataRefs for SealedStripe {
 pub struct StripeBuilderParams {
     /// The schema for the stripe and the containing shard.
     pub schema: Schema,
-    /// The object store to use for storing the stripe artifacts.
-    pub object_store: Arc<dyn ObjectStore>,
     /// The temp file store to use when building the stripe.
     pub temp_store: Arc<dyn TemporaryFileStore>,
+    /// Encoding profile for a stripe.
+    /// See [`ShardBuilderParams::encoding_profile`](`crate::write::shard_builder::ShardBuilderParams::encoding_profile`)
+    pub encoding_profile: BlockEncodingProfile,
 }
 
 /// Creates an iterator of `FieldLocator`s based on a count and a function that provides field names.

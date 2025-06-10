@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use amudai_common::{error::Error, Result};
+use amudai_common::{Result, error::Error};
 use amudai_encodings::{
     binary_block_encoder::BinaryBlockEncoder,
     block_encoder::{BlockEncoder, BlockEncodingPolicy, BlockSizeConstraints},
@@ -11,7 +11,7 @@ use amudai_format::{
 };
 use amudai_io::temp_file_store::TemporaryFileStore;
 
-use super::{block_stream::BlockStreamEncoder, PreparedEncodedBuffer};
+use super::{PreparedEncodedBuffer, block_stream::BlockStreamEncoder};
 
 /// Encodes a sequence of binary data (either Utf8 strings or Binary) into a single
 /// *encoded buffer* for a stripe-level field in the shard format.

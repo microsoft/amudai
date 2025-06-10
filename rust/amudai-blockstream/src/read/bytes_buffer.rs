@@ -91,11 +91,9 @@ impl BytesBufferDecoder {
         pos_ranges: impl Iterator<Item = Range<u64>> + Clone,
         prefetch: BlockReaderPrefetch,
     ) -> Result<BytesBufferReader> {
-        let block_map = self.block_stream.block_map();
-        let block_ranges = block_map.pos_ranges_to_block_ranges(pos_ranges)?;
-        let block_ranges =
-            block_map.compute_read_optimized_block_ranges(block_ranges.into_iter())?;
-        let block_reader = self.block_stream.create_reader(block_ranges, prefetch)?;
+        let block_reader = self
+            .block_stream
+            .create_reader_with_position_ranges(pos_ranges, prefetch)?;
         Ok(BytesBufferReader::new(
             self.basic_type,
             block_reader,
@@ -143,11 +141,11 @@ mod tests {
         PresenceEncoding,
     };
     use amudai_format::schema::{BasicType, BasicTypeDescriptor};
-    use arrow_array::{builder::FixedSizeBinaryBuilder, StringArray};
+    use arrow_array::{StringArray, builder::FixedSizeBinaryBuilder};
 
     use crate::{
         read::block_stream::BlockReaderPrefetch,
-        write::{bytes_buffer::BytesBufferEncoder, PreparedEncodedBuffer},
+        write::{PreparedEncodedBuffer, bytes_buffer::BytesBufferEncoder},
     };
 
     use super::BytesBufferDecoder;
@@ -275,9 +273,10 @@ mod tests {
         // Values should have the expected contents
         for i in 0..50 {
             let expected_idx = (mid_point as i32 - 25) + i as i32;
-            assert!(seq
-                .binary_at(i as usize)
-                .ends_with(format!("_{}", expected_idx).as_bytes()));
+            assert!(
+                seq.binary_at(i as usize)
+                    .ends_with(format!("_{}", expected_idx).as_bytes())
+            );
         }
     }
 
@@ -435,9 +434,10 @@ mod tests {
             // Check each value in the sequence
             for i in 0..50 {
                 let expected_idx = start + i as u64;
-                assert!(seq
-                    .binary_at(i)
-                    .ends_with(format!("_{}", expected_idx).as_bytes()));
+                assert!(
+                    seq.binary_at(i)
+                        .ends_with(format!("_{}", expected_idx).as_bytes())
+                );
             }
         }
 

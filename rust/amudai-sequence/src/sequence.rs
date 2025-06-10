@@ -37,6 +37,9 @@ pub trait Sequence: Send + Sync + 'static {
     /// whether the values are null or not.
     fn len(&self) -> usize;
 
+    /// Returns `true` if the sequence has no elements.
+    fn is_empty(&self) -> bool;
+
     /// Converts ("lowers") the representation of this sequence into a [`ValueSequence`],
     /// which is the most basic representation.
     ///

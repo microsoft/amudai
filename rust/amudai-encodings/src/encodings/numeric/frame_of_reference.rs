@@ -1,8 +1,7 @@
 use super::{
-    fastlanes,
+    AnalysisOutcome, EncodingKind, NumericEncoding, fastlanes,
     stats::{NumericStats, NumericStatsCollectorFlags},
     value::{IntegerValue, ValueReader, ValueWriter},
-    AnalysisOutcome, EncodingKind, NumericEncoding,
 };
 use crate::encodings::{
     AlignedEncMetadata, EncodingConfig, EncodingContext, EncodingParameters, EncodingPlan, NullMask,
@@ -27,7 +26,7 @@ where
     T: IntegerValue,
 {
     fn kind(&self) -> EncodingKind {
-        EncodingKind::FOR
+        EncodingKind::FrameOfReference
     }
 
     fn is_suitable(&self, config: &EncodingConfig, stats: &NumericStats<T>) -> bool {
@@ -143,7 +142,7 @@ where
         let (metadata, buffer) = FORMetadata::<T>::read_from(buffer)?;
         let mut deltas = context.buffers.get_buffer();
         context.numeric_encoders.get::<T::UnsignedType>().decode(
-            &buffer,
+            buffer,
             value_count,
             params,
             &mut deltas,
@@ -217,7 +216,7 @@ impl<T> FFOREncoding<T> {
         T: IntegerValue,
     {
         let initial_size = target.len();
-        target.write_value::<u16>(EncodingKind::FFOR as u16);
+        target.write_value::<u16>(EncodingKind::FusedFrameOfReference as u16);
 
         let mut metadata = FFORMetadata::<T>::initialize(target);
         metadata.reference = reference;
@@ -244,7 +243,7 @@ impl<T> FFOREncoding<T> {
         let mut chunks_iter = values.chunks_exact(fastlanes::BLOCK_SIZE);
         for chunk in chunks_iter.by_ref() {
             let encoded_chunk = encoded_chunks_it.next().unwrap();
-            fastlanes::FFOR::ffor_pack(width, chunk, reference, encoded_chunk);
+            fastlanes::FusedFrameOfReference::ffor_pack(width, chunk, reference, encoded_chunk);
         }
 
         let rem = chunks_iter.remainder();
@@ -254,7 +253,12 @@ impl<T> FFOREncoding<T> {
             padded_rem.resize_zeroed::<T::UnsignedType>(fastlanes::BLOCK_SIZE);
             padded_rem.typed_data_mut()[..rem.len()].copy_from_slice(rem);
             let encoded_chunk = encoded_chunks_it.next().unwrap();
-            fastlanes::FFOR::ffor_pack(width, padded_rem.typed_data(), reference, encoded_chunk);
+            fastlanes::FusedFrameOfReference::ffor_pack(
+                width,
+                padded_rem.typed_data(),
+                reference,
+                encoded_chunk,
+            );
         }
 
         metadata.finalize(target);
@@ -268,7 +272,7 @@ where
     T: IntegerValue,
 {
     fn kind(&self) -> EncodingKind {
-        EncodingKind::FFOR
+        EncodingKind::FusedFrameOfReference
     }
 
     fn is_suitable(&self, config: &EncodingConfig, stats: &NumericStats<T>) -> bool {
@@ -372,7 +376,12 @@ where
             let chunk: &[T::UnsignedType] = unsafe { std::mem::transmute(chunk) };
             let target_chunk: &mut [T::UnsignedType] =
                 unsafe { std::mem::transmute(target_chunks_it.next().unwrap()) };
-            fastlanes::FFOR::ffor_unpack(metadata.width, &chunk, reference, target_chunk);
+            fastlanes::FusedFrameOfReference::ffor_unpack(
+                metadata.width,
+                chunk,
+                reference,
+                target_chunk,
+            );
         }
 
         // Truncate to the actual values count because the last chunk may be padded.
@@ -429,13 +438,14 @@ where
 #[cfg(test)]
 mod tests {
     use crate::encodings::{
-        numeric::fastlanes, EncodingConfig, EncodingContext, EncodingKind, EncodingPlan, NullMask,
+        EncodingConfig, EncodingContext, EncodingKind, EncodingPlan, NullMask, numeric::fastlanes,
     };
     use amudai_bytes::buffer::AlignedByteVec;
 
     #[test]
     fn test_round_trip() {
-        let config = EncodingConfig::default().with_allowed_encodings(&[EncodingKind::FOR]);
+        let config =
+            EncodingConfig::default().with_allowed_encodings(&[EncodingKind::FrameOfReference]);
         let context = EncodingContext::new();
         let data: Vec<i64> = (0..65535)
             .map(|_| 10000000 + fastrand::i64(0..1000))
@@ -452,7 +462,7 @@ mod tests {
 
         assert_eq!(
             EncodingPlan {
-                encoding: EncodingKind::FOR,
+                encoding: EncodingKind::FrameOfReference,
                 parameters: Default::default(),
                 cascading_encodings: vec![Some(EncodingPlan {
                     encoding: EncodingKind::FLBitPack,
@@ -497,7 +507,7 @@ mod tests {
             (0..12345),
         ] {
             let config = EncodingConfig::default()
-                .with_allowed_encodings(&[EncodingKind::FFOR])
+                .with_allowed_encodings(&[EncodingKind::FusedFrameOfReference])
                 .with_min_compression_ratio(0.0);
             let context = EncodingContext::new();
             let data: Vec<i64> = data.map(|_| 10000000 + fastrand::i64(0..1000)).collect();
@@ -508,7 +518,7 @@ mod tests {
                 .unwrap();
             assert!(outcome.is_some());
             let outcome = outcome.unwrap();
-            assert_eq!(outcome.encoding, EncodingKind::FFOR);
+            assert_eq!(outcome.encoding, EncodingKind::FusedFrameOfReference);
             assert!(outcome.cascading_outcomes.is_empty());
             let encoded_size1 = outcome.encoded_size;
             let plan = outcome.into_plan();

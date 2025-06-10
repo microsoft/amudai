@@ -114,7 +114,7 @@ pub enum EncodedBlock<'a> {
     Pooled(BufferPoolRef<'a>),
 }
 
-impl<'a> AsRef<[u8]> for EncodedBlock<'a> {
+impl AsRef<[u8]> for EncodedBlock<'_> {
     fn as_ref(&self) -> &[u8] {
         match self {
             EncodedBlock::Owned(vec) => vec.as_ref(),
@@ -142,13 +142,13 @@ impl<'a> AsRef<[u8]> for EncodedBlock<'a> {
 /// shapes, based on the formal Amudai type of the field:
 ///
 /// - `Int{N}Array` if the Amudai's `BasicType` is a signed `i8`, `i16`, `i32`, or `i64`
-///    (where `N` is 8, 16, 32 or 64, respectively).
+///   (where `N` is 8, 16, 32 or 64, respectively).
 /// - `Int64Array` if the Amudai's `BasicType` is `DateTime` or the `KustoTimeSpan` extension type.
 /// - `UInt{N}Array` if the Amudai's `BasicType` is an unsigned `u8`, `u16`, `u32`, or `u64`.
 /// - `LargeBinaryArray` if the Amudai's `BasicType` is `Binary`, `String` or `KustoDynamic`
-///    extension type.
+///   extension type.
 /// - `FixedSizeBinaryArray` if the Amudai's `BasicType` is `FixedSizeBinary`, `Guid`, or the
-///    `KustoDecimal` extension type.
+///   `KustoDecimal` extension type.
 ///
 /// # Main Requirement for Block Encoder
 ///

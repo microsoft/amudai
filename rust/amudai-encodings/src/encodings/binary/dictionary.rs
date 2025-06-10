@@ -1,11 +1,11 @@
 use super::{
-    stats::{BinaryStats, BinaryStatsCollectorFlags},
     BinaryValuesSequence, StringEncoding,
+    stats::{BinaryStats, BinaryStatsCollectorFlags},
 };
 use crate::encodings::{
-    numeric::value::{ValueReader, ValueWriter},
     AlignedEncMetadata, AnalysisOutcome, EmptyMetadata, EncodingConfig, EncodingContext,
     EncodingKind, EncodingParameters, EncodingPlan, NullMask,
+    numeric::value::{ValueReader, ValueWriter},
 };
 use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::error::Error;
@@ -221,7 +221,7 @@ impl StringEncoding for DictionaryEncoding {
             context.numeric_encoders.get::<u32>().decode(
                 &buffer[..metadata.lengths_encoded_size],
                 metadata.unique_values_count,
-                &params,
+                params,
                 &mut lengths,
                 context,
             )?;
@@ -342,7 +342,9 @@ impl StringEncoding for SharedDictionaryEncoding {
         _stats: &BinaryStats,
         _context: &EncodingContext,
     ) -> amudai_common::Result<Option<AnalysisOutcome>> {
-        unimplemented!("SharedDictionaryEncoding::analyze is not implemented as this encoding is used explicitly.")
+        unimplemented!(
+            "SharedDictionaryEncoding::analyze is not implemented as this encoding is used explicitly."
+        )
     }
 
     fn encode(
@@ -452,7 +454,7 @@ fn generate_codes<V>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::encodings::{binary::BinaryEncodings, DictionaryParameters, EncodingParameters};
+    use crate::encodings::{DictionaryParameters, EncodingParameters, binary::BinaryEncodings};
     use std::{borrow::Cow, vec};
 
     #[test]

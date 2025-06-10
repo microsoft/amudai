@@ -1,6 +1,6 @@
 //! Compute the logical data size of an Arrow array.
 
-use arrow_array::{cast::AsArray, Array};
+use arrow_array::{Array, cast::AsArray};
 
 /// Calculates the total size in bytes of the underlying data buffer for a given binary-like array.
 ///
@@ -72,7 +72,7 @@ fn data_size_from_offsets<T: arrow_array::OffsetSizeTrait>(offsets: &[T]) -> usi
 
 #[cfg(test)]
 mod tests {
-    use arrow_array::{builder::StringViewBuilder, BinaryArray, FixedSizeBinaryArray, StringArray};
+    use arrow_array::{BinaryArray, FixedSizeBinaryArray, StringArray, builder::StringViewBuilder};
     use arrow_schema::DataType;
 
     use super::*;

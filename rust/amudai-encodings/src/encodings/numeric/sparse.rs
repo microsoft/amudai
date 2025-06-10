@@ -1,11 +1,11 @@
 use super::{
+    EncodingContext, NumericEncoding,
     stats::{NumericStats, NumericStatsCollectorFlags},
     value::{NumericValue, ValueReader, ValueWriter},
-    EncodingContext, NumericEncoding,
 };
 use crate::encodings::{
-    AlignedEncMetadata, AnalysisOutcome, EncodingConfig, EncodingKind, EncodingParameters,
-    EncodingPlan, NullMask, ALIGNMENT_BYTES,
+    ALIGNMENT_BYTES, AlignedEncMetadata, AnalysisOutcome, EncodingConfig, EncodingKind,
+    EncodingParameters, EncodingPlan, NullMask,
 };
 use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::error::Error;

@@ -14,8 +14,8 @@ pub mod presence;
 pub enum EncodingKind {
     Plain = 1,
     FLBitPack = 2,
-    FOR = 3,
-    FFOR = 4,
+    FrameOfReference = 3,
+    FusedFrameOfReference = 4,
     Delta = 5,
     RunLength = 6,
     SingleValue = 7,
@@ -23,13 +23,13 @@ pub enum EncodingKind {
     TruncateU16 = 9,
     TruncateU32 = 10,
     TruncateU64 = 11,
-    ALP = 12,
-    ALPRD = 13,
+    Alp = 12,
+    AlpRd = 13,
     Dictionary = 14,
     SharedDictionary = 15,
-    FSST = 16,
-    ZSTD = 17,
-    LZ4 = 18,
+    Fsst = 16,
+    Zstd = 17,
+    Lz4 = 18,
     ZigZag = 19,
     Sparse = 20,
 }
@@ -41,8 +41,8 @@ impl TryFrom<u16> for EncodingKind {
         match value {
             1 => Ok(EncodingKind::Plain),
             2 => Ok(EncodingKind::FLBitPack),
-            3 => Ok(EncodingKind::FOR),
-            4 => Ok(EncodingKind::FFOR),
+            3 => Ok(EncodingKind::FrameOfReference),
+            4 => Ok(EncodingKind::FusedFrameOfReference),
             5 => Ok(EncodingKind::Delta),
             6 => Ok(EncodingKind::RunLength),
             7 => Ok(EncodingKind::SingleValue),
@@ -50,13 +50,13 @@ impl TryFrom<u16> for EncodingKind {
             9 => Ok(EncodingKind::TruncateU16),
             10 => Ok(EncodingKind::TruncateU32),
             11 => Ok(EncodingKind::TruncateU64),
-            12 => Ok(EncodingKind::ALP),
-            13 => Ok(EncodingKind::ALPRD),
+            12 => Ok(EncodingKind::Alp),
+            13 => Ok(EncodingKind::AlpRd),
             14 => Ok(EncodingKind::Dictionary),
             15 => Ok(EncodingKind::SharedDictionary),
-            16 => Ok(EncodingKind::FSST),
-            17 => Ok(EncodingKind::ZSTD),
-            18 => Ok(EncodingKind::LZ4),
+            16 => Ok(EncodingKind::Fsst),
+            17 => Ok(EncodingKind::Zstd),
+            18 => Ok(EncodingKind::Lz4),
             19 => Ok(EncodingKind::ZigZag),
             20 => Ok(EncodingKind::Sparse),
             _ => Err(()),
@@ -123,8 +123,8 @@ pub struct EncodingConfig {
 impl EncodingConfig {
     const DEFAULT_CASCADING_LEVEL_ENCODINGS: &'static [EncodingKind] = &[
         EncodingKind::Delta,
-        EncodingKind::FOR,
-        EncodingKind::FFOR,
+        EncodingKind::FrameOfReference,
+        EncodingKind::FusedFrameOfReference,
         EncodingKind::FLBitPack,
         EncodingKind::RunLength,
         EncodingKind::SingleValue,
@@ -179,7 +179,7 @@ impl EncodingConfig {
         if !self
             .allowed_encodings
             .as_ref()
-            .map_or(true, |encodings| encodings.contains(&encoding))
+            .is_none_or(|encodings| encodings.contains(&encoding))
         {
             return false;
         }
@@ -235,24 +235,24 @@ pub struct EncodingPlan {
 pub enum EncodingParameters {
     #[default]
     None,
-    ALP(ALPParameters),
-    ALPRD(ALPRDParameters),
+    Alp(AlpParameters),
+    AlpRd(AlpRdParameters),
     Dictionary(DictionaryParameters),
-    ZSTD(ZSTDParameters),
-    LZ4(LZ4Parameters),
+    Zstd(ZstdParameters),
+    Lz4(Lz4Parameters),
 }
 
 /// ALP encoding parameters to be reused when encoding block of values
 /// that have the same origin and, potentially, have the same distribution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ALPParameters {
+pub struct AlpParameters {
     pub exponent_e: u8,
     pub factor_f: u8,
 }
 
 /// Reusable parameters for the ALP-RD encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ALPRDParameters {
+pub struct AlpRdParameters {
     /// The bit width of the right part of the floating-point value.
     pub right_bit_width: u8,
     /// The dictionary of the left parts.
@@ -269,7 +269,7 @@ pub struct DictionaryParameters {
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
-pub enum ZSTDCompressionLevel {
+pub enum ZstdCompressionLevel {
     #[default]
     Default = 0,
     MinimalFastest = 1,
@@ -277,20 +277,20 @@ pub enum ZSTDCompressionLevel {
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ZSTDParameters {
-    pub level: ZSTDCompressionLevel,
+pub struct ZstdParameters {
+    pub level: ZstdCompressionLevel,
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LZ4CompressionMode {
+pub enum Lz4CompressionMode {
     #[default]
     Fast,
     HighCompression,
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LZ4Parameters {
-    pub mode: LZ4CompressionMode,
+pub struct Lz4Parameters {
+    pub mode: Lz4CompressionMode,
 }
 
 pub struct EncodingContext {
@@ -327,7 +327,7 @@ pub enum NullMask<'a> {
     Arrow(Cow<'a, arrow_buffer::NullBuffer>),
 }
 
-impl<'a> NullMask<'a> {
+impl NullMask<'_> {
     /// Returns the number of null values in the mask.
     #[inline]
     fn null_count(&self) -> usize {
@@ -356,7 +356,7 @@ impl<'a> From<Option<&'a arrow_buffer::NullBuffer>> for NullMask<'a> {
     }
 }
 
-impl<'a> From<Option<arrow_buffer::NullBuffer>> for NullMask<'a> {
+impl From<Option<arrow_buffer::NullBuffer>> for NullMask<'_> {
     fn from(buffer: Option<arrow_buffer::NullBuffer>) -> Self {
         match buffer {
             Some(buffer) => NullMask::Arrow(Cow::Owned(buffer)),
@@ -365,9 +365,9 @@ impl<'a> From<Option<arrow_buffer::NullBuffer>> for NullMask<'a> {
     }
 }
 
-impl<'a> Into<Option<arrow_buffer::NullBuffer>> for NullMask<'a> {
-    fn into(self) -> Option<arrow_buffer::NullBuffer> {
-        match self {
+impl From<NullMask<'_>> for Option<arrow_buffer::NullBuffer> {
+    fn from(val: NullMask<'_>) -> Self {
+        match val {
             NullMask::None => None,
             NullMask::Arrow(buffer) => Some(buffer.into_owned()),
         }

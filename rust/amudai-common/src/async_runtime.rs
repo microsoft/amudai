@@ -2,7 +2,7 @@
 //! **Note**: at the moment, these are simple functions with baked-in tokio-based
 //! implementation.
 
-pub use impls::{block_on, spawn, spawn_blocking, JoinHandle};
+pub use impls::{JoinHandle, block_on, spawn, spawn_blocking};
 
 #[cfg(feature = "tokio")]
 mod impls {

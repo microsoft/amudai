@@ -3,10 +3,11 @@
 use std::sync::Arc;
 
 use amudai_blockstream::write::bit_buffer::{BitBufferEncoder, EncodedBitBuffer};
-use amudai_common::{error::Error, Result};
-use amudai_format::defs::{schema_ext::BasicTypeDescriptor, shard};
-use amudai_io::temp_file_store::TemporaryFileStore;
-use arrow_array::{cast::AsArray, Array};
+use amudai_common::{Result, error::Error};
+use amudai_format::defs::shard;
+use arrow_array::{Array, cast::AsArray};
+
+use crate::write::field_encoder::FieldEncoderParams;
 
 use super::{EncodedField, FieldEncoderOps};
 
@@ -17,18 +18,18 @@ use super::{EncodedField, FieldEncoderOps};
 /// The "values" encoded by this encoder are validity bits, which indicate
 /// presence or non-null status.
 pub struct UnitContainerFieldEncoder {
-    _basic_type: BasicTypeDescriptor,
+    params: FieldEncoderParams,
     presence_encoder: BitBufferEncoder,
 }
 
 impl UnitContainerFieldEncoder {
-    pub fn create(
-        basic_type: BasicTypeDescriptor,
-        temp_store: Arc<dyn TemporaryFileStore>,
-    ) -> Result<Box<dyn FieldEncoderOps>> {
+    pub fn create(params: &FieldEncoderParams) -> Result<Box<dyn FieldEncoderOps>> {
         Ok(Box::new(UnitContainerFieldEncoder {
-            _basic_type: basic_type,
-            presence_encoder: BitBufferEncoder::new(temp_store),
+            params: params.clone(),
+            presence_encoder: BitBufferEncoder::new(
+                params.temp_store.clone(),
+                params.encoding_profile,
+            ),
         }))
     }
 }
@@ -62,11 +63,19 @@ impl FieldEncoderOps for UnitContainerFieldEncoder {
     fn finish(self: Box<Self>) -> Result<EncodedField> {
         let mut buffers = Vec::new();
         match self.presence_encoder.finish()? {
-            EncodedBitBuffer::Constant(value, _count) => {
+            EncodedBitBuffer::Constant(value, count) => {
                 if !value {
                     // TODO: do not write out any buffers, mark the field as constant Null
                     // in the field descriptor.
-                    return Err(Error::not_implemented("constant null encoding (struct)"));
+                    let mut presence = BitBufferEncoder::encode_blocks(
+                        count,
+                        value,
+                        self.params.temp_store.clone(),
+                    )?;
+                    presence.descriptor.kind = shard::BufferKind::Presence as i32;
+                    presence.descriptor.embedded_presence = false;
+                    presence.descriptor.embedded_offsets = false;
+                    buffers.push(presence);
                 }
 
                 // The field has a trivial presence in all stripe positions, no need to write

@@ -53,17 +53,14 @@ pub fn get_cmd() -> anyhow::Result<Command> {
         command.arg("-c");
         command.arg(version_check_script);
 
-        match command.output() {
-            Ok(output) => {
-                if output.status.success() {
-                    let stdout_str = String::from_utf8_lossy(&output.stdout);
-                    let version_major_str = stdout_str.trim();
-                    if version_major_str == "3" {
-                        return Ok(ret_cmd);
-                    }
+        if let Ok(output) = command.output() {
+            if output.status.success() {
+                let stdout_str = String::from_utf8_lossy(&output.stdout);
+                let version_major_str = stdout_str.trim();
+                if version_major_str == "3" {
+                    return Ok(ret_cmd);
                 }
             }
-            Err(_) => (),
         }
     }
 

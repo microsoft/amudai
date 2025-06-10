@@ -5,11 +5,16 @@ use amudai_blockstream::write::{
 };
 use amudai_common::Result;
 use amudai_encodings::{
-    binary_block_encoder::BinaryBlockEncoder, block_encoder::BlockSizeConstraints,
+    binary_block_encoder::BinaryBlockEncoder,
+    block_encoder::{
+        BlockChecksum, BlockEncodingParameters, BlockEncodingPolicy, BlockSizeConstraints,
+        PresenceEncoding,
+    },
 };
 use amudai_format::{defs::schema_ext::BasicTypeDescriptor, schema::BasicType};
-use amudai_io::temp_file_store::TemporaryFileStore;
 use arrow_array::Array;
+
+use crate::write::field_encoder::FieldEncoderParams;
 
 use super::{EncodedField, FieldEncoderOps};
 
@@ -19,8 +24,6 @@ use super::{EncodedField, FieldEncoderOps};
 /// Uses a staging buffer to accumulate data before encoding it in optimally
 /// sized blocks.
 pub struct BytesFieldEncoder {
-    /// The descriptor of the basic type being encoded
-    _basic_type: BasicTypeDescriptor,
     /// Buffer for accumulating data before encoding
     staging: BytesStagingBuffer,
     /// The normalized Arrow data type used for processing
@@ -32,27 +35,29 @@ pub struct BytesFieldEncoder {
 impl BytesFieldEncoder {
     /// Creates a new `BytesFieldEncoder` for the specified basic type.
     ///
-    /// # Arguments
-    /// * `basic_type` - The basic type descriptor (must be Binary, FixedSizeBinary,
-    ///   String, or Guid)
-    /// * `temp_store` - Temporary file storage for managing intermediate artifacts
-    ///
     /// # Returns
     /// A boxed `FieldEncoderOps` trait object
-    pub fn create(
-        basic_type: BasicTypeDescriptor,
-        temp_store: Arc<dyn TemporaryFileStore>,
-    ) -> Result<Box<dyn FieldEncoderOps>> {
+    pub fn create(params: &FieldEncoderParams) -> Result<Box<dyn FieldEncoderOps>> {
         assert!(matches!(
-            basic_type.basic_type,
+            params.basic_type.basic_type,
             BasicType::Binary | BasicType::FixedSizeBinary | BasicType::String | BasicType::Guid
         ));
-        let normalized_arrow_type = Self::get_normalized_arrow_type(basic_type);
+        let normalized_arrow_type = Self::get_normalized_arrow_type(params.basic_type);
         Ok(Box::new(BytesFieldEncoder {
-            _basic_type: basic_type,
             staging: BytesStagingBuffer::new(normalized_arrow_type.clone()),
             normalized_arrow_type,
-            buffer_encoder: BytesBufferEncoder::new(Default::default(), basic_type, temp_store)?,
+            buffer_encoder: BytesBufferEncoder::new(
+                BlockEncodingPolicy {
+                    parameters: BlockEncodingParameters {
+                        checksum: BlockChecksum::Enabled,
+                        presence: PresenceEncoding::Enabled,
+                    },
+                    profile: params.encoding_profile,
+                    ..Default::default()
+                },
+                params.basic_type,
+                params.temp_store.clone(),
+            )?,
         }))
     }
 }

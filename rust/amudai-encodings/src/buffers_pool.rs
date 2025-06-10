@@ -19,7 +19,7 @@ impl BuffersPool {
 
     pub fn get_buffer(&self) -> BufferPoolRef<'_> {
         let mut buffers = self.buffers.lock().unwrap();
-        let buffer = buffers.pop().unwrap_or_else(|| AlignedByteVec::new());
+        let buffer = buffers.pop().unwrap_or_default();
         BufferPoolRef { pool: self, buffer }
     }
 

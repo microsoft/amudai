@@ -158,7 +158,7 @@ impl BitBufferReader {
         let len = (bit_range.end - bit_range.start) as usize;
         match self {
             BitBufferReader::Blocks(reader) => {
-                let byte_range = bit_range.start / 8..(bit_range.end + 7) / 8;
+                let byte_range = bit_range.start / 8..bit_range.end.div_ceil(8);
                 let offset = (bit_range.start - byte_range.start * 8) as usize;
                 let bytes = reader.read(byte_range)?.values.into_inner();
                 let buffer = amudai_arrow_compat::buffers::aligned_vec_to_buf(bytes);
@@ -173,6 +173,15 @@ impl BitBufferReader {
             }
         }
     }
+
+    /// Attempts to retrieve the constant boolean value if this reader
+    /// represents constant data.
+    pub fn try_get_constant(&self) -> Option<bool> {
+        match self {
+            BitBufferReader::Blocks(_) => None,
+            BitBufferReader::Constant(value) => Some(*value),
+        }
+    }
 }
 
 /// Converts an iterator of bit ranges (`Range<u64>`) into an iterator of byte ranges
@@ -181,7 +190,7 @@ impl BitBufferReader {
 /// # Arguments
 ///
 /// * `bit_ranges` - An iterator over ranges of bit positions (bit offsets) to be accessed.
-/// Each range specifies a half-open interval `[start, end)` of bits.
+///   Each range specifies a half-open interval `[start, end)` of bits.
 ///
 /// # Returns
 ///
@@ -192,7 +201,7 @@ fn bit_ranges_to_byte_ranges(
     bit_ranges: impl Iterator<Item = Range<u64>> + Clone,
 ) -> impl Iterator<Item = Range<u64>> + Clone {
     bit_ranges
-        .map(|r| r.start / 8..(r.end + 7) / 8)
+        .map(|r| r.start / 8..r.end.div_ceil(8))
         .coalesce(|a, b| {
             if a.end >= b.start {
                 Ok(a.start..b.end)
@@ -214,18 +223,18 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
 
     use crate::write::{
-        bit_buffer::{BitBufferEncoder, EncodedBitBuffer},
         PreparedEncodedBuffer,
+        bit_buffer::{BitBufferEncoder, EncodedBitBuffer},
     };
 
     use super::{
-        bit_ranges_to_byte_ranges, BitBufferDecoder, BitBufferReader, BlockReaderPrefetch,
+        BitBufferDecoder, BitBufferReader, BlockReaderPrefetch, bit_ranges_to_byte_ranges,
     };
 
     fn create_bit_buffer_encoder() -> BitBufferEncoder {
         let temp_store =
             amudai_io_impl::temp_file_store::create_in_memory(8 * 1024 * 1024).unwrap();
-        BitBufferEncoder::new(temp_store)
+        BitBufferEncoder::new(temp_store, Default::default())
     }
 
     fn create_test_buffer_from_pattern(pattern: &[bool]) -> Result<PreparedEncodedBuffer> {

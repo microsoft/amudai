@@ -6,12 +6,12 @@ use std::{
 
 use amudai_common::error::Error;
 use amudai_io::{
-    file::{FileReader, FileWriter},
     ReadAt, SealingWrite,
+    file::{FileReader, FileWriter},
 };
 use url::Url;
 
-use crate::{url::ObjectUrl, ObjectStore};
+use crate::{ObjectStore, url::ObjectUrl};
 
 /// A `LocalFsObjectStore` implementation that manages objects on the local filesystem,
 /// confined to a specified local path.
@@ -202,8 +202,8 @@ mod tests {
     use url::Url;
 
     use crate::{
-        url::{ObjectUrl, RelativePath},
         ObjectStore,
+        url::{ObjectUrl, RelativePath},
     };
 
     use super::{LocalFsMode, LocalFsObjectStore};

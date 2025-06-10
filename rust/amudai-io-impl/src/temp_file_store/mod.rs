@@ -2,7 +2,7 @@
 
 use std::{path::Path, sync::Arc};
 
-use amudai_io::temp_file_store::{null_temp_store::NullTempFileStore, TemporaryFileStore};
+use amudai_io::temp_file_store::{TemporaryFileStore, null_temp_store::NullTempFileStore};
 
 pub mod file;
 pub mod memory;

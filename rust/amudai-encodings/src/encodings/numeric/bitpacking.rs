@@ -1,8 +1,7 @@
 use super::{
-    fastlanes,
+    NumericEncoding, fastlanes,
     stats::{NumericStats, NumericStatsCollectorFlags},
     value::{UIntegerValue, ValueReader, ValueWriter},
-    NumericEncoding,
 };
 use crate::encodings::{
     AlignedEncMetadata, AnalysisOutcome, EncodingConfig, EncodingContext, EncodingKind,
@@ -165,7 +164,7 @@ where
         for chunk in buffer.chunks_exact(encoded_chunk_size) {
             let chunk: &[T] = unsafe { std::mem::transmute(chunk) };
             let target_chunk = target_chunks_it.next().unwrap();
-            fastlanes::BitPacking::unpack(metadata.width, &chunk, target_chunk);
+            fastlanes::BitPacking::unpack(metadata.width, chunk, target_chunk);
         }
 
         // Truncate to the actual values count because the last chunk may be padded.
@@ -215,7 +214,7 @@ impl AlignedEncMetadata for BitPackingMetadata {
 #[cfg(test)]
 mod tests {
     use crate::encodings::{
-        numeric::fastlanes, EncodingConfig, EncodingContext, EncodingKind, NullMask,
+        EncodingConfig, EncodingContext, EncodingKind, NullMask, numeric::fastlanes,
     };
     use amudai_bytes::buffer::AlignedByteVec;
 

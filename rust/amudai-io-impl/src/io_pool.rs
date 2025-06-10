@@ -3,8 +3,8 @@
 use std::{
     ops::Range,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, OnceLock,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 

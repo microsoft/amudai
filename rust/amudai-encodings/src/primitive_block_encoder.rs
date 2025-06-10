@@ -4,10 +4,9 @@ use crate::{
         BlockSizeConstraints, EncodedBlock, PresenceEncoding,
     },
     encodings::{
-        self,
+        self, ALIGNMENT_BYTES, AnalysisOutcome, EncodingConfig, EncodingContext, EncodingKind,
+        EncodingParameters, EncodingPlan, NullMask, ZstdCompressionLevel, ZstdParameters,
         numeric::value::{FloatValue, ValueReader, ValueWriter},
-        AnalysisOutcome, EncodingConfig, EncodingContext, EncodingKind, EncodingParameters,
-        EncodingPlan, NullMask, ZSTDCompressionLevel, ZSTDParameters, ALIGNMENT_BYTES,
     },
 };
 use amudai_bytes::buffer::AlignedByteVec;
@@ -56,10 +55,10 @@ impl PrimitiveBlockEncoder {
             BlockEncodingProfile::MinimalCompression => {
                 config = config
                     .with_max_cascading_levels(1)
-                    .with_disallowed_encodings(&[EncodingKind::LZ4, EncodingKind::ZSTD]);
+                    .with_disallowed_encodings(&[EncodingKind::Lz4, EncodingKind::Zstd]);
             }
             BlockEncodingProfile::Balanced => {
-                config = config.with_disallowed_encodings(&[EncodingKind::ZSTD])
+                config = config.with_disallowed_encodings(&[EncodingKind::Zstd])
             }
             BlockEncodingProfile::HighCompression => {}
             BlockEncodingProfile::MinimalSize => {
@@ -378,35 +377,35 @@ impl BlockEncoder for PrimitiveBlockEncoder {
                     cascading_encodings: vec![],
                 },
                 BlockEncodingProfile::MinimalCompression => EncodingPlan {
-                    encoding: EncodingKind::ZSTD,
-                    parameters: EncodingParameters::ZSTD(ZSTDParameters {
-                        level: ZSTDCompressionLevel::MinimalFastest,
+                    encoding: EncodingKind::Zstd,
+                    parameters: EncodingParameters::Zstd(ZstdParameters {
+                        level: ZstdCompressionLevel::MinimalFastest,
                     }),
                     cascading_encodings: vec![Some(EncodingPlan {
-                        encoding: EncodingKind::FFOR,
+                        encoding: EncodingKind::FusedFrameOfReference,
                         parameters: Default::default(),
                         cascading_encodings: vec![],
                     })],
                 },
                 BlockEncodingProfile::Balanced => EncodingPlan {
-                    encoding: EncodingKind::ZSTD,
-                    parameters: EncodingParameters::ZSTD(ZSTDParameters {
-                        level: ZSTDCompressionLevel::Default,
+                    encoding: EncodingKind::Zstd,
+                    parameters: EncodingParameters::Zstd(ZstdParameters {
+                        level: ZstdCompressionLevel::Default,
                     }),
                     cascading_encodings: vec![Some(EncodingPlan {
-                        encoding: EncodingKind::FFOR,
+                        encoding: EncodingKind::FusedFrameOfReference,
                         parameters: Default::default(),
                         cascading_encodings: vec![],
                     })],
                 },
                 BlockEncodingProfile::HighCompression | BlockEncodingProfile::MinimalSize => {
                     EncodingPlan {
-                        encoding: EncodingKind::ZSTD,
-                        parameters: EncodingParameters::ZSTD(ZSTDParameters {
-                            level: ZSTDCompressionLevel::MaximalSlowest,
+                        encoding: EncodingKind::Zstd,
+                        parameters: EncodingParameters::Zstd(ZstdParameters {
+                            level: ZstdCompressionLevel::MaximalSlowest,
                         }),
                         cascading_encodings: vec![Some(EncodingPlan {
-                            encoding: EncodingKind::FFOR,
+                            encoding: EncodingKind::FusedFrameOfReference,
                             parameters: Default::default(),
                             cascading_encodings: vec![],
                         })],

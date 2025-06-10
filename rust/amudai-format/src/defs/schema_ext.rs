@@ -86,6 +86,19 @@ impl BasicType {
             BasicType::Binary | BasicType::String | BasicType::List | BasicType::Map
         )
     }
+
+    /// Returns `true` if this is one of the integer types (i8, i16, i32, or i64).
+    pub fn is_integer(&self) -> bool {
+        matches!(
+            self,
+            BasicType::Int8 | BasicType::Int16 | BasicType::Int32 | BasicType::Int64
+        )
+    }
+
+    /// Returns `true` if this is one of the integer-valued types (integer or DateTime).
+    pub fn is_integer_or_datetime(&self) -> bool {
+        self.is_integer() || *self == BasicType::DateTime
+    }
 }
 
 /// Describes a basic data type, including its size and signedness.
@@ -243,7 +256,9 @@ impl<RefType: details::TableRefType> OwnedTableRef<RefType> {
     pub unsafe fn wrap(buf: Bytes, inner: RefType::T<'_>) -> OwnedTableRef<RefType> {
         OwnedTableRef(
             #[allow(clippy::unnecessary_cast)]
-            (*(&inner as *const RefType::T<'_> as *const RefType::T<'static>)).clone(),
+            unsafe {
+                (*(&inner as *const RefType::T<'_> as *const RefType::T<'static>)).clone()
+            },
             Self::clone_buf(&buf),
         )
     }

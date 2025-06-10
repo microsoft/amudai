@@ -2,7 +2,7 @@ use crate::{
     binary_block_encoder::BinaryBlockEncoderMetadata,
     block_decoder::BlockDecoder,
     block_encoder::BlockEncodingParameters,
-    encodings::{self, EncodingContext, ALIGNMENT_BYTES},
+    encodings::{self, ALIGNMENT_BYTES, EncodingContext},
 };
 use amudai_format::schema::BasicTypeDescriptor;
 use amudai_sequence::sequence::ValueSequence;
@@ -30,7 +30,6 @@ impl BinaryBlockDecoder {
 
 impl BlockDecoder for BinaryBlockDecoder {
     fn decode(&self, encoded: &[u8], value_count: usize) -> amudai_common::Result<ValueSequence> {
-        let encoded = encoded.as_ref();
         let metadata = BinaryBlockEncoderMetadata::read_from(encoded)?;
 
         let aligned_presence_size = metadata.presence_size.next_multiple_of(ALIGNMENT_BYTES);
@@ -49,17 +48,13 @@ impl BlockDecoder for BinaryBlockDecoder {
 
         let encoded_data =
             &encoded[aligned_presence_size..aligned_presence_size + metadata.values_size];
-        Ok(self
-            .context
-            .binary_encoders
-            .decode(
-                encoded_data,
-                presence,
-                self.basic_type,
-                &Default::default(),
-                &self.context,
-            )?
-            .into())
+        self.context.binary_encoders.decode(
+            encoded_data,
+            presence,
+            self.basic_type,
+            &Default::default(),
+            &self.context,
+        )
     }
 }
 

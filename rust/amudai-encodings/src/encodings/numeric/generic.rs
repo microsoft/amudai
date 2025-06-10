@@ -1,11 +1,11 @@
 use super::{
+    AnalysisOutcome, EncodingContext, EncodingKind, NumericEncoding,
     stats::{NumericStats, NumericStatsCollectorFlags},
     value::{AsByteSlice, NumericValue, ValueReader, ValueWriter},
-    AnalysisOutcome, EncodingContext, EncodingKind, NumericEncoding,
 };
 use crate::encodings::{
     AlignedEncMetadata, EmptyMetadata, EncodingConfig, EncodingParameters, EncodingPlan,
-    LZ4CompressionMode, LZ4Parameters, NullMask, ZSTDParameters,
+    Lz4CompressionMode, Lz4Parameters, NullMask, ZstdParameters,
 };
 use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::error::Error;
@@ -119,7 +119,7 @@ pub struct ZSTDEncoder;
 
 impl GenericEncoder for ZSTDEncoder {
     fn encoding_kind(&self) -> EncodingKind {
-        EncodingKind::ZSTD
+        EncodingKind::Zstd
     }
 
     fn encode(
@@ -129,8 +129,8 @@ impl GenericEncoder for ZSTDEncoder {
         parameters: &EncodingParameters,
     ) -> amudai_common::Result<()> {
         let level = match parameters {
-            EncodingParameters::ZSTD(parameters) => parameters.level,
-            _ => ZSTDParameters::default().level,
+            EncodingParameters::Zstd(parameters) => parameters.level,
+            _ => ZstdParameters::default().level,
         };
         let mut zstd = zstd::stream::write::Encoder::new(target, level as i32)
             .map_err(|e| Error::io("Failed to create ZSTD encoder", e))?;
@@ -152,7 +152,7 @@ pub struct LZ4Encoder;
 
 impl GenericEncoder for LZ4Encoder {
     fn encoding_kind(&self) -> EncodingKind {
-        EncodingKind::LZ4
+        EncodingKind::Lz4
     }
 
     fn encode(
@@ -162,12 +162,12 @@ impl GenericEncoder for LZ4Encoder {
         parameters: &EncodingParameters,
     ) -> amudai_common::Result<()> {
         let compression_mode = match parameters {
-            EncodingParameters::LZ4(parameters) => parameters.mode,
-            _ => LZ4Parameters::default().mode,
+            EncodingParameters::Lz4(parameters) => parameters.mode,
+            _ => Lz4Parameters::default().mode,
         };
         let compression_mode = match compression_mode {
-            LZ4CompressionMode::Fast => lz4::block::CompressionMode::FAST(1),
-            LZ4CompressionMode::HighCompression => lz4::block::CompressionMode::HIGHCOMPRESSION(1),
+            Lz4CompressionMode::Fast => lz4::block::CompressionMode::FAST(1),
+            Lz4CompressionMode::HighCompression => lz4::block::CompressionMode::HIGHCOMPRESSION(1),
         };
 
         // Write uncompressed size that's required for allocating target buffer on decoding.
@@ -220,13 +220,13 @@ where
 #[cfg(test)]
 mod tests {
     use crate::encodings::{
-        numeric::EncodingContext, EncodingConfig, EncodingKind, EncodingPlan, NullMask,
+        EncodingConfig, EncodingKind, EncodingPlan, NullMask, numeric::EncodingContext,
     };
     use amudai_bytes::buffer::AlignedByteVec;
 
     #[test]
     fn test_round_trip() {
-        for encoding in [EncodingKind::ZSTD, EncodingKind::LZ4] {
+        for encoding in [EncodingKind::Zstd, EncodingKind::Lz4] {
             let context = EncodingContext::new();
             let config = EncodingConfig::default().with_allowed_encodings(&[encoding]);
             let data: Vec<i64> = (0..65536).map(|_| fastrand::i64(-1000..1000)).collect();

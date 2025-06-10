@@ -3,7 +3,7 @@
 use std::{ops::Range, sync::Arc};
 
 use amudai_bytes::Bytes;
-use amudai_common::{error::ErrorKind, verify_data, Result};
+use amudai_common::{Result, error::ErrorKind, verify_data};
 use amudai_io::{ReadAt, StorageProfile};
 use amudai_objectstore::url::ObjectUrl;
 

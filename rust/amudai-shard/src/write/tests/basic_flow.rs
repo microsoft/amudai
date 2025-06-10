@@ -4,13 +4,12 @@ use amudai_arrow_compat::arrow_to_amudai_schema::FromArrowSchema;
 use amudai_format::{schema::BasicType, schema_builder::SchemaBuilder};
 use amudai_io_impl::temp_file_store;
 use amudai_objectstore::null_store::NullObjectStore;
-use amudai_sequence::presence::Presence;
-use arrow_array::{builder::Int8Builder, RecordBatchIterator};
+use arrow_array::{RecordBatchIterator, builder::Int8Builder};
 use arrow_schema::{DataType, Schema};
 
 use crate::{
     tests::{
-        data_generator::{self, create_nested_test_schema, make_field, FieldKind, FieldProperties},
+        data_generator::{self, FieldKind, FieldProperties, create_nested_test_schema, make_field},
         shard_store::ShardStore,
     },
     write::shard_builder::{ShardBuilder, ShardBuilderParams},
@@ -26,6 +25,7 @@ fn test_basic_shard_builder_flow() {
         schema: shard_schema.into(),
         object_store: Arc::new(NullObjectStore),
         temp_store: temp_file_store::create_in_memory(32 * 1024 * 1024).unwrap(),
+        encoding_profile: Default::default(),
     })
     .unwrap();
 
@@ -54,6 +54,7 @@ fn test_nested_schema_shard_builder_flow() {
         schema: shard_schema.into(),
         object_store: Arc::new(NullObjectStore),
         temp_store: temp_file_store::create_in_memory(32 * 1024 * 1024).unwrap(),
+        encoding_profile: Default::default(),
     })
     .unwrap();
 
@@ -160,7 +161,7 @@ fn test_struct_encoding() {
         .unwrap();
     let simple_seq = simple_reader.read(0..5).unwrap();
     assert_eq!(simple_seq.type_desc.basic_type, BasicType::Struct);
-    assert_eq!(simple_seq.presence, Presence::Trivial(5));
+    assert_eq!(simple_seq.presence.count_non_nulls(), 5);
     assert_eq!(simple_seq.values.bytes_len(), 0);
     assert!(simple_seq.offsets.is_none());
 
@@ -171,7 +172,7 @@ fn test_struct_encoding() {
         .unwrap();
     let nested_seq = nested_reader.read(0..5).unwrap();
     assert_eq!(nested_seq.type_desc.basic_type, BasicType::Struct);
-    assert_eq!(nested_seq.presence, Presence::Trivial(5));
+    assert_eq!(nested_seq.presence.count_non_nulls(), 5);
     assert_eq!(nested_seq.values.bytes_len(), 0);
     assert!(nested_seq.offsets.is_none());
 }

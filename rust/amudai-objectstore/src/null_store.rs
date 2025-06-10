@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use amudai_io::{ReadAt, SealingWrite, StorageProfile};
 
-use crate::{url::ObjectUrl, ObjectStore};
+use crate::{ObjectStore, url::ObjectUrl};
 
 /// A null implementation of the `ObjectStore` trait.
 ///

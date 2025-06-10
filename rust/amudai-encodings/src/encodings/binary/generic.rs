@@ -1,15 +1,15 @@
 use super::{
+    AnalysisOutcome, BinaryValuesSequence, EncodingKind, StringEncoding,
     offsets::{analyze_offsets, decode_offsets_and_make_sequence, encode_offsets},
     stats::{BinaryStats, BinaryStatsCollectorFlags},
-    AnalysisOutcome, BinaryValuesSequence, EncodingKind, StringEncoding,
 };
 use crate::encodings::{
+    ALIGNMENT_BYTES, AlignedEncMetadata, EncodingConfig, EncodingContext, EncodingParameters,
+    EncodingPlan, NullMask,
     numeric::{
         generic::GenericEncoder,
         value::{ValueReader, ValueWriter},
     },
-    AlignedEncMetadata, EncodingConfig, EncodingContext, EncodingParameters, EncodingPlan,
-    NullMask, ALIGNMENT_BYTES,
 };
 use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::error::Error;
@@ -162,7 +162,7 @@ impl AlignedEncMetadata for GenericMetadata {
 
     fn finalize(self, target: &mut AlignedByteVec) {
         target.write_value_at::<u32>(self.start_offset, self.values_size as u32);
-        target.write_value_at::<u8>(self.start_offset + 4, self.offset_width as u8);
+        target.write_value_at::<u8>(self.start_offset + 4, self.offset_width);
         target.write_value_at::<u8>(
             self.start_offset + 5,
             if self.offsets_cascading { 1 } else { 0 },
@@ -188,8 +188,8 @@ impl AlignedEncMetadata for GenericMetadata {
 #[cfg(test)]
 mod tests {
     use crate::encodings::{
-        binary::BinaryValuesSequence, EncodingConfig, EncodingContext, EncodingKind,
-        EncodingParameters, EncodingPlan, NullMask,
+        EncodingConfig, EncodingContext, EncodingKind, EncodingParameters, EncodingPlan, NullMask,
+        binary::BinaryValuesSequence,
     };
     use amudai_bytes::buffer::AlignedByteVec;
     use amudai_format::schema::{BasicType, BasicTypeDescriptor};
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_round_trip() {
-        for encoding in [EncodingKind::ZSTD, EncodingKind::LZ4] {
+        for encoding in [EncodingKind::Zstd, EncodingKind::Lz4] {
             let context = EncodingContext::new();
             let config = EncodingConfig::default().with_allowed_encodings(&[encoding]);
             let values = (0..65536)
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     pub fn test_round_trip_fixed_size() {
-        for encoding in [EncodingKind::ZSTD, EncodingKind::LZ4] {
+        for encoding in [EncodingKind::Zstd, EncodingKind::Lz4] {
             let context = EncodingContext::new();
             let config = EncodingConfig::default().with_allowed_encodings(&[encoding]);
 

@@ -34,8 +34,13 @@ impl AlignedByteVec {
 
     /// Creates a new vector of specified length, filled with zeros.
     pub fn zeroed(len: usize) -> AlignedByteVec {
+        AlignedByteVec::from_value(len, 0)
+    }
+
+    /// Creates a new vector of specified length, filled with the specified value.
+    pub fn from_value(len: usize, value: u8) -> AlignedByteVec {
         let mut v = AlignedByteVec::with_capacity(len);
-        v.resize(len, 0);
+        v.resize(len, value);
         v
     }
 

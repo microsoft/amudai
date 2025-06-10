@@ -1,12 +1,12 @@
 // ! This code is based on original code from repository: https://github.com/spiraldb/alp
 
 use super::{
+    NumericEncoding,
     stats::{NumericStats, NumericStatsCollectorFlags},
     value::{AsMutByteSlice, DecimalValue, FloatValue, UIntegerValue, ValueReader, ValueWriter},
-    NumericEncoding,
 };
 use crate::encodings::{
-    ALPRDParameters, AlignedEncMetadata, AnalysisOutcome, EncodingConfig, EncodingContext,
+    AlignedEncMetadata, AlpRdParameters, AnalysisOutcome, EncodingConfig, EncodingContext,
     EncodingKind, EncodingParameters, EncodingPlan, NullMask,
 };
 use amudai_bytes::buffer::AlignedByteVec;
@@ -48,9 +48,9 @@ where
 
     /// Calculate reusable parameters for the ALP-RD encoding based on provided
     /// sample of decimal values.
-    pub fn calculate_parameters(&self, sample: &[T], context: &EncodingContext) -> ALPRDParameters {
+    pub fn calculate_parameters(&self, sample: &[T], context: &EncodingContext) -> AlpRdParameters {
         let dictionary = self.find_best_dictionary(sample, context);
-        ALPRDParameters {
+        AlpRdParameters {
             right_bit_width: dictionary.right_bit_width,
             left_parts_dict: dictionary.codes,
         }
@@ -59,7 +59,7 @@ where
     /// Encode the floating point values into a result type.
     fn split(
         doubles: &[T],
-        params: &ALPRDParameters,
+        params: &AlpRdParameters,
         left_parts: &mut Vec<u16>,
         right_parts: &mut Vec<T::UnsignedIntType>,
         exception_pos: &mut Vec<u32>,
@@ -201,7 +201,7 @@ where
         right_parts: &[T::UnsignedIntType],
         exceptions_pos: &[u32],
         exceptions_values: &[u16],
-        params: &ALPRDParameters,
+        params: &AlpRdParameters,
         context: &EncodingContext,
         target: &mut AlignedByteVec,
     ) -> amudai_common::Result<()> {
@@ -279,7 +279,7 @@ impl ALPRDDecimalValue for FloatValue<f64> {
     }
 
     fn to_bits(value: Self) -> Self::UnsignedIntType {
-        value.0 .0.to_bits()
+        value.0.0.to_bits()
     }
 
     fn to_u16(bits: Self::UnsignedIntType) -> u16 {
@@ -299,7 +299,7 @@ impl ALPRDDecimalValue for FloatValue<f32> {
     }
 
     fn to_bits(value: Self) -> Self::UnsignedIntType {
-        value.0 .0.to_bits()
+        value.0.0.to_bits()
     }
 
     fn to_u16(bits: Self::UnsignedIntType) -> u16 {
@@ -316,7 +316,7 @@ where
     T: ALPRDDecimalValue,
 {
     fn kind(&self) -> EncodingKind {
-        EncodingKind::ALPRD
+        EncodingKind::AlpRd
     }
 
     fn is_suitable(&self, config: &EncodingConfig, _stats: &NumericStats<T>) -> bool {
@@ -412,7 +412,7 @@ where
                     cascading_outcomes: cascading_encodings,
                     encoded_size,
                     compression_ratio: stats.original_size as f64 / encoded_size as f64,
-                    parameters: EncodingParameters::ALPRD(alprd_params),
+                    parameters: EncodingParameters::AlpRd(alprd_params),
                 })
             })
             .transpose()
@@ -426,7 +426,7 @@ where
         plan: &EncodingPlan,
         context: &EncodingContext,
     ) -> amudai_common::Result<usize> {
-        let EncodingParameters::ALPRD(alprd_params) = plan.parameters else {
+        let EncodingParameters::AlpRd(alprd_params) = plan.parameters else {
             return Err(Error::invalid_arg(
                 "plan",
                 "ALPRD encoding parameters are missing",
@@ -511,7 +511,7 @@ where
             .as_mut_byte_slice()
             .copy_from_slice(&buffer[..dict_size]);
         let buffer = &buffer[dict_size..];
-        let alprd_params = ALPRDParameters {
+        let alprd_params = AlpRdParameters {
             right_bit_width: metadata.right_bit_width,
             left_parts_dict,
         };
@@ -608,7 +608,7 @@ impl AlignedEncMetadata for ALPRDMetadata {
         target.write_value_at::<u32>(self.start_offset, self.left_parts_size as u32);
         target.write_value_at::<u32>(self.start_offset + 4, self.right_parts_size as u32);
         target.write_value_at::<u16>(self.start_offset + 8, self.exceptions_count as u16);
-        target.write_value_at::<u8>(self.start_offset + 10, self.right_bit_width as u8);
+        target.write_value_at::<u8>(self.start_offset + 10, self.right_bit_width);
         target.write_value_at::<u8>(self.start_offset + 11, self.dictionary_len as u8);
     }
 
@@ -633,15 +633,15 @@ impl AlignedEncMetadata for ALPRDMetadata {
 #[cfg(test)]
 mod tests {
     use crate::encodings::{
-        numeric::value::FloatValue, EncodingConfig, EncodingContext, EncodingKind, EncodingPlan,
-        NullMask,
+        EncodingConfig, EncodingContext, EncodingKind, EncodingPlan, NullMask,
+        numeric::value::FloatValue,
     };
     use amudai_bytes::buffer::AlignedByteVec;
 
     #[test]
     fn test_round_trip() {
         let config = EncodingConfig::default()
-            .with_allowed_encodings(&[EncodingKind::ALPRD])
+            .with_allowed_encodings(&[EncodingKind::AlpRd])
             .with_min_compression_ratio(1.1);
         let context = EncodingContext::new();
         let data: Vec<FloatValue<f64>> = (0..10000)
@@ -666,7 +666,7 @@ mod tests {
 
         assert_eq!(
             EncodingPlan {
-                encoding: EncodingKind::ALPRD,
+                encoding: EncodingKind::AlpRd,
                 parameters,
                 cascading_encodings: vec![
                     Some(EncodingPlan {

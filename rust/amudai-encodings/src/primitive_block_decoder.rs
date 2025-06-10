@@ -1,7 +1,7 @@
 use crate::{
     block_decoder::BlockDecoder,
     block_encoder::BlockEncodingParameters,
-    encodings::{self, numeric::value::FloatValue, EncodingContext, ALIGNMENT_BYTES},
+    encodings::{self, ALIGNMENT_BYTES, EncodingContext, numeric::value::FloatValue},
     primitive_block_encoder::PrimitiveBlockEncoderMetadata,
 };
 use amudai_bytes::buffer::AlignedByteVec;
@@ -154,7 +154,6 @@ impl PrimitiveBlockDecoder {
 
 impl BlockDecoder for PrimitiveBlockDecoder {
     fn decode(&self, encoded: &[u8], value_count: usize) -> amudai_common::Result<ValueSequence> {
-        let encoded = encoded.as_ref();
         let metadata = PrimitiveBlockEncoderMetadata::read_from(encoded)?;
 
         let aligned_presence_size = metadata.presence_size.next_multiple_of(ALIGNMENT_BYTES);

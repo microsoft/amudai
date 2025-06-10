@@ -4,8 +4,8 @@ use std::{
 };
 
 use amudai_bytes::Bytes;
-use amudai_common::{error::Error, verify_arg, verify_data, Result};
-use amudai_io::{sliced_read::SlicedReadAt, ReadAt};
+use amudai_common::{Result, error::Error, verify_arg, verify_data};
+use amudai_io::{ReadAt, sliced_read::SlicedReadAt};
 
 use super::{
     block_map::BlockList,
@@ -725,7 +725,7 @@ mod tests {
 
     use amudai_bytes::Bytes;
     use amudai_common::Result;
-    use amudai_io::{sliced_read::SlicedReadAt, ReadAt};
+    use amudai_io::{ReadAt, sliced_read::SlicedReadAt};
 
     use crate::{read::block_map_ops::BlockMapOps, write::block_map_encoder::BlockMapEncoder};
 

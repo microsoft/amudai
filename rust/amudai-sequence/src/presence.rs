@@ -96,6 +96,24 @@ impl Presence {
         }
     }
 
+    /// Returns `true` if the value at the specified index is valid (not null).
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the value to check
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is out of bounds.
+    #[inline]
+    pub fn is_valid(&self, index: usize) -> bool {
+        match self {
+            Self::Trivial(_) => true,
+            Self::Nulls(_) => false,
+            Self::Bytes(presence) => presence[index] != 0,
+        }
+    }
+
     /// Creates a new `Presence` representing a range from the current one.
     ///
     /// # Arguments
@@ -135,7 +153,7 @@ impl Presence {
                 }
             }
             Presence::Nulls(len) => *self = Presence::Nulls(*len + 1),
-            Presence::Bytes(ref mut presence) => {
+            Presence::Bytes(presence) => {
                 presence.push_typed::<i8>(0);
             }
         }
@@ -153,7 +171,7 @@ impl Presence {
                 presence.push_typed::<i8>(1);
                 *self = Presence::Bytes(presence);
             }
-            Presence::Bytes(ref mut presence) => {
+            Presence::Bytes(presence) => {
                 presence.push_typed::<i8>(1);
             }
         }

@@ -118,11 +118,9 @@ impl PrimitiveBufferDecoder {
         pos_ranges: impl Iterator<Item = Range<u64>> + Clone,
         prefetch: BlockReaderPrefetch,
     ) -> Result<PrimitiveBufferReader> {
-        let block_map = self.block_stream.block_map();
-        let block_ranges = block_map.pos_ranges_to_block_ranges(pos_ranges)?;
-        let block_ranges =
-            block_map.compute_read_optimized_block_ranges(block_ranges.into_iter())?;
-        let block_reader = self.block_stream.create_reader(block_ranges, prefetch)?;
+        let block_reader = self
+            .block_stream
+            .create_reader_with_position_ranges(pos_ranges, prefetch)?;
         Ok(PrimitiveBufferReader::new(
             self.basic_type,
             block_reader,
@@ -179,7 +177,7 @@ mod tests {
 
     use crate::{
         read::block_stream::BlockReaderPrefetch,
-        write::{primitive_buffer::PrimitiveBufferEncoder, PreparedEncodedBuffer},
+        write::{PreparedEncodedBuffer, primitive_buffer::PrimitiveBufferEncoder},
     };
 
     use super::PrimitiveBufferDecoder;

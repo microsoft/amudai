@@ -442,8 +442,8 @@ mod tests {
     fn test_shift_down_underflow_end_specifically() {
         // This range is valid, start won't underflow, but end will.
         let ranges = vec![10..5]; // This is an empty range in Rust (start > end)
-                                  // Shifting 10..5 down by 6 would be 4..(-1), so end underflows.
-                                  // The panic message will be about `end` (5)
+        // Shifting 10..5 down by 6 would be 4..(-1), so end underflows.
+        // The panic message will be about `end` (5)
         let _ = ranges.into_iter().shift_down(6).collect::<Vec<_>>();
     }
 

@@ -6,19 +6,20 @@
 //! It supports various primitive, string, and binary types, bridging the gap between
 //! Amudai's internal data representation and Arrow's columnar format.
 
-use amudai_common::{error::Error, Result};
+use amudai_common::{Result, error::Error};
 use amudai_sequence::{offsets::Offsets, presence::Presence, sequence::ValueSequence};
 use arrow_array::{
-    types::{
-        Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type,
-        UInt32Type, UInt64Type, UInt8Type,
-    },
     ArrayRef, ArrowPrimitiveType, LargeBinaryArray, LargeStringArray, PrimitiveArray,
+    types::{
+        Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type, UInt16Type,
+        UInt32Type, UInt64Type,
+    },
 };
 use arrow_buffer::{Buffer, MutableBuffer, NullBuffer, OffsetBuffer, ScalarBuffer};
+use arrow_schema::DataType as ArrowDataType;
 use std::sync::Arc;
 
-use crate::buffers::aligned_vec_to_buf;
+use crate::{buffers::aligned_vec_to_buf, datetime_conversions::datetime_sequence_to_array};
 use amudai_format::schema::BasicType;
 
 /// Trait for converting a type into an Arrow [`ArrayRef`].
@@ -31,7 +32,7 @@ pub trait IntoArrowArray {
     /// # Errors
     ///
     /// Returns an error if the conversion is not supported or fails.
-    fn into_arrow_array(self) -> Result<ArrayRef>;
+    fn into_arrow_array(self, arrow_type: &ArrowDataType) -> Result<ArrayRef>;
 }
 
 impl IntoArrowArray for ValueSequence {
@@ -39,7 +40,11 @@ impl IntoArrowArray for ValueSequence {
     ///
     /// Supports primitive, string, and binary types as described by the sequence's type descriptor.
     /// Returns an error for unsupported or unimplemented types.
-    fn into_arrow_array(self) -> Result<ArrayRef> {
+    fn into_arrow_array(self, arrow_type: &ArrowDataType) -> Result<ArrayRef> {
+        if self.type_desc.basic_type == BasicType::DateTime {
+            return datetime_sequence_to_array(self, arrow_type);
+        }
+
         let type_desc = self.type_desc;
         let len = self.len();
         let values = aligned_vec_to_buf(self.values.into_inner());
@@ -49,8 +54,10 @@ impl IntoArrowArray for ValueSequence {
             offsets.into_arrow_offsets_64()
         });
         match type_desc.basic_type {
-            BasicType::Unit => todo!(),
-            BasicType::Boolean => todo!(),
+            BasicType::Unit | BasicType::Boolean => Err(Error::invalid_operation(format!(
+                "into_arrow_array for ValueSequence({:?})",
+                type_desc.basic_type
+            ))),
             BasicType::Int8 => {
                 assert!(offsets.is_none());
                 if type_desc.signed {

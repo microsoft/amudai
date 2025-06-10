@@ -5,8 +5,8 @@ use std::{
     iter::Peekable,
     ops::Range,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 

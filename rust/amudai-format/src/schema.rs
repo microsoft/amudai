@@ -1,9 +1,9 @@
 use amudai_bytes::Bytes;
-use amudai_common::{error::Error, Result};
+use amudai_common::{Result, error::Error};
 
 use crate::{
     checksum::validate_message,
-    defs::schema_ext::{hash_field_name, OwnedDataTypeRef, OwnedFieldRef, OwnedSchemaRef},
+    defs::schema_ext::{OwnedDataTypeRef, OwnedFieldRef, OwnedSchemaRef, hash_field_name},
     schema_builder::SchemaBuilder,
 };
 

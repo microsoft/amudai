@@ -1,6 +1,6 @@
 //! Infer schema command implementation
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use arrow_json::reader::infer_json_schema_from_seekable;
 use arrow_schema::Schema;
 use serde_json::Value;
@@ -67,7 +67,7 @@ fn infer_file_schema(file_path: &str) -> Result<Schema> {
         "csv" => infer_csv_schema(file_path),
         _ => {
             let content = fs::read_to_string(file_path).context("Failed to read file as text")?;
-            if let Ok(_) = serde_json::from_str::<Value>(&content) {
+            if serde_json::from_str::<Value>(&content).is_ok() {
                 infer_json_schema(file_path)
             } else {
                 bail!("Unsupported content type in {file_path}");

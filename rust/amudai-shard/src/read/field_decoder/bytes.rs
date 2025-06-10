@@ -6,7 +6,7 @@ use amudai_blockstream::read::{
     block_stream::BlockReaderPrefetch,
     bytes_buffer::{BytesBufferDecoder, BytesBufferReader},
 };
-use amudai_common::{error::Error, Result};
+use amudai_common::{Result, error::Error};
 use amudai_format::schema::BasicTypeDescriptor;
 use amudai_sequence::sequence::ValueSequence;
 

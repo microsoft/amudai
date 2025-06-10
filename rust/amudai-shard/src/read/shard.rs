@@ -5,7 +5,7 @@ use amudai_format::{
     defs::shard,
     schema::{Schema, SchemaId},
 };
-use amudai_objectstore::{url::ObjectUrl, ObjectStore, ReferenceResolver};
+use amudai_objectstore::{ObjectStore, ReferenceResolver, url::ObjectUrl};
 
 use super::{shard_context::ShardContext, stripe::Stripe};
 

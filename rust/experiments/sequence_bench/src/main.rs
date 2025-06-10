@@ -10,7 +10,7 @@ fn main() {
 }
 
 #[inline(never)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 fn test_values_push(count: usize) {
     let mut values = Values::with_capacity::<i64>(1024);
     let mut c = 0;

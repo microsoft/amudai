@@ -1,12 +1,12 @@
 use super::{
+    BinaryValuesSequence, StringEncoding,
     offsets::{analyze_offsets, decode_offsets_and_make_sequence, encode_offsets},
     stats::{BinaryStats, BinaryStatsCollectorFlags},
-    BinaryValuesSequence, StringEncoding,
 };
 use crate::encodings::{
+    ALIGNMENT_BYTES, AlignedEncMetadata, AnalysisOutcome, EncodingConfig, EncodingContext,
+    EncodingKind, EncodingParameters, EncodingPlan, NullMask,
     numeric::value::{ValueReader, ValueWriter},
-    AlignedEncMetadata, AnalysisOutcome, EncodingConfig, EncodingContext, EncodingKind,
-    EncodingParameters, EncodingPlan, NullMask, ALIGNMENT_BYTES,
 };
 use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::error::Error;
@@ -26,7 +26,7 @@ impl FSSTEncoding {
 
 impl StringEncoding for FSSTEncoding {
     fn kind(&self) -> EncodingKind {
-        EncodingKind::FSST
+        EncodingKind::Fsst
     }
 
     fn is_suitable(&self, _config: &EncodingConfig, stats: &BinaryStats) -> bool {
@@ -142,7 +142,7 @@ impl StringEncoding for FSSTEncoding {
 
         // Read FSST symbol lengths.
         let symbol_lengths = &buffer[offset..offset + metadata.symbols_count];
-        let decompressor = fsst::Decompressor::new(symbols, &symbol_lengths);
+        let decompressor = fsst::Decompressor::new(symbols, symbol_lengths);
         let offset = offset + metadata.symbols_count;
 
         // Decode values.
@@ -150,7 +150,11 @@ impl StringEncoding for FSSTEncoding {
         let mut values = AlignedByteVec::new();
         // Size as required by the FSST API.
         values.resize_zeroed::<u8>(decompressor.max_decompression_capacity(compressed));
-        let decoded = unsafe { std::mem::transmute(values.as_mut_slice()) };
+        let decoded = unsafe {
+            std::mem::transmute::<&mut [u8], &mut [std::mem::MaybeUninit<u8>]>(
+                values.as_mut_slice(),
+            )
+        };
         let size = decompressor.decompress_into(compressed, decoded);
         values.truncate(size);
 
@@ -205,7 +209,7 @@ impl AlignedEncMetadata for FSSTMetadata {
             self.start_offset + 5,
             if self.offsets_cascading { 1 } else { 0 },
         );
-        target.write_value_at::<u8>(self.start_offset + 6, self.offset_width as u8);
+        target.write_value_at::<u8>(self.start_offset + 6, self.offset_width);
     }
 
     fn read_from(buffer: &[u8]) -> amudai_common::Result<(Self, &[u8])> {
@@ -233,7 +237,7 @@ mod tests {
     #[test]
     pub fn test_round_trip() {
         let context = EncodingContext::new();
-        let config = EncodingConfig::default().with_disallowed_encodings(&[EncodingKind::ZSTD]);
+        let config = EncodingConfig::default().with_disallowed_encodings(&[EncodingKind::Zstd]);
 
         let unique_values = [
             b"aaaaaaaa" as &[u8],
@@ -266,7 +270,7 @@ mod tests {
 
         assert_eq!(
             EncodingPlan {
-                encoding: EncodingKind::FSST,
+                encoding: EncodingKind::Fsst,
                 parameters: parameters.clone(),
                 cascading_encodings: vec![Some(EncodingPlan {
                     encoding: EncodingKind::Delta,

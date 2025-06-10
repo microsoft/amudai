@@ -10,8 +10,8 @@ use amudai_io::temp_file_store::TemporaryFileStore;
 use arrow_buffer::BooleanBuffer;
 
 use super::{
-    primitive_buffer::PrimitiveBufferEncoder, staging_buffer::BitStagingBuffer,
-    PreparedEncodedBuffer,
+    PreparedEncodedBuffer, primitive_buffer::PrimitiveBufferEncoder,
+    staging_buffer::BitStagingBuffer,
 };
 
 /// An encoder for efficiently buffering and encoding streams of boolean values as bits.
@@ -30,6 +30,8 @@ pub struct BitBufferEncoder {
     repr: Repr,
     /// Shared reference to a temporary file store for intermediate storage.
     temp_store: Arc<dyn TemporaryFileStore>,
+    /// Block encoding profile to use when switching to the block encoder.
+    profile: BlockEncodingProfile,
 }
 
 impl BitBufferEncoder {
@@ -40,11 +42,26 @@ impl BitBufferEncoder {
     ///
     /// # Returns
     /// A new `BitBufferEncoder` instance.
-    pub fn new(temp_store: Arc<dyn TemporaryFileStore>) -> BitBufferEncoder {
+    pub fn new(
+        temp_store: Arc<dyn TemporaryFileStore>,
+        profile: BlockEncodingProfile,
+    ) -> BitBufferEncoder {
         BitBufferEncoder {
             repr: Repr::Constant(true, 0),
             temp_store,
+            profile,
         }
+    }
+
+    /// Creates a block-encoded buffer with the provided constant value in one go.
+    pub fn encode_blocks(
+        count: usize,
+        value: bool,
+        temp_store: Arc<dyn TemporaryFileStore>,
+    ) -> Result<PreparedEncodedBuffer> {
+        let mut encoder = BitBufferBlocksEncoder::new(temp_store)?;
+        encoder.append_repeated(count, value)?;
+        encoder.finish()
     }
 
     /// Appends a single boolean value to the encoder.
@@ -180,9 +197,10 @@ impl BitBufferEncoder {
         let repr = std::mem::replace(&mut self.repr, Repr::Constant(true, 0));
         match repr {
             Repr::Constant(value, count) => {
-                let mut encoder = BitBufferBlocksEncoder::new(self.temp_store.clone())?;
+                let mut encoder =
+                    BitBufferBlocksEncoder::with_profile(self.profile, self.temp_store.clone())?;
                 encoder.append_repeated(count, value)?;
-                self.repr = Repr::Blocks(encoder);
+                self.repr = Repr::Blocks(Box::new(encoder));
             }
             Repr::Blocks(encoder) => {
                 self.repr = Repr::Blocks(encoder);
@@ -198,7 +216,7 @@ impl BitBufferEncoder {
 
 enum Repr {
     Constant(bool, usize),
-    Blocks(BitBufferBlocksEncoder),
+    Blocks(Box<BitBufferBlocksEncoder>),
 }
 
 /// An encoder for efficiently buffering and block-encoding streams of boolean
@@ -215,6 +233,10 @@ pub struct BitBufferBlocksEncoder {
     staging: BitStagingBuffer,
     /// Underlying encoder responsible for encoding staged data into blocks.
     encoder: PrimitiveBufferEncoder,
+    /// Total count of values pushed to the encoder.
+    value_count: u64,
+    /// Count of `true` values pushed to the encoder.
+    true_count: u64,
 }
 
 impl BitBufferBlocksEncoder {
@@ -227,13 +249,21 @@ impl BitBufferBlocksEncoder {
     /// A new `BitBufferBlockedEncoder` instance on success, or an error if initialization
     /// fails.
     pub fn new(temp_store: Arc<dyn TemporaryFileStore>) -> Result<BitBufferBlocksEncoder> {
+        BitBufferBlocksEncoder::with_profile(BlockEncodingProfile::Balanced, temp_store)
+    }
+
+    /// Creates a new `BitBufferBlockedEncoder` with the specified encoding profile.
+    pub fn with_profile(
+        encoding_profile: BlockEncodingProfile,
+        temp_store: Arc<dyn TemporaryFileStore>,
+    ) -> Result<BitBufferBlocksEncoder> {
         BitBufferBlocksEncoder::with_policy(
             BlockEncodingPolicy {
                 parameters: BlockEncodingParameters {
                     checksum: BlockChecksum::Enabled,
                     presence: PresenceEncoding::Disabled,
                 },
-                profile: BlockEncodingProfile::Balanced,
+                profile: encoding_profile,
                 size_constraints: None,
             },
             temp_store,
@@ -266,7 +296,46 @@ impl BitBufferBlocksEncoder {
         Ok(BitBufferBlocksEncoder {
             staging: BitStagingBuffer::new(),
             encoder,
+            value_count: 0,
+            true_count: 0,
         })
+    }
+
+    /// Returns the total number of boolean values that have been processed by this encoder.
+    ///
+    /// This includes all values that have been appended via [`append_value`], [`append`],
+    /// or [`append_repeated`] methods, regardless of their boolean value.
+    ///
+    /// [`append_value`]: Self::append_value
+    /// [`append`]: Self::append
+    /// [`append_repeated`]: Self::append_repeated
+    pub fn value_count(&self) -> u64 {
+        self.value_count
+    }
+
+    /// Returns the total number of `true` values that have been processed by this encoder.
+    ///
+    /// This count includes all `true` values that have been appended via [`append_value`],
+    /// [`append`], or [`append_repeated`] methods.
+    ///
+    /// [`append_value`]: Self::append_value
+    /// [`append`]: Self::append
+    /// [`append_repeated`]: Self::append_repeated
+    pub fn true_count(&self) -> u64 {
+        self.true_count
+    }
+
+    /// Returns the total number of `false` values that have been processed by this encoder.
+    ///
+    /// This count is calculated as the difference between the total value count and the
+    /// true value count. It includes all `false` values that have been appended via
+    /// [`append_value`], [`append`], or [`append_repeated`] methods.
+    ///
+    /// [`append_value`]: Self::append_value
+    /// [`append`]: Self::append
+    /// [`append_repeated`]: Self::append_repeated
+    pub fn false_count(&self) -> u64 {
+        self.value_count - self.true_count
     }
 
     /// Appends a single boolean value to the staging buffer.
@@ -279,6 +348,9 @@ impl BitBufferBlocksEncoder {
     /// # Returns
     /// An empty result on success, or an error if flushing fails.
     pub fn append_value(&mut self, value: bool) -> Result<()> {
+        self.value_count += 1;
+        self.true_count += value as u64;
+
         self.staging.append_value(value);
         if self.may_flush() {
             self.flush(false)?;
@@ -296,6 +368,9 @@ impl BitBufferBlocksEncoder {
     /// # Returns
     /// An empty result on success, or an error if flushing fails.
     pub fn append(&mut self, buffer: &BooleanBuffer) -> Result<()> {
+        self.value_count += buffer.len() as u64;
+        self.true_count += buffer.count_set_bits() as u64;
+
         self.staging.append(buffer);
         if self.may_flush() {
             self.flush(false)?;
@@ -314,10 +389,18 @@ impl BitBufferBlocksEncoder {
     ///
     /// # Returns
     /// An empty result on success, or an error if flushing fails.
-    pub fn append_repeated(&mut self, count: usize, value: bool) -> Result<()> {
-        self.staging.append_repeated(count, value);
-        if self.may_flush() {
-            self.flush(false)?;
+    pub fn append_repeated(&mut self, mut count: usize, value: bool) -> Result<()> {
+        self.value_count += count as u64;
+        self.true_count += (value as u64) * (count as u64);
+
+        // Avoid unreasonable resizing of the staging buffer, proceed in chunks of up to 1M bits.
+        while count != 0 {
+            let chunk_size = std::cmp::min(count, 1024 * 1024);
+            self.staging.append_repeated(chunk_size, value);
+            count -= chunk_size;
+            if self.may_flush() {
+                self.flush(false)?;
+            }
         }
         Ok(())
     }
@@ -399,7 +482,7 @@ mod tests {
     fn create_bit_buffer_encoder() -> BitBufferEncoder {
         let temp_store =
             amudai_io_impl::temp_file_store::create_in_memory(8 * 1024 * 1024).unwrap();
-        BitBufferEncoder::new(temp_store)
+        BitBufferEncoder::new(temp_store, Default::default())
     }
 
     #[test]

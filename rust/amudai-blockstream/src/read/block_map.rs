@@ -3,8 +3,8 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use amudai_common::{error::Error, verify_arg, verify_data, Result};
-use amudai_io::{sliced_read::SlicedReadAt, ReadAt, StorageProfile};
+use amudai_common::{Result, error::Error, verify_arg, verify_data};
+use amudai_io::{ReadAt, StorageProfile, sliced_read::SlicedReadAt};
 
 use super::{
     block_map_decoder::BlockMapDecoder,
@@ -665,21 +665,13 @@ impl BlockMap {
         Ok(self.list.get().expect("decoder"))
     }
 
-    /// Estimates the number of blocks covered by a list of position ranges.
+    /// Determines whether to load the full block list based on position range
+    /// access patterns.
     ///
-    /// # Arguments
-    ///
-    /// * `pos_ranges`: An iterator yielding sorted, non-overlapping index ranges `start..end`.
-    ///
-    /// # Returns
-    ///
-    /// `true` if an estimate of the number of distinct blocks that overlap with any
-    ///  of the provided ranges exceeds the threshold for using the block map decoder
-    ///  and makes it worthwhile to load the block list.
-    ///
-    /// The estimation logic assumes that ranges separated by less than `mean_block_size`
-    /// are likely to be covered by overlapping blocks, effectively merging their contributions
-    /// to avoid overcounting the "edge effect" block.
+    /// This method implements an optimization strategy in `BlockMap` by deciding
+    /// when to switch from the memory-efficient `BlockMapDecoder` to the performance-optimized
+    /// `BlockList`. The decision is based on estimating how many blocks would be
+    /// accessed when processing the given position ranges.
     fn should_load_block_list_for_pos_ranges(
         &self,
         pos_ranges: impl Iterator<Item = Range<u64>>,
@@ -691,23 +683,12 @@ impl BlockMap {
         ) >= Self::MAX_BLOCKS_FOR_BLOCK_MAP_DECODER
     }
 
-    /// Estimates the number of blocks covered by a sequence of ascending positions.
+    /// Determines whether to load the full block list based on position access patterns.
     ///
-    /// This method uses a probabilistic model to estimate how many distinct blocks
-    /// would be accessed when reading the given logical positions. The approach is
-    /// based on the distances between consecutive positions relative to the mean
-    /// block size.
-    ///
-    /// # Arguments
-    ///
-    /// * `positions`: An iterator yielding `u64` values representing ascending positions
-    ///   within the sequence.
-    ///
-    /// # Returns
-    ///
-    /// `true` if an estimate of the number of distinct blocks covered by the positions
-    /// exceeds the threshold for using the block map decoder and makes it worthwhile to load
-    /// the block list.
+    /// This method implements an optimization strategy in `BlockMap` by deciding
+    /// when to switch from the memory-efficient `BlockMapDecoder` to the performance-optimized
+    /// `BlockList`. The decision is based on estimating how many blocks would be
+    /// accessed when processing the given sequence of logical positions.
     fn should_load_block_list_for_positions(&self, positions: impl Iterator<Item = u64>) -> bool {
         estimate_block_count_for_positions(
             self.estimate_values_per_block() as f64,

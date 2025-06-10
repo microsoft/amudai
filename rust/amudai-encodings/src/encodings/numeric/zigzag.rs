@@ -1,7 +1,7 @@
 use super::{
+    EncodingContext, NumericEncoding,
     stats::{NumericStats, NumericStatsCollectorFlags},
     value::{SIntegerValue, ValueReader, ValueWriter},
-    EncodingContext, NumericEncoding,
 };
 use crate::encodings::{
     AlignedEncMetadata, AnalysisOutcome, EncodingConfig, EncodingKind, EncodingParameters,

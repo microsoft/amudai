@@ -1,6 +1,6 @@
 //! Convenience methods for working with `AnyValue`.
 
-use amudai_format::defs::common::{any_value::Kind, AnyValue};
+use amudai_format::defs::common::{AnyValue, any_value::Kind};
 
 /// A trait for converting a type into an `AnyValue`.
 ///

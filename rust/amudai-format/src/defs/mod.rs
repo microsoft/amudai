@@ -55,7 +55,7 @@ mod tests {
     use prost::Message;
 
     use super::{
-        common::{any_value, AnyValue, NameValuePair},
+        common::{AnyValue, NameValuePair, any_value},
         shard::ShardProperties,
     };
 

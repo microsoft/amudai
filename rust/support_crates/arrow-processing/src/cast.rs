@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use arrow_array::{cast::AsArray, Array};
+use arrow_array::{Array, cast::AsArray};
 use arrow_cast::CastOptions;
 use arrow_schema::{ArrowError, DataType};
 
@@ -32,7 +32,7 @@ pub fn binary_like_to_large_binary(array: &dyn Array) -> Result<Arc<dyn Array>, 
         _ => {
             return Err(ArrowError::CastError(format!(
                 "binary_like_to_large_binary: unexpected data type {data_type}"
-            )))
+            )));
         }
     }
     arrow_cast::cast_with_options(

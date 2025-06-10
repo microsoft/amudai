@@ -1,10 +1,10 @@
 use super::{
+    AnalysisOutcome, EncodingContext, EncodingKind, NumericEncoding,
     stats::{NumericStats, NumericStatsCollectorFlags},
     value::{NumericValue, ValueReader, ValueWriter},
-    AnalysisOutcome, EncodingContext, EncodingKind, NumericEncoding,
 };
 use crate::encodings::{
-    AlignedEncMetadata, EncodingConfig, EncodingParameters, EncodingPlan, NullMask, ALIGNMENT_BYTES,
+    ALIGNMENT_BYTES, AlignedEncMetadata, EncodingConfig, EncodingParameters, EncodingPlan, NullMask,
 };
 use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::error::Error;
@@ -297,7 +297,7 @@ impl AlignedEncMetadata for RunLengthMetadata {
 #[cfg(test)]
 mod tests {
     use crate::encodings::{
-        numeric::EncodingContext, EncodingConfig, EncodingKind, EncodingPlan, NullMask,
+        EncodingConfig, EncodingKind, EncodingPlan, NullMask, numeric::EncodingContext,
     };
     use amudai_bytes::buffer::AlignedByteVec;
 

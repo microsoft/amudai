@@ -1,4 +1,4 @@
-use super::{numeric::value::ValueWriter, EncodingContext};
+use super::{EncodingContext, numeric::value::ValueWriter};
 use crate::block_encoder::BlockEncodingProfile;
 use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::error::Error;
@@ -94,7 +94,7 @@ pub fn encode_presence(
     for value_present in null_mask.iter() {
         target.push_typed::<i8>(if value_present { 1 } else { 0 });
     }
-    return Ok(target.len() - initial_size);
+    Ok(target.len() - initial_size)
 }
 
 pub fn decode_presence(encoded: &[u8], value_count: usize) -> amudai_common::Result<Presence> {
@@ -150,11 +150,11 @@ mod tests {
     use crate::{
         block_encoder::BlockEncodingProfile,
         encodings::{
-            presence::{
-                decode_presence, encode_presence, encode_presence_with_roaring_bitmap,
-                PresenceEncodingKind,
-            },
             EncodingContext,
+            presence::{
+                PresenceEncodingKind, decode_presence, encode_presence,
+                encode_presence_with_roaring_bitmap,
+            },
         },
     };
     use amudai_bytes::buffer::AlignedByteVec;

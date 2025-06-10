@@ -403,6 +403,10 @@ impl Sequence for ValueSequence {
         ValueSequence::len(self)
     }
 
+    fn is_empty(&self) -> bool {
+        ValueSequence::is_empty(self)
+    }
+
     fn to_value_sequence(&self) -> Cow<ValueSequence> {
         Cow::Borrowed(self)
     }
@@ -513,7 +517,7 @@ mod tests {
         );
         assert_eq!(sequence.presence.len(), 5);
         match &sequence.presence {
-            Presence::Bytes(ref presence) => {
+            Presence::Bytes(presence) => {
                 assert_eq!(presence.typed_data::<i8>(), &[1, 0, 1, 0, 0]);
             }
             _ => panic!("Expected presence to be Bytes"),
@@ -583,7 +587,7 @@ mod tests {
         assert_eq!(vec![b"second" as &[u8], b"third", b""], values);
 
         match &target.presence {
-            Presence::Bytes(ref presence) => {
+            Presence::Bytes(presence) => {
                 assert_eq!(presence.typed_data::<i8>(), &[1, 1, 0]);
             }
             _ => panic!("Expected presence to be Bytes"),
@@ -971,7 +975,7 @@ mod tests {
         assert_eq!(sequence.presence.count_non_nulls(), 4);
 
         match &sequence.presence {
-            Presence::Bytes(ref presence) => {
+            Presence::Bytes(presence) => {
                 assert_eq!(presence.typed_data::<i8>(), &[1, 0, 1, 1, 0, 0, 1]);
             }
             _ => panic!("Expected presence to be Bytes"),
@@ -995,7 +999,7 @@ mod tests {
         assert_eq!(sequence.presence.count_non_nulls(), 3);
 
         match &sequence.presence {
-            Presence::Bytes(ref presence) => {
+            Presence::Bytes(presence) => {
                 assert_eq!(presence.typed_data::<i8>(), &[1, 1, 0, 0, 0, 1]);
             }
             _ => panic!("Expected presence to be Bytes"),

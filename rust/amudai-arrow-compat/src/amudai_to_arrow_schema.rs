@@ -6,7 +6,7 @@
 //! Amudai schemas, fields, and data types, and provides concrete implementations building
 //! `arrow_schema` components.
 
-use amudai_common::{error::Error, Result};
+use amudai_common::{Result, error::Error};
 use amudai_format::{
     schema::{
         BasicType as AmudaiBasicType, DataType as AmudaiDataType, Field as AmudaiField,
@@ -212,7 +212,7 @@ impl ToArrowDataType for AmudaiDataType {
                 return Err(Error::invalid_arg(
                     "self",
                     "Amudai Unit type cannot be directly converted to an Arrow schema type.",
-                ))
+                ));
             }
         };
         Ok(arrow_dt)

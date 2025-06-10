@@ -2,13 +2,18 @@
 
 use std::sync::Arc;
 
+use amudai_arrow_compat::datetime_conversions;
 use amudai_blockstream::write::{
     primitive_buffer::PrimitiveBufferEncoder, staging_buffer::PrimitiveStagingBuffer,
 };
-use amudai_common::Result;
+use amudai_common::{Result, verify_arg};
+use amudai_encodings::block_encoder::{
+    BlockChecksum, BlockEncodingParameters, BlockEncodingPolicy, PresenceEncoding,
+};
 use amudai_format::defs::schema_ext::BasicTypeDescriptor;
-use amudai_io::temp_file_store::TemporaryFileStore;
 use arrow_array::Array;
+
+use crate::write::field_encoder::FieldEncoderParams;
 
 use super::{EncodedField, FieldEncoderOps};
 
@@ -25,10 +30,10 @@ use super::{EncodedField, FieldEncoderOps};
 /// The `basic_type` still represents the original formal type as defined
 /// by the schema.
 pub struct PrimitiveFieldEncoder {
+    /// Field encoder parameters (temp store, encoding profile, basic type)
+    params: FieldEncoderParams,
     /// Staging buffer for accumulating values before flushing.
     staging: PrimitiveStagingBuffer,
-    /// Descriptor of the basic type being encoded.
-    _basic_type: BasicTypeDescriptor,
     /// The canonical Arrow data type used for casting accumulated values
     /// before passing them to the block encoder.
     normalized_arrow_type: arrow_schema::DataType,
@@ -41,23 +46,28 @@ impl PrimitiveFieldEncoder {
     ///
     /// # Arguments
     ///
-    /// * `basic_type`: The basic type descriptor.
+    /// * `params`: Encoding parameters (temp store, profile, basic type).
     /// * `normalized_arrow_type`: The canonical Arrow data type used for casting
     ///   accumulated values before passing them to the block encoder.
-    /// * `temp_store`: Temp store provider for the encoded buffers.
     pub fn create(
-        basic_type: BasicTypeDescriptor,
+        params: &FieldEncoderParams,
         normalized_arrow_type: arrow_schema::DataType,
-        temp_store: Arc<dyn TemporaryFileStore>,
     ) -> Result<Box<dyn FieldEncoderOps>> {
         Ok(Box::new(PrimitiveFieldEncoder {
             staging: PrimitiveStagingBuffer::new(normalized_arrow_type.clone()),
-            _basic_type: basic_type,
+            params: params.clone(),
             normalized_arrow_type,
             buffer_encoder: PrimitiveBufferEncoder::new(
-                Default::default(),
-                basic_type,
-                temp_store,
+                BlockEncodingPolicy {
+                    parameters: BlockEncodingParameters {
+                        checksum: BlockChecksum::Enabled,
+                        presence: PresenceEncoding::Enabled,
+                    },
+                    profile: params.encoding_profile,
+                    ..Default::default()
+                },
+                params.basic_type,
+                params.temp_store.clone(),
             )?,
         }))
     }
@@ -112,10 +122,36 @@ impl PrimitiveFieldEncoder {
         };
         Ok(block_size)
     }
+
+    fn convert_array(
+        array: Arc<dyn Array>,
+        basic_type: BasicTypeDescriptor,
+    ) -> Result<Arc<dyn Array>> {
+        if basic_type.basic_type.is_integer_or_datetime() {
+            if matches!(
+                array.data_type(),
+                arrow_schema::DataType::Timestamp(_, _)
+                    | arrow_schema::DataType::Date32
+                    | arrow_schema::DataType::Date64
+            ) {
+                Self::convert_datetime(array)
+            } else {
+                verify_arg!(array, array.data_type().is_integer());
+                Ok(array)
+            }
+        } else {
+            Ok(array)
+        }
+    }
+
+    fn convert_datetime(array: Arc<dyn Array>) -> Result<Arc<dyn Array>> {
+        Ok(datetime_conversions::array_to_datetime_ticks(array))
+    }
 }
 
 impl FieldEncoderOps for PrimitiveFieldEncoder {
     fn push_array(&mut self, array: Arc<dyn Array>) -> Result<()> {
+        let array = Self::convert_array(array, self.params.basic_type)?;
         self.staging.append(array);
         if self.may_flush() {
             self.flush(false)?;
@@ -142,5 +178,76 @@ impl FieldEncoderOps for PrimitiveFieldEncoder {
         Ok(EncodedField {
             buffers: vec![encoded_buffer],
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use amudai_blockstream::read::block_stream::BlockReaderPrefetch;
+    use amudai_blockstream::read::primitive_buffer::PrimitiveBufferDecoder;
+    use amudai_format::schema::BasicType;
+    use amudai_io_impl::temp_file_store;
+    use arrow_array::builder::{TimestampMillisecondBuilder, TimestampNanosecondBuilder};
+    use std::{sync::Arc, time::SystemTime};
+
+    #[test]
+    fn test_datetime_field_encoder() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::DateTime,
+            fixed_size: 0,
+            signed: false,
+        };
+
+        let now = SystemTime::now();
+
+        let mut encoder = PrimitiveFieldEncoder::create(
+            &FieldEncoderParams {
+                basic_type,
+                temp_store,
+                encoding_profile: Default::default(),
+            },
+            arrow_schema::DataType::UInt64,
+        )?;
+
+        for _ in 0..10 {
+            let now_millis = datetime_conversions::now_unix_milliseconds();
+            let mut ts_builder = TimestampMillisecondBuilder::with_capacity(10000);
+            for i in 0..5000 {
+                let ts = now_millis + (i * 10);
+                ts_builder.append_value(ts);
+            }
+            let ts_array = Arc::new(ts_builder.finish());
+            encoder.push_array(ts_array)?;
+
+            let now_nanos = datetime_conversions::now_unix_nanoseconds();
+            let mut ts_builder = TimestampNanosecondBuilder::with_capacity(10000);
+            for i in 0..5000 {
+                let ts = now_nanos + (i * 10);
+                ts_builder.append_value(ts);
+            }
+            let ts_array = Arc::new(ts_builder.finish());
+            encoder.push_array(ts_array)?;
+        }
+
+        let encoded_field = encoder.finish()?;
+        assert_eq!(encoded_field.buffers.len(), 1);
+        let prepared_buffer = encoded_field.buffers.into_iter().next().unwrap();
+        let decoder = PrimitiveBufferDecoder::from_prepared_buffer(&prepared_buffer, basic_type)?;
+        let mut reader =
+            decoder.create_reader(std::iter::empty(), BlockReaderPrefetch::Disabled)?;
+        let seq = reader.read(1000..2000).unwrap();
+        let t = seq.values.as_slice::<u64>()[0];
+        let t = datetime_conversions::ticks_to_unix_seconds(t).unwrap();
+        assert!(
+            t < now
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64
+                + 200
+        );
+        Ok(())
     }
 }

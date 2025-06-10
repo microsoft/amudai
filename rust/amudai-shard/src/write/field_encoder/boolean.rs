@@ -3,10 +3,11 @@
 use std::sync::Arc;
 
 use amudai_blockstream::write::bit_buffer::{BitBufferEncoder, EncodedBitBuffer};
-use amudai_common::{error::Error, Result};
-use amudai_format::defs::{schema_ext::BasicTypeDescriptor, shard};
-use amudai_io::temp_file_store::TemporaryFileStore;
-use arrow_array::{cast::AsArray, Array};
+use amudai_common::{Result, error::Error};
+use amudai_format::{defs::shard, schema::BasicType};
+use arrow_array::{Array, cast::AsArray};
+
+use crate::write::field_encoder::FieldEncoderParams;
 
 use super::{EncodedField, FieldEncoderOps};
 
@@ -16,26 +17,20 @@ use super::{EncodedField, FieldEncoderOps};
 /// - `values_encoder`: Encodes the actual boolean values (true/false)
 /// - `presence_encoder`: Encodes whether each position has a value or is null
 pub struct BooleanFieldEncoder {
-    _basic_type: BasicTypeDescriptor,
+    params: FieldEncoderParams,
     values_encoder: BitBufferEncoder,
     presence_encoder: BitBufferEncoder,
 }
 
 impl BooleanFieldEncoder {
     /// Creates a `BooleanFieldEncoder`.
-    ///
-    /// # Arguments
-    ///
-    /// * `basic_type`: The basic type descriptor.
-    /// * `temp_store`: Temporary file store for intermediate storage.
-    pub fn create(
-        basic_type: BasicTypeDescriptor,
-        temp_store: Arc<dyn TemporaryFileStore>,
-    ) -> Result<Box<dyn FieldEncoderOps>> {
+    pub fn create(params: &FieldEncoderParams) -> Result<Box<dyn FieldEncoderOps>> {
+        assert_eq!(params.basic_type.basic_type, BasicType::Boolean);
+        let temp_store = params.temp_store.clone();
         Ok(Box::new(BooleanFieldEncoder {
-            _basic_type: basic_type,
-            values_encoder: BitBufferEncoder::new(temp_store.clone()),
-            presence_encoder: BitBufferEncoder::new(temp_store),
+            params: params.clone(),
+            values_encoder: BitBufferEncoder::new(temp_store.clone(), params.encoding_profile),
+            presence_encoder: BitBufferEncoder::new(temp_store, params.encoding_profile),
         }))
     }
 }
@@ -77,10 +72,16 @@ impl FieldEncoderOps for BooleanFieldEncoder {
 
         // Finish the values encoder
         match self.values_encoder.finish()? {
-            EncodedBitBuffer::Constant(_value, _count) => {
+            EncodedBitBuffer::Constant(value, count) => {
                 // TODO: Consider optimizing constant boolean values
                 // For now, we'll still create a buffer even for constants
                 // This should be optimized in the future by storing the constant in the field descriptor
+                let mut values_buffer =
+                    BitBufferEncoder::encode_blocks(count, value, self.params.temp_store.clone())?;
+                values_buffer.descriptor.kind = shard::BufferKind::Data as i32;
+                values_buffer.descriptor.embedded_presence = false;
+                values_buffer.descriptor.embedded_offsets = false;
+                buffers.push(values_buffer);
             }
             EncodedBitBuffer::Blocks(mut values_buffer) => {
                 values_buffer.descriptor.kind = shard::BufferKind::Data as i32;
@@ -92,11 +93,19 @@ impl FieldEncoderOps for BooleanFieldEncoder {
 
         // Finish the presence encoder
         match self.presence_encoder.finish()? {
-            EncodedBitBuffer::Constant(value, _count) => {
+            EncodedBitBuffer::Constant(value, count) => {
                 if !value {
                     // All values are null
                     // TODO: mark the field as constant null in the field descriptor
-                    return Err(Error::not_implemented("constant null encoding (boolean)"));
+                    let mut presence_buffer = BitBufferEncoder::encode_blocks(
+                        count,
+                        value,
+                        self.params.temp_store.clone(),
+                    )?;
+                    presence_buffer.descriptor.kind = shard::BufferKind::Data as i32;
+                    presence_buffer.descriptor.embedded_presence = false;
+                    presence_buffer.descriptor.embedded_offsets = false;
+                    buffers.push(presence_buffer);
                 }
 
                 // All values are non-null, no need to write a dedicated presence buffer

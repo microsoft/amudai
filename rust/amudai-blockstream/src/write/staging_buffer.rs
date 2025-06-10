@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use amudai_common::{error::Error, Result};
+use amudai_common::{Result, error::Error};
 use arrow_array::{Array, UInt8Array};
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, ScalarBuffer};
 use arrow_processing::{
@@ -74,6 +74,9 @@ impl BytesStagingBuffer {
     /// * `array`: Arrow array to append. Should be one of the `Binary`
     ///   or `Utf8` variations.
     pub fn append(&mut self, array: Arc<dyn Array>) {
+        if array.is_empty() {
+            return;
+        }
         let data_size = binary_data_size(&array);
         self.arrays.append(array);
         self.data_size = self
@@ -238,6 +241,9 @@ impl PrimitiveStagingBuffer {
     ///
     /// * `array`: Arrow array to append.
     pub fn append(&mut self, array: Arc<dyn Array>) {
+        if array.is_empty() {
+            return;
+        }
         self.arrays.append(array);
     }
 
@@ -388,6 +394,9 @@ impl BitStagingBuffer {
     ///
     /// Increments the logical position by the number of bits appended.
     pub fn append(&mut self, buffer: &BooleanBuffer) {
+        if buffer.is_empty() {
+            return;
+        }
         self.builder.append_buffer(buffer);
         self.logical_position += buffer.len() as u64;
     }
@@ -402,6 +411,9 @@ impl BitStagingBuffer {
     /// Increments the logical position by `count`.
     #[inline]
     pub fn append_repeated(&mut self, count: usize, value: bool) {
+        if count == 0 {
+            return;
+        }
         self.builder.append_n(count, value);
         self.logical_position += count as u64;
     }
@@ -455,7 +467,7 @@ impl BitStagingBuffer {
         let mut remaining_bits = self.builder.len();
         let buf = self.builder.finish().into_inner();
         let buf_len = buf.len();
-        assert_eq!(buf_len, (remaining_bits + 7) / 8);
+        assert_eq!(buf_len, remaining_bits.div_ceil(8));
         self.builder.reserve(Self::DEFAULT_LEN_THRESHOLD);
 
         let mut array = UInt8Array::new(ScalarBuffer::new(buf, 0, buf_len), None);
@@ -495,9 +507,15 @@ impl BitStagingBuffer {
     }
 }
 
+impl Default for BitStagingBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use arrow_array::{builder::StringBuilder, cast::AsArray, BinaryArray, StringArray};
+    use arrow_array::{BinaryArray, StringArray, builder::StringBuilder, cast::AsArray};
     use arrow_schema::DataType;
 
     use super::*;

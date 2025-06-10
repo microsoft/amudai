@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use amudai_common::{error::Error, Result};
+use amudai_common::{Result, error::Error};
 use amudai_encodings::{
     block_encoder::{
         BlockEncoder, BlockEncodingParameters, BlockEncodingPolicy, BlockSizeConstraints,
@@ -17,7 +17,7 @@ use amudai_io::temp_file_store::TemporaryFileStore;
 
 use crate::read::primitive_buffer::PrimitiveBufferDecoder;
 
-use super::{block_stream::BlockStreamEncoder, PreparedEncodedBuffer};
+use super::{PreparedEncodedBuffer, block_stream::BlockStreamEncoder};
 
 /// Encodes a sequence of primitive values into a buffer of block-encoded data,
 /// as specified by the shard format. This encoder accumulates values, encodes

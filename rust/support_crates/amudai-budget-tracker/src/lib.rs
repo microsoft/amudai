@@ -656,8 +656,8 @@ mod tests {
     }
 
     #[test]
-    fn test_subordinate_budget_allocation_with_reservation_slice_and_grow_multiple_above_slice_and_fail(
-    ) {
+    fn test_subordinate_budget_allocation_with_reservation_slice_and_grow_multiple_above_slice_and_fail()
+     {
         let budget = Budget::new(100);
         let sub_budget = budget
             .subordinate()

@@ -8,17 +8,19 @@ use std::sync::Arc;
 
 use ahash::AHashSet;
 use amudai_common::Result;
+use amudai_encodings::block_encoder::BlockEncodingProfile;
 use amudai_format::{
     defs::{
+        CHECKSUM_SIZE, MESSAGE_LEN_SIZE,
         common::{DataRef, DataRefArray},
-        shard, CHECKSUM_SIZE, MESSAGE_LEN_SIZE,
+        shard,
     },
     schema::{Schema, SchemaId, SchemaMessage},
 };
 use amudai_io::temp_file_store::TemporaryFileStore;
 use amudai_objectstore::{
-    url::{ObjectUrl, RelativePath},
     ObjectStore,
+    url::{ObjectUrl, RelativePath},
 };
 
 use super::{
@@ -50,6 +52,11 @@ impl ShardBuilder {
         &self.schema
     }
 
+    /// Returns the parameters and configuration for this `ShardBuilder`.
+    pub fn params(&self) -> &ShardBuilderParams {
+        &self.params
+    }
+
     /// Creates a new `StripeBuilder` for constructing stripes associated with this shard.
     ///
     /// The returned `StripeBuilder` is not bound to the shard and can be discarded without
@@ -59,8 +66,8 @@ impl ShardBuilder {
     pub fn build_stripe(&self) -> Result<StripeBuilder> {
         let params = StripeBuilderParams {
             schema: self.schema.clone(),
-            object_store: self.params.object_store.clone(),
             temp_store: self.params.temp_store.clone(),
+            encoding_profile: self.params.encoding_profile,
         };
         StripeBuilder::new(params)
     }
@@ -80,15 +87,80 @@ impl ShardBuilder {
     }
 }
 
-/// Parameters and configuration for a `ShardBuilder`.
+/// Configuration parameters for constructing a `ShardBuilder`.
+///
+/// A shard is a self-contained data storage unit that consists of one or more stripes,
+/// where each stripe contains columnar data organized according to a schema. The shard
+/// building process involves creating temporary files during construction and then
+/// committing the final shard to persistent storage.
+///
+/// # Usage
+///
+/// ```rust,ignore
+/// use std::sync::Arc;
+/// use amudai_encodings::block_encoder::BlockEncodingProfile;
+/// use amudai_format::schema::SchemaMessage;
+/// use amudai_io_impl::temp_file_store;
+///
+/// let params = ShardBuilderParams {
+///     schema: schema_message,
+///     object_store: todo!(),
+///     temp_store: temp_file_store::create_in_memory(64 * 1024 * 1024).unwrap(),
+///     encoding_profile: BlockEncodingProfile::Balanced,
+/// };
+/// let builder = ShardBuilder::new(params)?;
+/// ```
 #[derive(Clone)]
 pub struct ShardBuilderParams {
-    /// The schema for the shard.
+    /// The schema definition that describes the structure and types of data to be stored.
+    ///
+    /// This schema is validated during `ShardBuilder` construction and used throughout
+    /// the building process to ensure data consistency. It defines the field names,
+    /// types, and hierarchical relationships for all data that will be written to the shard.
     pub schema: SchemaMessage,
-    /// The object store to use for storing the shard.
+
+    /// The persistent object store where the final shard files will be written.
+    ///
+    /// This store is used for the final shard output, including the main shard directory
+    /// file and any associated stripe and index files. The object store must support
+    /// creating new objects at the URLs specified during the `seal()` operation.
+    ///
+    /// # Note
+    ///
+    /// Wrapped in `Arc` for shared ownership across multiple stripe builders and
+    /// to enable concurrent shard building operations.
     pub object_store: Arc<dyn ObjectStore>,
-    /// The temp file store to use when building the shard.
+
+    /// The temporary file store used for intermediate files during shard construction.
+    ///
+    /// During the building process, stripe data is initially written to temporary storage
+    /// before being finalized. This temporary storage should have sufficient capacity
+    /// for the working set of data being processed. The temporary files are automatically
+    /// cleaned up after the shard building process completes.
+    ///
+    /// # Performance Considerations
+    ///
+    /// For optimal performance, use fast storage (e.g., in-memory or SSD-based) for
+    /// the temporary store, especially when processing large datasets.
     pub temp_store: Arc<dyn TemporaryFileStore>,
+
+    /// The block encoding profile that determines compression and performance trade-offs.
+    ///
+    /// This profile influences how individual data blocks within stripes are encoded,
+    /// affecting both the time required to build the shard and the final compressed size.
+    /// The available profiles offer different trade-offs:
+    ///
+    /// - [`BlockEncodingProfile::Plain`] - No compression, fastest encoding
+    /// - [`BlockEncodingProfile::MinimalCompression`] - Light compression, low CPU overhead
+    /// - [`BlockEncodingProfile::Balanced`] - Balanced approach (default)
+    /// - [`BlockEncodingProfile::HighCompression`] - Higher compression ratio
+    /// - [`BlockEncodingProfile::MinimalSize`] - Maximum compression, slower encoding
+    ///
+    /// # Default
+    ///
+    /// When not specified, `BlockEncodingProfile::Balanced` provides a good balance
+    /// between compression ratio and encoding performance for most use cases.
+    pub encoding_profile: BlockEncodingProfile,
 }
 
 /// A prepared shard that is ready to be sealed.

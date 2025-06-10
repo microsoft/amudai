@@ -1,6 +1,6 @@
 use super::{
-    numeric::value::ValueReader, AnalysisOutcome, EncodingConfig, EncodingContext, EncodingKind,
-    EncodingParameters, EncodingPlan, NullMask,
+    AnalysisOutcome, EncodingConfig, EncodingContext, EncodingKind, EncodingParameters,
+    EncodingPlan, NullMask, numeric::value::ValueReader,
 };
 use crate::encodings::numeric::generic::{LZ4Encoder, ZSTDEncoder};
 use amudai_bytes::buffer::AlignedByteVec;
@@ -42,7 +42,7 @@ pub trait StringEncoding: Send + Sync {
     /// # Parameters
     ///
     /// - `values` - The sequence of binary values to be analyzed. This is typically a sample of the
-    ///  actual data that will be encoded.
+    ///   actual data that will be encoded.
     /// - `null_mask` - The null mask indicating which values are null.
     /// - `config`: The encoding configuration that specifies the encoding options.
     /// - `stats`: The statistics collected from the data.
@@ -130,10 +130,12 @@ impl BinaryEncodings {
             Box::new(GenericEncoding::new(ZSTDEncoder)),
             Box::new(GenericEncoding::new(LZ4Encoder)),
         ];
-        assert!(encodings
-            .iter()
-            .map(|encoding| encoding.kind())
-            .all_unique());
+        assert!(
+            encodings
+                .iter()
+                .map(|encoding| encoding.kind())
+                .all_unique()
+        );
         let encodings_by_name = encodings
             .into_iter()
             .map(|encoding| (encoding.kind(), encoding))
@@ -155,7 +157,7 @@ impl BinaryEncodings {
     /// # Parameters
     ///
     /// - `values` - The sequence of binary values to be analyzed. This is typically a sample of the
-    ///  actual data that will be encoded.
+    ///   actual data that will be encoded.
     /// - `null_mask` - The null mask indicating which values are null.
     /// - `config`: The encoding configuration that specifies the encoding options.
     /// - `context`: The encoding context that provides an access to shared resources.
@@ -295,13 +297,14 @@ impl Default for BinaryEncodings {
 }
 
 /// Sequence of binary values that serves as an input for encoding.
+#[allow(clippy::enum_variant_names)]
 pub enum BinaryValuesSequence<'a> {
     ArrowBinaryArray(Cow<'a, arrow_array::array::BinaryArray>),
     ArrowLargeBinaryArray(Cow<'a, arrow_array::array::LargeBinaryArray>),
     ArrowFixedSizeBinaryArray(Cow<'a, arrow_array::array::FixedSizeBinaryArray>),
 }
 
-impl<'a> BinaryValuesSequence<'a> {
+impl BinaryValuesSequence<'_> {
     /// Returns the value at the given index.
     ///
     /// The method doesn't indicate whether the value is null or not,
@@ -353,7 +356,7 @@ impl<'a> BinaryValuesSequence<'a> {
                 arr.offsets().inner().iter().map(|&v| v as u64).collect(),
             )),
             BinaryValuesSequence::ArrowLargeBinaryArray(arr) => Some(Cow::Borrowed(unsafe {
-                std::mem::transmute(arr.offsets().inner().as_ref())
+                std::mem::transmute::<&[i64], &[u64]>(arr.offsets().inner().as_ref())
             })),
             BinaryValuesSequence::ArrowFixedSizeBinaryArray(_) => None,
         }
@@ -403,9 +406,9 @@ impl<'a> TryFrom<&'a dyn arrow_array::array::Array> for BinaryValuesSequence<'a>
     }
 }
 
-impl<'a> Into<Box<dyn arrow_array::array::Array>> for BinaryValuesSequence<'a> {
-    fn into(self) -> Box<dyn arrow_array::array::Array> {
-        match self {
+impl From<BinaryValuesSequence<'_>> for Box<dyn arrow_array::array::Array> {
+    fn from(val: BinaryValuesSequence<'_>) -> Self {
+        match val {
             BinaryValuesSequence::ArrowBinaryArray(arr) => Box::new(arr.into_owned()),
             BinaryValuesSequence::ArrowLargeBinaryArray(arr) => Box::new(arr.into_owned()),
             BinaryValuesSequence::ArrowFixedSizeBinaryArray(arr) => Box::new(arr.into_owned()),
@@ -430,7 +433,7 @@ impl<'a, 'b> BinaryValuesSequenceIter<'a, 'b> {
     }
 }
 
-impl<'a, 'b> Iterator for BinaryValuesSequenceIter<'a, 'b> {
+impl<'a> Iterator for BinaryValuesSequenceIter<'a, '_> {
     type Item = &'a [u8];
 
     fn next(&mut self) -> Option<Self::Item> {

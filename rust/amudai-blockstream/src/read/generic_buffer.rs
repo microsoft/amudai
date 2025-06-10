@@ -161,7 +161,7 @@ impl<Decoder: BlockDecoder> GenericBufferReader<Decoder> {
             let block = self.block_reader.read_block(ordinal as u32)?;
             block.verify_checksum()?;
             let count = block.descriptor.logical_size();
-            let decoded = self.block_decoder.decode(&block.data, count)?;
+            let decoded = self.block_decoder.decode(block.data(), count)?;
             Ok((Cow::Owned(decoded), block.descriptor))
         }
     }

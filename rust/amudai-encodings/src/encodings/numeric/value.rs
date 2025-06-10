@@ -96,7 +96,10 @@ impl SIntegerValue for i32 {}
 impl SIntegerValue for i64 {}
 impl SIntegerValue for i128 {}
 
-pub trait UIntegerValue: IntegerValue + Unsigned + fastlanes::BitPacking + fastlanes::FFOR {}
+pub trait UIntegerValue:
+    IntegerValue + Unsigned + fastlanes::BitPacking + fastlanes::FusedFrameOfReference
+{
+}
 
 impl UIntegerValue for u8 {}
 impl UIntegerValue for u16 {}
@@ -367,10 +370,7 @@ pub trait AsMutByteSlice {
 impl<T> AsByteSlice for &[T] {
     fn as_byte_slice(&self) -> &[u8] {
         unsafe {
-            std::slice::from_raw_parts(
-                self.as_ptr() as *const u8,
-                self.len() * std::mem::size_of::<T>(),
-            )
+            std::slice::from_raw_parts(self.as_ptr() as *const u8, std::mem::size_of_val(*self))
         }
     }
 }
@@ -380,7 +380,7 @@ impl<T> AsMutByteSlice for &mut [T] {
         unsafe {
             std::slice::from_raw_parts_mut(
                 self.as_mut_ptr() as *mut u8,
-                self.len() * std::mem::size_of::<T>(),
+                std::mem::size_of_val(*self),
             )
         }
     }

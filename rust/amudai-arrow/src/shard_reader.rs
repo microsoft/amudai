@@ -77,10 +77,11 @@ impl ShardRecordBatchReader {
     /// Returns an error if opening the stripe or constructing the reader fails.
     fn open_next_stripe(&mut self) -> Option<Result<StripeRecordBatchReader, ArrowError>> {
         while self.next_stripe_ordinal < self.shard.stripe_count() {
-            let stripe = try_or_ret_some_err!(self
-                .shard
-                .open_stripe(self.next_stripe_ordinal)
-                .to_arrow_res());
+            let stripe = try_or_ret_some_err!(
+                self.shard
+                    .open_stripe(self.next_stripe_ordinal)
+                    .to_arrow_res()
+            );
             self.next_stripe_ordinal += 1;
 
             let stripe_pos_span = stripe.shard_position_range();
@@ -184,7 +185,7 @@ impl StripeRecordBatchReader {
 
         let mut readers = Vec::<ArrayReader>::with_capacity(arrow_schema.fields().len());
         for field in arrow_schema.fields() {
-            let amudai_type = resolve_field(stripe, &field_list, &field)?;
+            let amudai_type = resolve_field(stripe, &field_list, field)?;
             let reader = create_array_reader(
                 stripe,
                 None,
@@ -267,7 +268,7 @@ pub(crate) fn create_array_reader(
         None => {
             return Err(ArrowError::NotYetImplemented(
                 "nulls for missing fields".to_string(),
-            ))
+            ));
         }
     };
 
@@ -332,8 +333,9 @@ pub(crate) fn resolve_field(
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::ArrowReaderBuilder;
+    use crate::{builder::ArrowReaderBuilder, shard_reader::ShardRecordBatchReader};
 
+    use amudai_collections::range_list::RangeList;
     use amudai_format::defs::common::DataRef;
     use amudai_shard::tests::{
         data_generator::{
@@ -342,7 +344,7 @@ mod tests {
         },
         shard_store::ShardStore,
     };
-    use amudai_testkit::data_gen::create_qlog_batch_iterator;
+    use amudai_testkit::data_gen::{create_qlog_batch_iterator, load_qlog_schema};
     use arrow::array::RecordBatchIterator;
 
     #[test]
@@ -403,14 +405,11 @@ mod tests {
         }
     }
 
-    // TODO: reenable once unsupported types and all decoders/readers are implemented.
-    // Current blocker: `unexpected type: DateTime` in rust\amudai-encodings\src\primitive_block_encoder.rs:188:18
-    // #[test]
-    #[allow(dead_code)]
-    fn test_complex_nested_schema_reader() {
+    fn ingest_qlog_sample(record_count: usize) -> (ShardStore, DataRef) {
         // Generate 10K qlog records with nested schema
-        let reader =
-            create_qlog_batch_iterator(10000, 1000).expect("Failed to create qlog batch iterator");
+        let reader = create_qlog_batch_iterator(record_count, 1024)
+            .expect("Failed to create qlog batch iterator");
+
         let schema = reader.schema();
 
         // Convert to RecordBatchIterator for ingestion
@@ -418,46 +417,56 @@ mod tests {
 
         // Create shard store and ingest the data
         let shard_store = ShardStore::new();
-        let shard_ref: DataRef = shard_store.ingest_shard_from_record_batches(batch_iterator);
+        let shard_ref = shard_store.ingest_shard_from_record_batches(batch_iterator);
+        (shard_store, shard_ref)
+    }
 
-        // Create Arrow reader builder
+    fn consume_all_records(reader: ShardRecordBatchReader, expected_count: usize) {
+        let mut count = 0;
+        for frame in reader {
+            let frame = frame.unwrap();
+            count += frame.num_rows();
+        }
+        assert_eq!(count, expected_count);
+    }
+
+    fn read_and_verify(reader: ShardRecordBatchReader) {
+        let frame = reader.into_iter().next().unwrap().unwrap();
+        let buf = Vec::new();
+        let mut writer = arrow_json::LineDelimitedWriter::new(buf);
+        writer.write_batches(&[&frame]).unwrap();
+        writer.finish().unwrap();
+        let output = String::from_utf8(writer.into_inner()).unwrap();
+        assert!(output.contains("qeads-log-e193b243-7290-418c-bfb7-8a850e2fdad3"));
+    }
+
+    #[test]
+    fn test_complex_nested_schema_reader() {
+        let (shard_store, shard_ref) = ingest_qlog_sample(10000);
+
         let reader_builder = ArrowReaderBuilder::try_new(&shard_ref.url)
             .expect("Failed to create ArrowReaderBuilder")
             .with_object_store(shard_store.object_store.clone())
             .with_batch_size(500);
 
-        // Verify we can fetch the schema
         let fetched_schema = reader_builder
             .fetch_arrow_schema()
             .expect("Failed to fetch arrow schema");
-        assert_eq!(fetched_schema.fields().len(), schema.fields().len());
+        assert_eq!(
+            fetched_schema.fields().len(),
+            load_qlog_schema().unwrap().fields().len()
+        );
 
-        // Build and consume the reader
-        let mut reader = reader_builder.build().expect("Failed to build reader");
-        let mut total_rows = 0;
-        let mut batch_count = 0;
-
-        while let Some(batch_result) = reader.next() {
-            let batch = batch_result.expect("Failed to read batch");
-            total_rows += batch.num_rows();
-            batch_count += 1;
-
-            // Verify batch has expected schema structure
-            assert_eq!(batch.schema(), fetched_schema);
-            assert!(batch.num_rows() > 0);
-            assert!(batch.num_rows() <= 500); // Should respect batch size
-        }
-
-        // Verify we read all 10K records
-        assert_eq!(total_rows, 10000);
-        assert!(batch_count > 0);
-
-        // Verify the schema contains expected qlog fields
         let field_names: Vec<&str> = fetched_schema
             .fields()
             .iter()
             .map(|f| f.name().as_str())
             .collect();
         assert!(field_names.contains(&"recordId"));
+
+        consume_all_records(reader_builder.build().unwrap(), 10000);
+
+        let reader_builder = reader_builder.with_position_ranges(RangeList::from(vec![0u64..2]));
+        read_and_verify(reader_builder.build().unwrap());
     }
 }

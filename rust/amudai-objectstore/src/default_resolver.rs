@@ -3,8 +3,8 @@ use std::sync::{Arc, LazyLock};
 use amudai_common::error::Error;
 
 use crate::{
-    url::{ObjectUrl, RelativePath},
     ReferenceResolver,
+    url::{ObjectUrl, RelativePath},
 };
 
 pub struct ContainerScopedReferenceResolver;

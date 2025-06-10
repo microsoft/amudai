@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use amudai_common::{error::Error, Result};
+use amudai_common::{Result, error::Error};
 use amudai_format::{
     defs::{common::DataRef, shard},
     schema::{self, BasicType, SchemaId},
@@ -11,8 +11,8 @@ use amudai_format::{
 use super::{
     artifact_reader::ArtifactReader,
     field_decoder::{
-        boolean::BooleanFieldDecoder, bytes::BytesFieldDecoder, list::ListFieldDecoder,
-        primitive::PrimitiveFieldDecoder, unit::StructFieldDecoder, FieldDecoder,
+        FieldDecoder, boolean::BooleanFieldDecoder, bytes::BytesFieldDecoder,
+        list::ListFieldDecoder, primitive::PrimitiveFieldDecoder, unit::StructFieldDecoder,
     },
     stripe::StripeFieldDescriptor,
     stripe_context::StripeContext,
@@ -194,7 +194,7 @@ impl FieldContext {
             _ => {
                 return Err(Error::not_implemented(
                     "Missing or non-native data encoding",
-                ))
+                ));
             }
         };
         Ok(&native_encoding.buffers)

@@ -24,15 +24,14 @@ use amudai_blockstream::read::{
     bit_buffer::{BitBufferDecoder, BitBufferReader},
     block_stream::BlockReaderPrefetch,
 };
-use amudai_bytes::buffer::AlignedByteVec;
-use amudai_common::{error::Error, verify_arg, verify_data, Result};
+use amudai_common::{Result, error::Error, verify_arg, verify_data};
 use amudai_format::{
     defs::shard::BufferKind,
     schema::{BasicType, BasicTypeDescriptor},
 };
 use amudai_sequence::{presence::Presence, sequence::ValueSequence, values::Values};
 
-use crate::read::field_context::FieldContext;
+use crate::read::{field_context::FieldContext, field_decoder::boolean::bits_to_byte_vec};
 
 use super::FieldReader;
 
@@ -257,11 +256,7 @@ impl FieldReader for PresenceFieldReader {
         let buf = self.0.read(pos_range)?;
 
         // TODO: avoid expansion, return it as-is (bit buffer presence) in the sequence.
-
-        let mut bytes = AlignedByteVec::zeroed(buf.len());
-        for (bit, byte) in buf.iter().zip(bytes.iter_mut()) {
-            *byte = bit as u8;
-        }
+        let bytes = bits_to_byte_vec(&buf);
 
         Ok(ValueSequence {
             values: Values::new(),

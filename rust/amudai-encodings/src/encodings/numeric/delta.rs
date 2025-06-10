@@ -1,7 +1,7 @@
 use super::{
+    AnalysisOutcome, EncodingKind, NumericEncoding,
     stats::{NumericStats, NumericStatsCollectorFlags},
     value::{IntegerValue, ValueReader, ValueWriter},
-    AnalysisOutcome, EncodingKind, NumericEncoding,
 };
 use crate::encodings::{
     AlignedEncMetadata, EncodingConfig, EncodingContext, EncodingParameters, EncodingPlan, NullMask,
@@ -129,7 +129,7 @@ where
 
         let mut diffs = context.buffers.get_buffer();
         context.numeric_encoders.get::<T>().decode(
-            &buffer,
+            buffer,
             value_count - 1,
             &Default::default(),
             &mut diffs,

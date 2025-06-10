@@ -30,7 +30,7 @@
 //! The conversion process can fail if an unsupported Arrow data type is encountered. In such cases,
 //! the conversion functions return a `Result` with an `Error` indicating the specific issue.
 
-use amudai_common::{error::Error, Result};
+use amudai_common::{Result, error::Error};
 
 /// A trait for converting an Apache Arrow schema into a corresponding type.
 pub trait FromArrowSchema {
@@ -89,7 +89,7 @@ impl FromArrowDataType for amudai_format::schema_builder::DataTypeBuilder {
         match data_type {
             ArrowDataType::Duration(_) => return Ok(DataTypeBuilder::new_timespan()),
             ArrowDataType::Decimal128(_, _) | ArrowDataType::Decimal256(_, _) => {
-                return Ok(DataTypeBuilder::new_decimal())
+                return Ok(DataTypeBuilder::new_decimal());
             }
             _ => (),
         }
@@ -168,7 +168,7 @@ impl FromArrowDataType for amudai_format::schema_builder::DataTypeBuilder {
                 (BasicType::Union, false, None, fields)
             }
             ArrowDataType::Dictionary(_, value_type) => {
-                return DataTypeBuilder::from_arrow_data_type(value_type)
+                return DataTypeBuilder::from_arrow_data_type(value_type);
             }
             ArrowDataType::Map(entry, _) => match entry.data_type() {
                 ArrowDataType::Struct(fields) if fields.len() == 2 => {
@@ -180,17 +180,17 @@ impl FromArrowDataType for amudai_format::schema_builder::DataTypeBuilder {
                     return Err(Error::invalid_arg(
                         "data_type",
                         format!("unsupported map entry data type {:?}", entry.data_type()),
-                    ))
+                    ));
                 }
             },
             ArrowDataType::RunEndEncoded(_, value_field) => {
-                return DataTypeBuilder::from_arrow_data_type(value_field.data_type())
+                return DataTypeBuilder::from_arrow_data_type(value_field.data_type());
             }
             _ => {
                 return Err(Error::invalid_arg(
                     "data_type",
                     format!("unsupported data type {data_type:?}"),
-                ))
+                ));
             }
         };
 

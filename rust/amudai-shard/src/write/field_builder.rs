@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use ahash::AHashMap;
-use amudai_common::{error::Error, Result};
+use amudai_common::{Result, error::Error};
+use amudai_encodings::block_encoder::BlockEncodingProfile;
 use amudai_format::defs::common::DataRef;
 use amudai_format::defs::shard;
 use amudai_format::{
@@ -13,9 +14,9 @@ use amudai_format::{
 use amudai_io::temp_file_store::TemporaryFileStore;
 use amudai_keyed_vector::KeyFromValue;
 use amudai_objectstore::url::ObjectUrl;
-use amudai_objectstore::ObjectStore;
-use arrow_array::{cast::AsArray, Array, ArrayRef};
+use arrow_array::{Array, ArrayRef, cast::AsArray};
 
+use crate::write::field_encoder::FieldEncoderParams;
 use crate::write::stripe_builder::create_field_locators;
 
 use super::format_elements_ext::CompactDataRefs;
@@ -47,7 +48,12 @@ impl FieldBuilder {
     /// A new `FieldBuilder` instance, or an error if the child field builders cannot be created.
     pub fn new(params: FieldBuilderParams) -> Result<FieldBuilder> {
         let basic_type = params.data_type.describe()?;
-        let encoder = FieldEncoder::new(basic_type, params.temp_store.clone())?;
+        let encoder_params = FieldEncoderParams {
+            basic_type,
+            temp_store: params.temp_store.clone(),
+            encoding_profile: params.encoding_profile,
+        };
+        let encoder = FieldEncoder::new(encoder_params)?;
         let children = FieldBuilders::new(&params.data_type)?;
         Ok(FieldBuilder {
             params,
@@ -222,7 +228,7 @@ impl FieldBuilder {
                         "push_list_array: expected list, got {:?}",
                         array.data_type()
                     ),
-                ))
+                ));
             }
         };
 
@@ -277,7 +283,7 @@ impl FieldBuilder {
                 return Err(Error::invalid_arg(
                     "array",
                     format!("expected Struct array, got {:?}", array.data_type()),
-                ))
+                ));
             }
         };
 
@@ -330,8 +336,8 @@ impl FieldBuilder {
     ) -> Result<FieldBuilder> {
         let params = FieldBuilderParams {
             data_type: child_type.clone(),
-            object_store: parent_params.object_store.clone(),
             temp_store: parent_params.temp_store.clone(),
+            encoding_profile: parent_params.encoding_profile,
         };
         FieldBuilder::new(params)
     }
@@ -556,8 +562,9 @@ impl FieldBuilders {
 pub struct FieldBuilderParams {
     /// The data type of the field.
     pub data_type: DataType,
-    /// The object store to use for writing data.
-    pub object_store: Arc<dyn ObjectStore>,
     /// The temp file store to use when building the field.
     pub temp_store: Arc<dyn TemporaryFileStore>,
+    /// Encoding profile for a field.
+    /// See [`ShardBuilderParams::encoding_profile`](`crate::write::shard_builder::ShardBuilderParams::encoding_profile`)
+    pub encoding_profile: BlockEncodingProfile,
 }

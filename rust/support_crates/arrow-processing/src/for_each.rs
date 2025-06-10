@@ -1,6 +1,6 @@
 //! Inspection of values within Arrow arrays in a generic way.
 
-use arrow_array::{cast::AsArray, Array};
+use arrow_array::{Array, cast::AsArray};
 use arrow_schema::DataType;
 
 /// Invokes a function `f` on each binary item of the `array`.

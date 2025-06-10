@@ -1,5 +1,5 @@
 use super::{AnalysisOutcome, BinaryValuesSequence, EncodingContext};
-use crate::encodings::{numeric::value::ValueWriter, EncodingConfig, EncodingPlan, NullMask};
+use crate::encodings::{EncodingConfig, EncodingPlan, NullMask, numeric::value::ValueWriter};
 use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::error::Error;
 use amudai_format::schema::BasicTypeDescriptor;

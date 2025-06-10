@@ -6,11 +6,11 @@ use std::{
 };
 
 use arrow_array::{
+    Array, ArrayRef, ListArray, RecordBatch, StructArray,
     builder::{
         BinaryBuilder, BooleanBuilder, Float32Builder, Float64Builder, Int32Builder, Int64Builder,
         StringBuilder,
     },
-    Array, ArrayRef, ListArray, RecordBatch, StructArray,
 };
 use arrow_buffer::{NullBuffer, OffsetBufferBuilder};
 use arrow_schema::{DataType, Field, Fields, Schema};

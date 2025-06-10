@@ -8,7 +8,7 @@ use std::{
 
 use amudai_bytes::Bytes;
 
-use crate::{verify, ReadAt, SealingWrite, StorageProfile};
+use crate::{ReadAt, SealingWrite, StorageProfile, verify};
 
 pub struct FileReader {
     file: Arc<File>,
@@ -167,8 +167,8 @@ pub fn file_write_at(file: &File, mut pos: u64, mut buf: &[u8]) -> std::io::Resu
 #[cfg(test)]
 mod tests {
     use crate::{
-        file::{FileReader, FileWriter},
         ReadAt, SealingWrite,
+        file::{FileReader, FileWriter},
     };
 
     #[test]

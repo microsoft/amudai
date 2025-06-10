@@ -2,12 +2,12 @@ use amudai_arrow_compat::any_value_support::ToAnyValue;
 use amudai_common::Result;
 use amudai_format::{defs::shard::RangeStats, schema::BasicTypeDescriptor};
 use arrow_array::{
+    Array, ArrowNativeTypeOp, ArrowPrimitiveType,
     cast::AsArray,
     types::{
-        Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type,
-        UInt32Type, UInt64Type, UInt8Type,
+        Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type, UInt16Type,
+        UInt32Type, UInt64Type,
     },
-    Array, ArrowNativeTypeOp, ArrowPrimitiveType,
 };
 
 /// A struct to collect statistics for primitive types.
@@ -371,8 +371,8 @@ mod tests {
     use amudai_common::Result;
     use amudai_format::schema::{BasicType, BasicTypeDescriptor};
     use arrow_array::{
-        Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, Int8Array, UInt16Array,
-        UInt32Array, UInt64Array, UInt8Array,
+        Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, Int64Array, UInt8Array,
+        UInt16Array, UInt32Array, UInt64Array,
     };
 
     use super::PrimitiveStatsCollector;

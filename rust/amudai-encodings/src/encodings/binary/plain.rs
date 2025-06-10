@@ -1,10 +1,10 @@
 use super::{
-    stats::{BinaryStats, BinaryStatsCollectorFlags},
     AnalysisOutcome, BinaryValuesSequence, EncodingContext, EncodingKind, StringEncoding,
+    stats::{BinaryStats, BinaryStatsCollectorFlags},
 };
 use crate::encodings::{
-    numeric::value::{ValueReader, ValueWriter},
     EncodingConfig, EncodingParameters, EncodingPlan, NullMask,
+    numeric::value::{ValueReader, ValueWriter},
 };
 use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::error::Error;
@@ -92,7 +92,7 @@ impl StringEncoding for PlainEncoding {
         let decoded = if offset_width == 0 {
             // Zero offset width indicates fixed size values.
             let mut values = Values::new();
-            values.extend_from_slice(&buffer);
+            values.extend_from_slice(buffer);
 
             ValueSequence {
                 type_desc,
@@ -127,8 +127,8 @@ impl StringEncoding for PlainEncoding {
 #[cfg(test)]
 mod tests {
     use crate::encodings::{
-        binary::{BinaryValuesSequence, EncodingContext},
         EncodingKind, EncodingPlan, NullMask,
+        binary::{BinaryValuesSequence, EncodingContext},
     };
     use amudai_bytes::buffer::AlignedByteVec;
     use amudai_format::schema::{BasicType, BasicTypeDescriptor};

@@ -6,10 +6,10 @@ use std::{
 };
 
 use amudai_bytes::Bytes;
-use amudai_common::{error::Error, verify_data, Result};
+use amudai_common::{Result, error::Error, verify_data};
 use amudai_encodings::block_encoder::BlockChecksum;
 use amudai_format::defs::shard;
-use amudai_io::{sliced_read::SlicedReadAt, ReadAt};
+use amudai_io::{ReadAt, sliced_read::SlicedReadAt};
 use amudai_io_impl::prefetch_read::PrefetchReadAt;
 
 use crate::write::PreparedEncodedBuffer;
@@ -168,6 +168,9 @@ impl BlockStreamDecoder {
         self.this.upgrade().expect("upgrade")
     }
 
+    /// Returns configuration for block checksums. Whether the checksums are
+    /// available is determined by the policy of the encoded buffer during its
+    /// creation.
     pub fn checksum_config(&self) -> BlockChecksum {
         self.checksum_config
     }
@@ -183,20 +186,91 @@ impl BlockStreamDecoder {
         &self.block_map
     }
 
+    /// Creates a reader for accessing blocks within specified logical position ranges.
+    ///
+    /// This method provides a higher-level interface for creating block readers by accepting
+    /// logical position ranges (value indices) rather than block ordinal ranges. It automatically
+    /// converts position ranges to the corresponding block ranges and optimizes them for
+    /// efficient I/O access patterns.
+    ///
+    /// # Arguments
+    ///
+    /// * `pos_ranges` - Iterator of logical position ranges within the data stream.
+    ///   Each range represents a span of values (not blocks) that are expected to be read.
+    ///   Positions are zero-based value indices that span across all blocks in the stream.
+    ///
+    /// * `prefetch` - Controls whether to enable background prefetching for improved
+    ///   read performance. See [`BlockReaderPrefetch`] for detailed behavior descriptions.
+    ///
+    /// # Returns
+    ///
+    /// Result containing a `BlockReader` configured for the specified position ranges,
+    /// or an error if the conversion or reader creation fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns errors if:
+    /// - Position ranges extend beyond the total value count in the stream
+    /// - The block map cannot be accessed or is corrupted
+    /// - Block range optimization fails due to storage constraints
+    /// - Reader creation fails due to invalid block ranges
+    ///
+    /// # See Also
+    ///
+    /// - [`Self::create_reader_with_block_ranges`] for direct block-based reader creation
+    /// - [`BlockReaderPrefetch`] for prefetching behavior details
+    /// - Block map methods for understanding position-to-block mapping
+    pub fn create_reader_with_position_ranges(
+        &self,
+        pos_ranges: impl Iterator<Item = Range<u64>> + Clone,
+        prefetch: BlockReaderPrefetch,
+    ) -> Result<BlockReader> {
+        let block_ranges = self.block_map.pos_ranges_to_block_ranges(pos_ranges)?;
+        let block_ranges = self
+            .block_map
+            .compute_read_optimized_block_ranges(block_ranges.into_iter())?;
+        self.create_reader_with_block_ranges(block_ranges, prefetch)
+    }
+
     /// Creates a reader for accessing blocks within specified ranges.
     ///
     /// # Arguments
     ///
-    /// * `block_ranges` - Ranges of block ordinals expected to be read. Can be empty,
-    ///   in which case the reader will use a more conservative but potentially less
-    ///   efficient storage access pattern.
-    /// * `enable_prefetch` - Whether to enable background prefetching (read-ahead)
-    ///   for blocks. Has no effect if `block_ranges` is empty.
+    /// * `block_ranges` - Ranges of block ordinals expected to be read. When empty,
+    ///   the reader uses a conservative access pattern that loads blocks on-demand
+    ///   with minimal memory usage. When provided, these ranges guide prefetching
+    ///   and block loading strategies.
+    /// * `prefetch` - Controls whether to enable background prefetching for improved
+    ///   read performance. Prefetching only occurs when `block_ranges` is non-empty
+    ///   and provides predictable access patterns.
     ///
     /// # Returns
     ///
     /// Result containing a `BlockReader` or an error.
-    pub fn create_reader(
+    ///
+    /// # Performance Considerations
+    ///
+    /// The `block_ranges` parameter significantly affects memory usage and I/O patterns:
+    ///
+    /// - **Block range sizing**: The implementation preloads entire block ranges when
+    ///   accessing blocks within them. Each range should be appropriately sized for
+    ///   your access pattern - typically the optimized ranges computed by the block map.
+    ///
+    /// - **Memory impact**: Large block ranges will consume proportionally more memory
+    ///   since the entire range is loaded into memory. Consider your available memory
+    ///   when specifying ranges.
+    ///
+    /// - **Worst case scenario**: Passing a single range that spans all blocks will
+    ///   cause the entire dataset to be loaded into memory, which may result in
+    ///   excessive memory consumption and potential out-of-memory conditions.
+    ///
+    /// - **Empty ranges**: When `block_ranges` is empty, the reader falls back to
+    ///   loading individual blocks or small ranges based on I/O size constraints,
+    ///   using less memory but potentially requiring more I/O operations.
+    ///
+    /// For optimal performance, use block ranges that match your actual access patterns
+    /// and are appropriately sized for your memory constraints.
+    pub fn create_reader_with_block_ranges(
         &self,
         block_ranges: Vec<Range<u32>>,
         prefetch: BlockReaderPrefetch,
@@ -528,16 +602,15 @@ impl BlockReader {
             verify_data!(len, len >= 4);
             let data_len = len - 4;
             let checksum = u32::from_le_bytes(raw_data[data_len..].try_into().unwrap());
-            let data = raw_data.slice(0..data_len);
             Ok(OpaqueBlock {
                 descriptor,
-                data,
+                raw_data,
                 checksum: Some(checksum),
             })
         } else {
             Ok(OpaqueBlock {
                 descriptor,
-                data: raw_data,
+                raw_data,
                 checksum: None,
             })
         }
@@ -578,17 +651,104 @@ impl Iterator for StorageRangesFromBlockRangesIter {
     }
 }
 
+/// A container for encoded block data read from a BlockStream.
+///
+/// An `OpaqueBlock` represents a single encoded data block that has been read
+/// from storage but not yet decoded into its constituent values. It serves as
+/// an intermediate representation between the raw bytes stored in the encoded
+/// stream and the final decoded value sequence.
+///
+/// The block contains three key components:
+/// - **Metadata**: Block positioning and size information via the descriptor
+/// - **Encoded data**: The actual compressed/encoded block content
+/// - **Integrity verification**: Optional checksum for data validation
+///
+/// # Checksum Behavior
+///
+/// Whether a block includes a checksum depends on the encoding policy used when
+/// the BlockStream was created:
+/// - When checksums are enabled, `raw_data` contains the encoded block data
+///   followed by a 4-byte little-endian checksum, and `checksum` contains the
+///   extracted value
+/// - When checksums are disabled, `raw_data` contains only the encoded block data,
+///   and `checksum` is `None`
+///
+/// # Usage
+///
+/// `OpaqueBlock` instances are typically obtained from a [`BlockReader`] and then
+/// passed to field-specific decoders that understand the internal encoding format.
+/// The block's opaque nature allows the BlockStream layer to handle storage and
+/// retrieval without needing knowledge of the specific encoding schemes used for
+/// different data types.
 #[derive(Debug, Clone)]
 pub struct OpaqueBlock {
+    /// Block metadata describing its logical position and storage location.
+    ///
+    /// The descriptor contains the block's ordinal (sequential index), the range of
+    /// logical positions it covers, and the byte range it occupies in storage.
     pub descriptor: BlockDescriptor,
-    pub data: Bytes,
+
+    /// Raw block data including encoded content and optional checksum.
+    ///
+    /// This field contains the complete block as stored, which includes:
+    /// - The encoded block data (variable length)
+    /// - A 4-byte little-endian checksum appended at the end (when checksums
+    ///   are enabled)
+    ///
+    /// Use the [`data()`](Self::data) method to access only the encoded content
+    /// without the checksum suffix.
+    pub raw_data: Bytes,
+
+    /// Extracted checksum value when integrity verification is enabled.
+    ///
+    /// This field contains the 4-byte checksum value extracted from the end of
+    /// `raw_data` when the BlockStream was encoded with checksum verification enabled.
+    /// When `Some(value)`, the last 4 bytes of `raw_data` represent this checksum.
+    /// When `None`, no checksum was included during encoding and `raw_data` contains
+    /// only the encoded block content.
     pub checksum: Option<u32>,
 }
 
 impl OpaqueBlock {
+    /// Returns the encoded block data without the trailing checksum.
+    ///
+    /// This method extracts only the meaningful encoded content from `raw_data`,
+    /// excluding any trailing checksum bytes. The returned slice contains the
+    /// actual encoded block data that should be passed to field-specific decoders.
+    ///
+    /// # Returns
+    ///
+    /// A byte slice containing the encoded block data. When checksums are enabled,
+    /// this excludes the final 4 bytes which contain the checksum. When checksums
+    /// are disabled, this returns the entire `raw_data` content.
+    pub fn data(&self) -> &[u8] {
+        let checksum_len = self.checksum.map(|_| 4usize).unwrap_or(0usize);
+        let len = self.raw_data.len() - checksum_len;
+        &self.raw_data[0..len]
+    }
+
+    /// Verifies the integrity of the block data using its checksum.
+    ///
+    /// This method validates the block's content against its stored checksum to detect
+    /// data corruption during storage or transmission. The verification is performed
+    /// only when the block was encoded with checksum verification enabled.
+    ///
+    /// The checksum algorithm used is consistent with the BlockStream format's
+    /// integrity verification scheme. If verification fails, it indicates the block
+    /// data has been corrupted and should not be trusted.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if the checksum verification passes or if no checksum is present.
+    ///
+    /// # Performance Notes
+    ///
+    /// Checksum verification requires computing a hash (`xxh3_64` to be precise) over
+    /// the entire block data, which has a computational cost proportional to the block
+    /// size.
     pub fn verify_checksum(&self) -> Result<()> {
         if let Some(checksum) = self.checksum {
-            amudai_format::checksum::validate_buffer(&self.data, checksum, Some("value block"))?;
+            amudai_format::checksum::validate_buffer(self.data(), checksum, Some("value block"))?;
         }
         Ok(())
     }
@@ -612,7 +772,7 @@ mod tests {
             block_map_ops::BlockMapOps,
             block_stream::{BlockReaderPrefetch, BlockStreamDecoder},
         },
-        write::{primitive_buffer::PrimitiveBufferEncoder, PreparedEncodedBuffer},
+        write::{PreparedEncodedBuffer, primitive_buffer::PrimitiveBufferEncoder},
     };
 
     #[test]
@@ -640,12 +800,12 @@ mod tests {
             BlockStreamDecoder::from_encoded_buffer(buffer.data, &buffer.descriptor).unwrap();
 
         let mut reader = decoder
-            .create_reader(vec![], BlockReaderPrefetch::Enabled)
+            .create_reader_with_block_ranges(vec![], BlockReaderPrefetch::Enabled)
             .unwrap();
         let block = reader.read_block(50).unwrap();
 
         assert_eq!(block.descriptor.ordinal, 50);
-        assert!(block.data.len() > 0);
+        assert!(block.data().len() > 0);
         assert!(block.checksum.is_some());
         block.verify_checksum().unwrap();
     }
@@ -657,7 +817,7 @@ mod tests {
             BlockStreamDecoder::from_encoded_buffer(buffer.data, &buffer.descriptor).unwrap();
 
         let mut reader = decoder
-            .create_reader(vec![], BlockReaderPrefetch::Enabled)
+            .create_reader_with_block_ranges(vec![], BlockReaderPrefetch::Enabled)
             .unwrap();
 
         for i in 0..10 {
@@ -675,7 +835,7 @@ mod tests {
 
         let ranges = vec![10..20, 50..60];
         let mut reader = decoder
-            .create_reader(ranges, BlockReaderPrefetch::Enabled)
+            .create_reader_with_block_ranges(ranges, BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Block in first range
@@ -698,7 +858,7 @@ mod tests {
             BlockStreamDecoder::from_encoded_buffer(buffer.data, &buffer.descriptor).unwrap();
 
         let mut reader = decoder
-            .create_reader(vec![], BlockReaderPrefetch::Enabled)
+            .create_reader_with_block_ranges(vec![], BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Access blocks in non-sequential order
@@ -717,7 +877,7 @@ mod tests {
             BlockStreamDecoder::from_encoded_buffer(buffer.data, &buffer.descriptor).unwrap();
 
         let mut reader = decoder
-            .create_reader(vec![], BlockReaderPrefetch::Enabled)
+            .create_reader_with_block_ranges(vec![], BlockReaderPrefetch::Enabled)
             .unwrap();
 
         for i in 0..10 {
@@ -735,7 +895,7 @@ mod tests {
             BlockStreamDecoder::from_encoded_buffer(buffer.data, &buffer.descriptor).unwrap();
 
         let mut reader = decoder
-            .create_reader(vec![], BlockReaderPrefetch::Enabled)
+            .create_reader_with_block_ranges(vec![], BlockReaderPrefetch::Enabled)
             .unwrap();
 
         let first = reader.read_block(0).unwrap();
@@ -772,7 +932,7 @@ mod tests {
         assert!(block_ranges.len() > 3);
 
         let mut reader = decoder
-            .create_reader(block_ranges, BlockReaderPrefetch::Enabled)
+            .create_reader_with_block_ranges(block_ranges, BlockReaderPrefetch::Enabled)
             .unwrap();
         let block_count = buffer.descriptor.block_count.unwrap() as u32;
 
@@ -780,7 +940,7 @@ mod tests {
             let block = reader.read_block(i).unwrap();
 
             assert_eq!(block.descriptor.ordinal, i as u64);
-            assert!(!block.data.is_empty());
+            assert!(!block.data().is_empty());
             assert!(block.checksum.is_some());
 
             block.verify_checksum().unwrap();

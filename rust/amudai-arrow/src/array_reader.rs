@@ -11,7 +11,10 @@ use amudai_arrow_compat::{
 };
 use amudai_format::schema::BasicType;
 use amudai_sequence::offsets::Offsets;
-use amudai_shard::read::{field::Field, field_decoder::FieldReader};
+use amudai_shard::read::{
+    field::Field,
+    field_decoder::{FieldDecoder, FieldReader, boolean::BooleanFieldReader},
+};
 use arrow::{
     array::{ArrayRef, LargeListArray, StructArray},
     datatypes::{DataType as ArrowDataType, Field as ArrowField, Fields as ArrowFields},
@@ -32,6 +35,13 @@ pub enum ArrayReader {
     /// Handles simple data types that can be directly converted to Arrow arrays
     /// without complex nested structure processing.
     Simple(SimpleArrayReader),
+
+    /// Reader for boolean types with optimized Arrow BooleanBuffer handling.
+    ///
+    /// This specialized variant provides better boolean data processing by working
+    /// directly with Arrow's BooleanBuffer format, avoiding the overhead of expanded
+    /// byte buffer conversions used by SimpleArrayReader.
+    Boolean(BooleanArrayReader),
 
     /// Reader for struct types with named fields.
     ///
@@ -85,6 +95,7 @@ impl ArrayReader {
     pub fn read(&mut self, pos_range: Range<u64>) -> Result<ArrayRef, ArrowError> {
         match self {
             ArrayReader::Simple(reader) => reader.read(pos_range),
+            ArrayReader::Boolean(reader) => reader.read(pos_range),
             ArrayReader::Struct(reader) => reader.read(pos_range),
             ArrayReader::List(reader) => reader.read(pos_range),
         }
@@ -226,11 +237,14 @@ impl ArrayReader {
     /// # Returns
     /// Returns a new `ArrayReader::Simple` variant containing a configured `SimpleArrayReader`.
     fn new_basic(
-        _arrow_type: ArrowDataType,
+        arrow_type: ArrowDataType,
         stripe_field: Field,
         pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
     ) -> Result<ArrayReader, ArrowError> {
-        let _basic_type = stripe_field.data_type().describe().to_arrow_res()?;
+        if matches!(arrow_type, ArrowDataType::Boolean) {
+            return Self::new_boolean(arrow_type, stripe_field, pos_ranges_hint);
+        }
+
         // TODO: check whether we need on-the-fly data conversion, i.e. the requested
         // formal Arrow type is different from the actual stripe field data type, but
         // the types are conceptually compatible and conversion is possible (e.g.Guid
@@ -240,7 +254,47 @@ impl ArrayReader {
             .to_arrow_res()?
             .create_reader(pos_ranges_hint)
             .to_arrow_res()?;
-        Ok(ArrayReader::Simple(SimpleArrayReader::new(reader)))
+        Ok(ArrayReader::Simple(SimpleArrayReader::new(
+            reader, arrow_type,
+        )))
+    }
+
+    /// Creates a new boolean array reader for converting Amudai boolean fields to Arrow
+    /// BooleanArray.
+    ///
+    /// This method validates that the Amudai field is indeed a boolean type, then creates
+    /// a specialized boolean field reader that can efficiently handle boolean data with
+    /// proper null handling and optimized boolean storage.
+    ///
+    /// # Arguments
+    /// * `arrow_type` - The Arrow data type (must be Boolean)
+    /// * `stripe_field` - The Amudai field containing the boolean data to be read
+    /// * `pos_ranges_hint` - Iterator over position ranges that provides hints for
+    ///   optimizing boolean field access patterns
+    ///
+    /// # Returns
+    /// Returns a new `ArrayReader::Boolean` variant containing a configured `BooleanArrayReader`.
+    fn new_boolean(
+        arrow_type: ArrowDataType,
+        stripe_field: Field,
+        pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
+    ) -> Result<ArrayReader, ArrowError> {
+        let basic_type = stripe_field.data_type().describe().to_arrow_res()?;
+        if basic_type.basic_type != BasicType::Boolean {
+            return Err(ArrowError::NotYetImplemented(format!(
+                "{:?} field to Arrow {} conversion",
+                basic_type.basic_type, arrow_type
+            )));
+        }
+
+        let decoder = match stripe_field.create_decoder().to_arrow_res()? {
+            FieldDecoder::Boolean(decoder) => decoder,
+            _ => panic!("unexpected field decoder variant"),
+        };
+        let reader = decoder
+            .create_boolean_reader(pos_ranges_hint)
+            .to_arrow_res()?;
+        Ok(ArrayReader::Boolean(BooleanArrayReader::new(reader)))
     }
 }
 
@@ -248,6 +302,7 @@ impl ArrayReader {
 /// producing Arrow arrays.
 pub struct SimpleArrayReader {
     reader: Box<dyn FieldReader>,
+    arrow_type: ArrowDataType,
 }
 
 impl SimpleArrayReader {
@@ -255,8 +310,8 @@ impl SimpleArrayReader {
     ///
     /// # Arguments
     /// * `reader` - The field reader implementation.
-    pub fn new(reader: Box<dyn FieldReader>) -> SimpleArrayReader {
-        SimpleArrayReader { reader }
+    pub fn new(reader: Box<dyn FieldReader>, arrow_type: ArrowDataType) -> SimpleArrayReader {
+        SimpleArrayReader { reader, arrow_type }
     }
 
     /// Reads an Arrow array for the specified position range.
@@ -265,8 +320,42 @@ impl SimpleArrayReader {
     /// * `pos_range` - The range of logical positions to read.
     pub fn read(&mut self, pos_range: Range<u64>) -> Result<ArrayRef, ArrowError> {
         let seq = self.reader.read(pos_range).to_arrow_res()?;
-        let arr = seq.into_arrow_array().to_arrow_res()?;
+        let arr = seq.into_arrow_array(&self.arrow_type).to_arrow_res()?;
         Ok(arr)
+    }
+}
+
+/// Reader for Amudai boolean fields, converting them to Arrow BooleanArray
+/// instances.
+///
+/// This reader provides optimized handling of boolean data from Amudai shards,
+/// efficiently converting boolean values with proper null handling and bit-packed
+/// storage as expected by Apache Arrow's BooleanArray format.
+///
+/// The reader wraps a specialized `BooleanFieldReader` to leverage Amudai's
+/// boolean field decoding capabilities.
+pub struct BooleanArrayReader(BooleanFieldReader);
+
+impl BooleanArrayReader {
+    /// Constructs a new `BooleanArrayReader`.
+    ///
+    /// # Arguments
+    /// * `reader` - The specialized boolean field reader that handles the low-level
+    ///   boolean data decoding from Amudai shard format.
+    pub fn new(reader: BooleanFieldReader) -> BooleanArrayReader {
+        BooleanArrayReader(reader)
+    }
+
+    /// Reads an Arrow BooleanArray for the specified position range.
+    ///
+    /// # Arguments
+    /// * `pos_range` - The range of logical positions to read from the boolean field.
+    ///
+    /// # Returns
+    /// Returns an `ArrayRef` containing the Arrow BooleanArray data for the specified range.
+    pub fn read(&mut self, pos_range: Range<u64>) -> Result<ArrayRef, ArrowError> {
+        let arr = self.0.read_array(pos_range).to_arrow_res()?;
+        Ok(Arc::new(arr))
     }
 }
 

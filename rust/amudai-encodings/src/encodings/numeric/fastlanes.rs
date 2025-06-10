@@ -482,7 +482,7 @@ impl_packing_unimpl!(u128);
 
 /// Frame-of-Reference encoding that is fused with BitPacking into a single SIMD sequence of
 /// operations.
-pub trait FFOR: BitPacking {
+pub trait FusedFrameOfReference: BitPacking {
     fn ffor_pack_gen<const W: usize>(input: &[Self], reference: Self, output: &mut [Self]) -> usize
     where
         BitPackWidth<W>: SupportedBitPackWidth<Self>;
@@ -499,7 +499,7 @@ pub trait FFOR: BitPacking {
 macro_rules! impl_ffor {
     ($T:ty) => {
         paste! {
-            impl FFOR for $T {
+            impl FusedFrameOfReference for $T {
                 fn ffor_pack_gen<const W: usize>(
                     input: &[Self],
                     reference: Self,
@@ -585,7 +585,7 @@ macro_rules! impl_ffor {
 macro_rules! impl_ffor_unimpl {
     ($T:ty) => {
         paste! {
-            impl FFOR for $T {
+            impl FusedFrameOfReference for $T {
                 fn ffor_pack_gen<const W: usize>(_: &[Self], _: Self, _: &mut [Self]) -> usize
                 where
                     BitPackWidth<W>: SupportedBitPackWidth<Self>,
@@ -700,11 +700,11 @@ mod test {
         let width = std::mem::size_of::<u32>() * 8 - (max - min).leading_zeros() as usize;
 
         let mut packed = vec![0; values.len()];
-        let packed_size = FFOR::ffor_pack(width, &values, min, &mut packed);
+        let packed_size = FusedFrameOfReference::ffor_pack(width, &values, min, &mut packed);
         packed.truncate(packed_size);
 
         let mut unpacked = vec![0; values.len()];
-        FFOR::ffor_unpack(width, &packed, min, &mut unpacked);
+        FusedFrameOfReference::ffor_unpack(width, &packed, min, &mut unpacked);
 
         for (&a, &b) in values.iter().zip(unpacked.iter()) {
             assert_eq!(a, b);

@@ -6,7 +6,7 @@ use amudai_blockstream::read::{
     block_stream::BlockReaderPrefetch,
     primitive_buffer::{PrimitiveBufferDecoder, PrimitiveBufferReader},
 };
-use amudai_common::{error::Error, verify_data, Result};
+use amudai_common::{Result, error::Error, verify_data};
 use amudai_format::{
     defs::shard::BufferKind,
     schema::{BasicType, BasicTypeDescriptor},

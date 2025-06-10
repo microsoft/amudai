@@ -22,8 +22,8 @@ use stats::{
 };
 use std::{collections::HashMap, sync::Arc};
 use truncation::{
-    TruncatableSInteger, TruncateU16Encoding, TruncateU32Encoding, TruncateU64Encoding,
-    TruncateU8Encoding,
+    TruncatableSInteger, TruncateU8Encoding, TruncateU16Encoding, TruncateU32Encoding,
+    TruncateU64Encoding,
 };
 use value::{DecimalValue, FloatValue, NumericValue, SIntegerValue, UIntegerValue, ValueReader};
 use zigzag::ZigZagEncoding;
@@ -62,7 +62,7 @@ pub trait NumericEncoding<T>: Send + Sync {
     /// # Parameters
     ///
     /// - `values`: Typed sequence of numeric values to analyze. This is typically a sample of the
-    ///  entire data set.
+    ///   entire data set.
     /// - `null_mask`: Null mask that indicates which values are null.
     /// - `config`: The encoding configuration that specifies the encoding options.
     /// - `stats`: The statistics collected from the data.
@@ -155,10 +155,12 @@ where
         encodings: Vec<Arc<dyn NumericEncoding<T>>>,
         stats_collector: Arc<dyn StatsCollector<T>>,
     ) -> Self {
-        assert!(encodings
-            .iter()
-            .map(|encoding| encoding.kind())
-            .all_unique());
+        assert!(
+            encodings
+                .iter()
+                .map(|encoding| encoding.kind())
+                .all_unique()
+        );
         let encodings_by_name = encodings
             .iter()
             .map(|encoding| (encoding.kind(), Arc::clone(encoding)))
@@ -181,7 +183,7 @@ where
     /// # Parameters
     ///
     /// - `values`: Typed sequence of numeric values to analyze. This is typically a sample of the
-    ///  entire data set.
+    ///   entire data set.
     /// - `null_mask`: Null mask that indicates which values are null.
     /// - `config`: The encoding configuration that specifies the encoding options.
     /// - `context`: The encoding context that provides an access to shared resources.
@@ -518,7 +520,7 @@ mod tests {
         let plan = outcome.into_plan();
         assert_eq!(
             EncodingPlan {
-                encoding: EncodingKind::FFOR,
+                encoding: EncodingKind::FusedFrameOfReference,
                 parameters: Default::default(),
                 cascading_encodings: vec![],
             },

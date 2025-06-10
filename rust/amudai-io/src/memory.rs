@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use amudai_bytes::Bytes;
 
-use crate::{verify, ReadAt, SealingWrite, StorageProfile};
+use crate::{ReadAt, SealingWrite, StorageProfile, verify};
 
 impl<T> ReadAt for T
 where
