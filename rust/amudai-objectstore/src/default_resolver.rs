@@ -20,7 +20,11 @@ impl ReferenceResolver for ContainerScopedReferenceResolver {
         }
         Err(Error::invalid_arg(
             "reference",
-            "container-scoped reference resolver: invalid reference",
+            format!(
+                "container-scoped reference resolver: invalid reference {} (base: {})",
+                reference,
+                base.as_str()
+            ),
         ))
     }
 }

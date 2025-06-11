@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 mod commands;
+mod schema_parser;
 mod utils;
 
 #[derive(Parser)]
@@ -15,10 +16,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Ingest one or more source files into a shard
+    /// Ingest one or more source files into a shard. The shard will be stored in the specified shard path.
     Ingest {
         /// Path to the JSON file containing hierarchical table schema
-        #[arg(long)]
+        #[arg(long, conflicts_with = "schema")]
+        schema_file: Option<String>,
+
+        /// Schema string in format: (field1: type1, field2: type2, ...)
+        /// Supported types: string, int/int32/i32, long/int64/i64, double/float64/f64, datetime
+        #[arg(long, conflicts_with = "schema_file")]
         schema: Option<String>,
 
         /// Source file(s) to ingest (can be specified multiple times)
@@ -38,7 +44,6 @@ enum Commands {
         /// Shard URL or path to inspect
         shard_path: String,
     },
-
     /// Infer schema from source files
     InferSchema {
         /// Source file(s) to analyze for schema inference
@@ -49,6 +54,20 @@ enum Commands {
         #[arg(short, long)]
         output: Option<String>,
     },
+
+    /// Consume and read a shard to measure performance
+    Consume {
+        /// Number of records to read (if not specified, reads entire shard)
+        #[arg(long)]
+        count: Option<u64>,
+
+        /// Number of iterations
+        #[arg(long)]
+        iterations: Option<u64>,
+
+        /// Shard URL or path to consume
+        shard_path: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -56,14 +75,20 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Ingest {
+            schema_file,
             schema,
             file,
             shard_path,
-        } => commands::ingest::run(schema, file, shard_path),
+        } => commands::ingest::run(schema_file, schema, file, shard_path),
         Commands::Inspect {
             verbose,
             shard_path,
         } => commands::inspect::run(verbose, shard_path),
         Commands::InferSchema { file, output } => commands::inferschema::run(file, output),
+        Commands::Consume {
+            count,
+            iterations,
+            shard_path,
+        } => commands::consume::run(count, iterations, shard_path),
     }
 }

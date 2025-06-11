@@ -72,7 +72,10 @@ impl ReadAt for FileReader {
     }
 
     fn storage_profile(&self) -> StorageProfile {
-        Default::default()
+        StorageProfile {
+            min_io_size: 16 * 1024,
+            max_io_size: 1 * 1024 * 1024,
+        }
     }
 }
 

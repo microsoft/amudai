@@ -92,7 +92,7 @@ impl Default for StorageProfile {
     fn default() -> StorageProfile {
         Self {
             min_io_size: 4 * 1024,
-            max_io_size: 64 * 1024 * 1024,
+            max_io_size: 4 * 1024 * 1024,
         }
     }
 }

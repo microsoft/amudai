@@ -123,6 +123,13 @@ impl AlignedByteVec {
         }
     }
 
+    pub unsafe fn set_len(&mut self, new_len: usize) {
+        assert!(new_len <= self.capacity());
+        unsafe {
+            self.inner.set_len(self.start + new_len);
+        }
+    }
+
     /// Truncates the vector to the specified length.
     pub fn truncate(&mut self, new_len: usize) {
         self.inner.truncate(self.start + new_len);

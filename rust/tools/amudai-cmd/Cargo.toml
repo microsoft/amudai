@@ -20,6 +20,7 @@ serde_json = { workspace = true }
 amudai-arrow = { workspace = true }
 amudai-arrow-compat = { workspace = true }
 amudai-blockstream = { workspace = true }
+amudai-collections = { workspace = true }
 amudai-common = { workspace = true }
 amudai-encodings = { workspace = true }
 amudai-format = { workspace = true }

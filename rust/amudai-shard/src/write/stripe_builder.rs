@@ -202,11 +202,12 @@ impl SealedStripe {
         let last_schema_id = self.fields.key_range().end;
         let mut schema_id = SchemaId::zero();
         while schema_id < last_schema_id {
-            let field_ref = if let Some(field) = self.fields.get(schema_id) {
+            let mut field_ref = if let Some(field) = self.fields.get(schema_id) {
                 field.write_descriptor(writer)?
             } else {
                 DataRef::empty()
             };
+            field_ref.try_make_relative(shard_url);
             field_list.push(field_ref);
             schema_id = schema_id.next();
         }
