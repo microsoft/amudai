@@ -198,7 +198,7 @@ impl PreparedShard {
 
         let mut directory = Self::initialize_directory(&stripes);
 
-        let url_list = Self::prepare_url_list(&stripes);
+        let url_list = Self::prepare_url_list(&stripes, shard_url);
         let fields = Self::prepare_field_list(&params.schema.schema()?, &stripes)?;
 
         directory.stripe_list_ref =
@@ -229,14 +229,16 @@ impl PreparedShard {
         directory
     }
 
-    fn prepare_url_list(stripes: &[SealedStripe]) -> shard::UrlList {
+    fn prepare_url_list(stripes: &[SealedStripe], shard_url: &ObjectUrl) -> shard::UrlList {
         let mut set = AHashSet::<String>::new();
         stripes
             .iter()
             .for_each(|stripe| stripe.collect_urls(&mut set));
-        shard::UrlList {
+        let mut list = shard::UrlList {
             urls: set.into_iter().collect(),
-        }
+        };
+        list.compact_data_refs(shard_url);
+        list
     }
 
     fn prepare_field_list(

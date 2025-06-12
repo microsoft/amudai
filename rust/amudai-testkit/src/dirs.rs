@@ -55,11 +55,31 @@ pub fn get_qlog_schema_path() -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
+/// Returns the path to the inventory generator Python script
+/// (`$repo_root/test/samples/inventory_generate_csv.py`).
+pub fn get_inventory_generator_script_path() -> anyhow::Result<PathBuf> {
+    let path = get_test_samples_dir()?.join("inventory_generate_csv.py");
+    if !path.is_file() {
+        anyhow::bail!("{} not found", path.display());
+    }
+    Ok(path)
+}
+
+/// Returns the path to the "inventory" record schema (json-serialized Arrow schema)
+pub fn get_inventory_schema_path() -> anyhow::Result<PathBuf> {
+    let path = get_test_samples_dir()?.join("inventory_schema.json");
+    if !path.is_file() {
+        anyhow::bail!("{} not found", path.display());
+    }
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
     fn test_dirs() {
         assert!(super::get_testkit_src_dir().is_ok());
         assert!(super::get_qlog_generator_script_path().is_ok());
+        assert!(super::get_inventory_generator_script_path().is_ok());
     }
 }

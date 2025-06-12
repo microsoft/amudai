@@ -8,13 +8,50 @@ use amudai_format::schema::BasicTypeDescriptor;
 use amudai_sequence::sequence::ValueSequence;
 use std::sync::Arc;
 
+/// Block decoder specialized for binary (variable-length) data types.
+///
+/// The `BinaryBlockDecoder` is the counterpart to `BinaryBlockEncoder`
+/// and handles decoding of encoded binary data blocks back into their
+/// original form. It supports all the same data types and encoding schemes
+/// as the encoder.
+///
+/// # Supported Decodings
+///
+/// - Plain encoding (direct memory copy)
+/// - Run-length decoding for repeated patterns
+/// - Dictionary decoding with code expansion
+/// - FSST string decompression
+/// - LZ4 general-purpose decompression
+/// - Zstandard high-ratio decompression
+/// - Complex cascaded decodings
+///
+/// # Usage
+///
+/// The decoder works with encoded blocks that include metadata headers
+/// describing the encoding scheme used, allowing automatic selection
+/// of the appropriate decoding strategy.
 pub struct BinaryBlockDecoder {
+    /// Encoding parameters used during block creation (for future use).
     _parameters: BlockEncodingParameters,
+    /// Type descriptor for the binary data being decoded.
     basic_type: BasicTypeDescriptor,
+    /// Shared encoding context containing decoders and configuration.
     context: Arc<EncodingContext>,
 }
 
 impl BinaryBlockDecoder {
+    /// Creates a new binary block decoder.
+    ///
+    /// # Arguments
+    ///
+    /// * `parameters` - Block encoding parameters that were used during encoding
+    /// * `basic_type` - Type descriptor for the binary data being decoded
+    /// * `context` - Shared encoding context with available decoders
+    ///
+    /// # Returns
+    ///
+    /// A new `BinaryBlockDecoder` instance ready to decode blocks of the
+    /// specified binary type.
     pub fn new(
         parameters: BlockEncodingParameters,
         basic_type: BasicTypeDescriptor,

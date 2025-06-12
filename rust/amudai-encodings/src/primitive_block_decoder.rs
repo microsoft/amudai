@@ -9,13 +9,50 @@ use amudai_format::schema::BasicTypeDescriptor;
 use amudai_sequence::{presence::Presence, sequence::ValueSequence, values::Values};
 use std::sync::Arc;
 
+/// Block decoder specialized for primitive (fixed-size) data types.
+///
+/// The `PrimitiveBlockDecoder` is the counterpart to `PrimitiveBlockEncoder`
+/// and handles decoding of encoded primitive data blocks back into their
+/// original form. It supports all the same data types and encoding schemes
+/// as the encoder.
+///
+/// # Supported Decodings
+///
+/// - Plain encoding (direct memory copy)
+/// - Bit-packing with various bit widths
+/// - Frame-of-reference decoding
+/// - Delta decoding
+/// - Run-length decoding
+/// - Single-value expansion
+/// - Complex cascaded encodings
+///
+/// # Usage
+///
+/// The decoder requires the same encoding parameters that were used during
+/// encoding to properly reconstruct the original data. This includes the
+/// basic type descriptor and block encoding parameters.
 pub struct PrimitiveBlockDecoder {
+    /// Encoding parameters used during block creation (for future use).
     _parameters: BlockEncodingParameters,
+    /// Type descriptor for the primitive data being decoded.
     basic_type: BasicTypeDescriptor,
+    /// Shared encoding context containing decoders and configuration.
     context: Arc<EncodingContext>,
 }
 
 impl PrimitiveBlockDecoder {
+    /// Creates a new primitive block decoder.
+    ///
+    /// # Arguments
+    ///
+    /// * `parameters` - Block encoding parameters that were used during encoding
+    /// * `basic_type` - Type descriptor for the primitive data being decoded
+    /// * `context` - Shared encoding context with available decoders
+    ///
+    /// # Returns
+    ///
+    /// A new `PrimitiveBlockDecoder` instance ready to decode blocks of the
+    /// specified primitive type.
     pub fn new(
         parameters: BlockEncodingParameters,
         basic_type: BasicTypeDescriptor,

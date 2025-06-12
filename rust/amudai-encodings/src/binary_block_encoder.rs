@@ -15,26 +15,79 @@ use amudai_bytes::buffer::AlignedByteVec;
 use amudai_format::schema::BasicTypeDescriptor;
 use std::sync::Arc;
 
+/// Block encoder specialized for binary (variable-length) data types.
+///
+/// The `BinaryBlockEncoder` handles encoding of variable-length data including
+/// strings, binary data, and dynamic content. It supports various compression
+/// schemes optimized for textual and binary data patterns.
+///
+/// # Supported Data Types
+///
+/// - UTF-8 strings
+/// - Binary data (arbitrary byte sequences)
+/// - Dynamic JSON-like content
+/// - Fixed-size binary data (when treated as variable-length)
+///
+/// # Encoding Strategies
+///
+/// The encoder analyzes input data to select optimal encoding strategies:
+/// - **Plain**: Direct storage for incompressible data
+/// - **Run-length encoding**: Compresses repeated byte patterns
+/// - **Dictionary encoding**: Maps frequent strings to short codes
+/// - **FSST**: Fast String Search Transform for string compression
+/// - **LZ4**: Fast general-purpose compression
+/// - **Zstandard**: High-ratio general-purpose compression
+///
+/// # Performance Characteristics
+///
+/// Binary encoding typically processes larger blocks than primitive encoding
+/// to achieve better compression ratios, especially for text data.
 pub struct BinaryBlockEncoder {
+    /// Shared encoding context containing encoders and configuration.
     context: Arc<EncodingContext>,
+    /// Encoding policy specifying compression profile and constraints.
     policy: BlockEncodingPolicy,
+    /// Type descriptor for the binary data being encoded (unused in current implementation).
     _basic_type: BasicTypeDescriptor,
+    /// Current encoding plan determined from data analysis.
     encoding_plan: EncodingPlan,
 }
 
 impl BinaryBlockEncoder {
+    /// Default number of values to sample for encoding analysis.
     const DEFAULT_SAMPLE_VALUE_COUNT: usize = 128;
+    /// Default sample size in bytes (128 values * 16 bytes average).
     const DEFAULT_SAMPLE_SIZE: usize = Self::DEFAULT_SAMPLE_VALUE_COUNT * 16;
+    /// Default block size for binary encodings (value count).
     const DEFAULT_BLOCK_VALUE_COUNT: usize = 8000;
+    /// Default block size in bytes (8000 values * 16 bytes average).
     const DEFAULT_BLOCK_SIZE: usize = Self::DEFAULT_BLOCK_VALUE_COUNT * 16;
+    /// Block size for minimal size profile (value count).
     const MINIMAL_SIZE_BLOCK_VALUE_COUNT: usize = 64000;
+    /// Block size for minimal size profile in bytes.
     const MINIMAL_SIZE_BLOCK_SIZE: usize = Self::MINIMAL_SIZE_BLOCK_VALUE_COUNT * 16;
 
+    /// Default size constraints for binary block encoding.
+    ///
+    /// Provides standard block size limits that work well for most binary data scenarios,
+    /// balancing compression efficiency with memory usage and processing speed.
     pub const DEFAULT_SIZE_CONSTRAINTS: BlockSizeConstraints = BlockSizeConstraints {
         value_count: Self::DEFAULT_BLOCK_VALUE_COUNT..Self::DEFAULT_BLOCK_VALUE_COUNT + 1,
         data_size: Self::DEFAULT_BLOCK_SIZE..Self::DEFAULT_BLOCK_SIZE + 1,
     };
 
+    /// Creates a new binary block encoder.
+    ///
+    /// # Arguments
+    ///
+    /// * `policy` - Encoding policy specifying compression profile and constraints
+    /// * `basic_type` - Type descriptor for the binary data being encoded
+    /// * `context` - Shared encoding context with available encoders and configuration
+    ///
+    /// # Returns
+    ///
+    /// A new `BinaryBlockEncoder` instance initialized with plain encoding
+    /// as the default strategy.
     pub fn new(
         policy: BlockEncodingPolicy,
         basic_type: BasicTypeDescriptor,
@@ -52,6 +105,23 @@ impl BinaryBlockEncoder {
         }
     }
 
+    /// Analyzes binary values to determine optimal encoding strategy.
+    ///
+    /// This method examines the characteristics of binary/string data to select
+    /// the most appropriate encoding scheme based on the encoding profile.
+    /// It considers factors like data repetition, compressibility, and string patterns.
+    ///
+    /// # Arguments
+    ///
+    /// * `values` - Arrow array containing the binary values to analyze
+    /// * `policy` - Encoding policy that influences strategy selection
+    /// * `context` - Encoding context with available analyzers
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(outcome))` - Analysis completed with encoding recommendation
+    /// * `Ok(None)` - Plain encoding should be used (no compression)
+    /// * `Err(error)` - Analysis failed due to incompatible data or other error
     fn analyze_values(
         values: &dyn arrow_array::Array,
         policy: &BlockEncodingPolicy,

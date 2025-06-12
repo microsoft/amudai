@@ -76,6 +76,72 @@ pub fn create_qlog_batch_iterator(
     }
 }
 
+/// Generates a specified number of "inventory" entries for testing.
+///
+/// This function executes a Python script to generate synthetic inventory entries
+/// and returns them as a temporary file. The entries are CSV-formatted
+/// records suitable for testing Amudai shard writer/reader functionality.
+///
+/// The generated entries contain simple data patterns including:
+/// - Record IDs for tracking individual entries
+/// - Random numeric values
+/// - Random text fields with lorem ipsum style words
+///
+/// # Arguments
+///
+/// * `count` - The number of inventory entries to generate. Must be greater than 0.
+///
+/// # Returns
+///
+/// Returns a `NamedTempFile` containing the generated entries, positioned
+/// at the start of the file. Each line in the file contains a CSV record
+/// representing an "inventory" entry.
+pub fn generate_inventory_entries(count: usize) -> anyhow::Result<tempfile::NamedTempFile> {
+    assert_ne!(count, 0);
+    let script = crate::dirs::get_inventory_generator_script_path()?;
+    let mut cmd = crate::py::get_cmd()?;
+    let child = cmd
+        .arg(script)
+        .arg(count.to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .spawn()?;
+    let mut output = child.stdout.expect("stdout");
+    let mut file = tempfile::NamedTempFile::new()?;
+    std::io::copy(&mut output, &mut file)?;
+    file.seek(SeekFrom::Start(0))?;
+    Ok(file)
+}
+
+/// Loads the "inventory" record schema from the json-serialized Arrow Schema file.
+pub fn load_inventory_schema() -> anyhow::Result<arrow_schema::Schema> {
+    let path = crate::dirs::get_inventory_schema_path()?;
+    let schema_json = std::fs::read_to_string(path)?;
+    let schema = serde_json::from_str(&schema_json)?;
+    Ok(schema)
+}
+
+pub fn create_inventory_batch_iterator(
+    record_count: usize,
+    batch_size: usize,
+) -> anyhow::Result<Box<dyn RecordBatchReader>> {
+    assert_ne!(batch_size, 0);
+    let schema = Arc::new(load_inventory_schema()?);
+    if record_count == 0 {
+        Ok(Box::new(RecordBatchIterator::new(
+            std::iter::empty(),
+            schema,
+        )))
+    } else {
+        let data = generate_inventory_entries(record_count)?;
+        let reader = arrow_csv::ReaderBuilder::new(schema)
+            .with_batch_size(batch_size)
+            .with_header(false)
+            .build(BufReader::with_capacity(128 * 1024, data))?;
+        Ok(Box::new(reader))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -138,6 +204,33 @@ mod tests {
         assert_eq!(total, 1000);
 
         let iter = super::create_qlog_batch_iterator(0, 100).unwrap();
+        let total = iter.map(|batch| batch.unwrap().num_rows()).sum::<usize>();
+        assert_eq!(total, 0);
+    }
+
+    #[test]
+    fn test_generate_inventory_entries() {
+        let schema = super::load_inventory_schema().unwrap();
+
+        let mut entries = super::generate_inventory_entries(100).unwrap();
+        entries.seek(SeekFrom::Start(0)).unwrap();
+        let mut reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
+            .with_batch_size(1024)
+            .with_header(false)
+            .build(BufReader::with_capacity(128 * 1024, entries))
+            .unwrap();
+
+        let batch = reader.next().unwrap().unwrap();
+        assert_eq!(batch.num_rows(), 100);
+    }
+
+    #[test]
+    fn test_inventory_batch_iter() {
+        let iter = super::create_inventory_batch_iterator(1000, 64).unwrap();
+        let total = iter.map(|batch| batch.unwrap().num_rows()).sum::<usize>();
+        assert_eq!(total, 1000);
+
+        let iter = super::create_inventory_batch_iterator(0, 100).unwrap();
         let total = iter.map(|batch| batch.unwrap().num_rows()).sum::<usize>();
         assert_eq!(total, 0);
     }

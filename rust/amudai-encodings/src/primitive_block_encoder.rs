@@ -14,18 +14,61 @@ use amudai_format::schema::BasicTypeDescriptor;
 use arrow_array::cast::AsArray;
 use std::sync::Arc;
 
+/// Block encoder specialized for primitive (fixed-size) data types.
+///
+/// The `PrimitiveBlockEncoder` handles encoding of numeric data types including
+/// integers, floating-point numbers, timestamps, and other fixed-size primitives.
+/// It supports various compression schemes optimized for numeric data patterns
+/// such as bit-packing, delta encoding, frame-of-reference, and run-length encoding.
+///
+/// # Supported Data Types
+///
+/// - Signed integers: `i8`, `i16`, `i32`, `i64`
+/// - Unsigned integers: `u8`, `u16`, `u32`, `u64`
+/// - Floating-point: `f32`, `f64`
+/// - Temporal types: `DateTime`, `TimeSpan`
+/// - Fixed-size binary data
+///
+/// # Encoding Strategies
+///
+/// The encoder analyzes input data to select optimal encoding strategies:
+/// - **Plain**: Direct memory copy for incompressible data
+/// - **Bit-packing**: Reduces bit width for small integer ranges
+/// - **Frame-of-reference**: Encodes values relative to a base value
+/// - **Delta encoding**: Stores differences between consecutive values
+/// - **Run-length encoding**: Compresses sequences of repeated values
+/// - **Single-value**: Optimizes blocks with identical values
 pub struct PrimitiveBlockEncoder {
+    /// Shared encoding context containing encoders and configuration.
     context: Arc<EncodingContext>,
+    /// Encoding policy specifying compression profile and constraints.
     policy: BlockEncodingPolicy,
+    /// Type descriptor for the data being encoded.
     basic_type: BasicTypeDescriptor,
+    /// Current encoding plan determined from data analysis.
     encoding_plan: EncodingPlan,
 }
 
 impl PrimitiveBlockEncoder {
+    /// Default number of values to sample for encoding analysis.
     const DEFAULT_SAMPLE_VALUE_COUNT: usize = 1024;
+    /// Default block size for numeric encodings (value count).
     const NUMERIC_ENC_BLOCK_VALUE_COUNT: usize = 8000;
+    /// Default block size for generic encodings (value count).
     const GENERIC_ENC_BLOCK_VALUE_COUNT: usize = 64000;
 
+    /// Creates a new primitive block encoder.
+    ///
+    /// # Arguments
+    ///
+    /// * `policy` - Encoding policy specifying compression profile and constraints
+    /// * `basic_type` - Type descriptor for the primitive data being encoded
+    /// * `context` - Shared encoding context with available encoders and configuration
+    ///
+    /// # Returns
+    ///
+    /// A new `PrimitiveBlockEncoder` instance initialized with plain encoding
+    /// as the default strategy.
     pub fn new(
         policy: BlockEncodingPolicy,
         basic_type: BasicTypeDescriptor,
@@ -43,6 +86,24 @@ impl PrimitiveBlockEncoder {
         }
     }
 
+    /// Analyzes primitive values to determine optimal encoding strategy.
+    ///
+    /// This method examines the statistical properties of the input data to select
+    /// the most appropriate encoding scheme based on the encoding profile specified
+    /// in the policy.
+    ///
+    /// # Arguments
+    ///
+    /// * `values` - Arrow array containing the primitive values to analyze
+    /// * `basic_type` - Type descriptor specifying the exact primitive type
+    /// * `policy` - Encoding policy that influences strategy selection
+    /// * `context` - Encoding context with available analyzers
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(outcome))` - Analysis completed with encoding recommendation
+    /// * `Ok(None)` - Plain encoding should be used (no compression)
+    /// * `Err(error)` - Analysis failed due to unsupported type or other error
     fn analyze_values(
         values: &dyn arrow_array::Array,
         basic_type: BasicTypeDescriptor,

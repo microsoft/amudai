@@ -267,7 +267,7 @@ def generate_log_entry(index: int):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python generate_logs.py <number_of_entries>")
+        print("Usage: python generate_logs.py <number_of_entries> [output_file]")
         sys.exit(1)
     try:
         num_entries_to_generate = int(sys.argv[1])
@@ -276,8 +276,17 @@ if __name__ == "__main__":
     except ValueError:
         print("Please provide a positive integer for the number of entries.")
         sys.exit(1)
-        
+    
+    output_file = sys.argv[2] if len(sys.argv) > 2 else None
+    
     random.seed(0x96d7ef1ea0d6)
-    for i in range(num_entries_to_generate):
-        log_entry = generate_log_entry(i)
-        print(json.dumps(log_entry))
+    
+    if output_file:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            for i in range(num_entries_to_generate):
+                log_entry = generate_log_entry(i)
+                f.write(json.dumps(log_entry) + '\n')
+    else:
+        for i in range(num_entries_to_generate):
+            log_entry = generate_log_entry(i)
+            print(json.dumps(log_entry))

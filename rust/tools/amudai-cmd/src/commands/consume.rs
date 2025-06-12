@@ -1,29 +1,28 @@
 //! Consume command implementation
 
 use anyhow::{Context, Result};
+use arrow::array::RecordBatch;
 use std::sync::Arc;
 use std::time::Instant;
 
 use amudai_arrow::builder::ArrowReaderBuilder;
 use amudai_objectstore::local_store::LocalFsObjectStore;
 
+use crate::commands::file_path_to_object_url;
 use crate::utils;
 
 /// Run the consume command
 pub fn run(count: Option<u64>, iterations: Option<u64>, shard_path: String) -> Result<()> {
     let iterations = iterations.unwrap_or(1);
+    let shard_path = file_path_to_object_url(&shard_path)?;
     for _ in 0..iterations {
-        run_single(count, &shard_path)?;
+        run_single(count, shard_path.as_str())?;
     }
     Ok(())
 }
 
 pub fn run_single(count: Option<u64>, shard_path: &str) -> Result<()> {
     println!("Consuming shard: {}", shard_path);
-
-    // Validate shard file exists
-    // utils::validate_file_exists(&shard_path)
-    //    .with_context(|| format!("Invalid shard file: {}", shard_path))?;
 
     // Start timing
     let start_time = Instant::now();
@@ -32,7 +31,7 @@ pub fn run_single(count: Option<u64>, shard_path: &str) -> Result<()> {
     let object_store = Arc::new(LocalFsObjectStore::new_unscoped());
 
     // Create the arrow reader builder
-    let mut builder = ArrowReaderBuilder::try_new(&shard_path)
+    let mut builder = ArrowReaderBuilder::try_new(shard_path)
         .with_context(|| format!("Failed to create reader for shard: {}", shard_path))?
         .with_object_store(object_store)
         .with_batch_size(1024);
@@ -59,12 +58,8 @@ pub fn run_single(count: Option<u64>, shard_path: &str) -> Result<()> {
         batch_count += 1;
         total_records += batch.num_rows() as u64;
 
-        // Calculate the data size of this batch
-        // This includes the memory used by all columns
-        let batch_data_size = batch.get_array_memory_size();
-        total_data_size += batch_data_size as u64;
-
-        // Batch is automatically dropped here, freeing memory
+        let data_size = get_batch_data_size(&batch);
+        total_data_size += data_size as u64;
     }
 
     // Stop timing
@@ -87,4 +82,8 @@ pub fn run_single(count: Option<u64>, shard_path: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn get_batch_data_size(batch: &RecordBatch) -> usize {
+    batch.get_array_memory_size()
 }

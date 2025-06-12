@@ -1,5 +1,21 @@
 use amudai_sequence::sequence::ValueSequence;
 
+/// Trait for decoding encoded data blocks back into sequences of values.
+///
+/// The `BlockDecoder` is the counterpart to `BlockEncoder` and is responsible for
+/// reconstructing the original data from encoded blocks. It works with the encoded
+/// binary data along with metadata to restore the values and their validity information.
+///
+/// # Usage
+///
+/// Block decoders are typically used in streaming scenarios where data needs to be
+/// read back from storage or transmitted over a network. They handle the complexity
+/// of different encoding schemes transparently.
+///
+/// # Thread Safety
+///
+/// Implementations must be thread-safe (`Send + Sync`) to allow concurrent decoding
+/// operations across multiple threads.
 pub trait BlockDecoder: Send + Sync + 'static {
     /// Decodes a single block of encoded binary data into a sequence of values.
     ///

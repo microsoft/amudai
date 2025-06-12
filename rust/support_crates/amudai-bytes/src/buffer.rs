@@ -123,6 +123,27 @@ impl AlignedByteVec {
         }
     }
 
+    /// Sets the length of the vector directly without initializing any new elements.
+    ///
+    /// This function directly modifies the length of the underlying vector without
+    /// initializing any memory between the current length and the new length. This is
+    /// a very low-level operation that bypasses normal safety checks and should be used
+    /// with extreme caution.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_len` - The new length for the vector, in bytes. Must not exceed the current capacity.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because it can violate memory safety: if `new_len` is greater
+    /// than the current length,the memory between the old and new lengths will contain
+    /// uninitialized data. Accessing this memory without first initializing it is undefined
+    /// behavior.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `new_len` exceeds the vector's current capacity.
     pub unsafe fn set_len(&mut self, new_len: usize) {
         assert!(new_len <= self.capacity());
         unsafe {

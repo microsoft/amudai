@@ -93,6 +93,24 @@ impl CompactDataRefs for shard::EncodedBuffer {
     }
 }
 
+impl CompactDataRefs for shard::UrlList {
+    fn collect_urls(&self, set: &mut AHashSet<String>) {
+        set.extend(self.urls.iter().cloned());
+    }
+
+    fn compact_data_refs(&mut self, shard_url: &ObjectUrl) {
+        for url in &mut self.urls {
+            if shard_url.as_str() == url {
+                *url = String::new();
+            } else if let Ok(parsed) = ObjectUrl::parse(url) {
+                if let Some(relative) = shard_url.make_relative(&parsed) {
+                    *url = relative;
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use amudai_format::defs::common::DataRef;

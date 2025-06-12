@@ -51,6 +51,13 @@ impl Shard {
         self.0.fetch_url_list()
     }
 
+    /// Returns the stripe list for this shard.
+    ///
+    /// The stripe list is lazily loaded and cached on the first call to this method.
+    pub fn fetch_stripe_list(&self) -> Result<&shard::StripeList> {
+        Ok(self.0.fetch_stripe_list()?.inner())
+    }
+
     /// Returns the number of stripes in this shard.
     pub fn stripe_count(&self) -> usize {
         self.directory().stripe_count as usize

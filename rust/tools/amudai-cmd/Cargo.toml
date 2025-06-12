@@ -16,6 +16,7 @@ clap = { workspace = true }
 fastrand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+url = { workspace = true }
 
 amudai-arrow = { workspace = true }
 amudai-arrow-compat = { workspace = true }
@@ -29,3 +30,6 @@ amudai-io-impl = { workspace = true }
 amudai-objectstore = { workspace = true }
 amudai-shard = { workspace = true }
 amudai-text-index = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
