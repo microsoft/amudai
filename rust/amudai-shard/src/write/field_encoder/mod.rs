@@ -144,6 +144,19 @@ impl FieldEncoder {
 #[derive(Debug)]
 pub struct EncodedField {
     pub buffers: Vec<PreparedEncodedBuffer>,
+    /// Optional statistics collected during encoding for primitive types
+    pub statistics: Option<EncodedFieldStatistics>,
+}
+
+/// Statistics collected during field encoding
+#[derive(Debug, Clone)]
+pub enum EncodedFieldStatistics {
+    /// Statistics for primitive types (integers, floats, datetime)
+    Primitive(amudai_data_stats::primitive::PrimitiveStats),
+    /// Statistics for string types
+    String(amudai_data_stats::string::StringStats),
+    // Future: Add other statistic types here
+    // Binary(amudai_data_stats::binary::BinaryStats),
 }
 
 impl EncodedField {
@@ -233,6 +246,10 @@ impl EncodedField {
 /// 2. The `temp_store` provides scratch space for intermediate encoding operations
 /// 3. The `encoding_profile` controls the compression vs. speed trade-offs
 ///
+/// Statistics collection is always enabled for primitive field types and provides
+/// valuable metadata (min/max values, null counts, NaN counts) that gets stored
+/// in field descriptors for optimization purposes.
+///
 /// # See Also
 ///
 /// - [`FieldEncoder`] - The encoder that uses these parameters
@@ -251,7 +268,6 @@ pub struct FieldEncoderParams {
     /// provides this capability through either in-memory buffers or temporary files
     /// on disk, depending on the implementation.
     pub temp_store: Arc<dyn TemporaryFileStore>,
-
     /// Block encoding profile that controls the trade-off between compression ratio
     /// and performance.
     /// See [`ShardBuilderParams::encoding_profile`](`crate::write::shard_builder::ShardBuilderParams::encoding_profile`)

@@ -1,6 +1,7 @@
 #[path = "./amudai.common.rs"]
 pub mod common;
 
+pub mod anyvalue_ext;
 pub mod common_ext;
 
 #[path = "./amudai.shard.rs"]

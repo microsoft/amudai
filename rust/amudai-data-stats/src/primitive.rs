@@ -12,7 +12,7 @@ use arrow_array::{
 
 /// A struct to collect statistics for primitive types.
 pub struct PrimitiveStatsCollector {
-    _basic_type: BasicTypeDescriptor,
+    basic_type: BasicTypeDescriptor,
     range_stats: Box<dyn RangeStatsCollector>,
 }
 
@@ -62,10 +62,14 @@ impl PrimitiveStatsCollector {
             amudai_format::schema::BasicType::Float64 => {
                 Box::new(FloatRangeStatsCollector::<Float64Type>::new())
             }
+            amudai_format::schema::BasicType::DateTime => {
+                // DateTime is stored as UInt64 internally
+                Box::new(IntegerRangeStatsCollector::<UInt64Type>::new())
+            }
             _ => panic!("unexpected type: {:?}", basic_type.basic_type),
         };
         PrimitiveStatsCollector {
-            _basic_type: basic_type,
+            basic_type,
             range_stats,
         }
     }
@@ -105,6 +109,7 @@ impl PrimitiveStatsCollector {
     pub fn finish(mut self) -> Result<PrimitiveStats> {
         let range_stats = self.range_stats.finalize();
         Ok(PrimitiveStats {
+            basic_type: self.basic_type,
             range_stats,
             count: self.range_stats.get_count(),
             null_count: self.range_stats.get_null_count(),
@@ -114,7 +119,9 @@ impl PrimitiveStatsCollector {
 }
 
 /// A struct to hold the collected statistics for primitive types.
+#[derive(Debug, Clone)]
 pub struct PrimitiveStats {
+    pub basic_type: BasicTypeDescriptor,
     pub range_stats: RangeStats,
     pub count: usize,
     pub null_count: usize,
@@ -122,7 +129,7 @@ pub struct PrimitiveStats {
 }
 
 /// A trait for collecting range statistics.
-trait RangeStatsCollector {
+trait RangeStatsCollector: Send + Sync {
     fn get_count(&self) -> usize;
     fn get_nan_count(&self) -> usize;
     fn get_null_count(&self) -> usize;

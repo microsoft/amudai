@@ -45,6 +45,56 @@ pub fn binary_like_to_large_binary(array: &dyn Array) -> Result<Arc<dyn Array>, 
     )
 }
 
+/// Optimizes an Arrow array by removing redundant null buffers.
+///
+/// This function analyzes the input array and removes the null buffer when it's
+/// unnecessary - specifically when a null buffer is present but all values are
+/// actually non-null. This optimization is important for downstream processing
+/// (such as block encoding) that can be more efficient without redundant null
+/// metadata.
+///
+/// In Apache Arrow, arrays can have a null buffer even when no values are actually
+/// null. This can happen when arrays are created from iterators with `Option` types
+/// or when arrays are sliced/filtered. While functionally equivalent, arrays with
+/// unnecessary null buffers consume more memory and may be processed less efficiently.
+///
+/// # Arguments
+///
+/// * `array` - The Arrow array to normalize.
+///
+/// # Returns
+///
+/// Returns a `Result` containing the normalized array:
+/// - **No change**: If the array has no null buffer, returns the original array unchanged
+/// - **No change**: If the array has actual null values, returns the original array unchanged  
+/// - **Optimized**: If the array has a null buffer but no actual null values, returns a new
+///   array with identical data but without the null buffer
+///
+/// # Performance
+///
+/// - **Zero-copy optimization**: When no changes are needed, the original array is returned
+/// - **Minimal allocation**: When optimization is needed, only the array metadata is rebuilt
+pub fn normalize_null_buffer(array: Arc<dyn Array>) -> Result<Arc<dyn Array>, ArrowError> {
+    // If the array already has no null buffer, return it as-is
+    if array.nulls().is_none() {
+        return Ok(array);
+    }
+
+    // If the array has nulls, check if all values are actually non-null
+    if array.null_count() > 0 {
+        // Array has actual null values, keep the null buffer
+        return Ok(array);
+    }
+
+    // Array has a null buffer but no actual nulls - recreate without null buffer
+    let data = array.to_data();
+    let new_data = data
+        .into_builder()
+        .nulls(None) // Remove the null buffer
+        .build()?;
+    Ok(arrow_array::make_array(new_data))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,7 +294,6 @@ mod tests {
         assert!(large_array.is_null(1));
         assert!(large_array.is_null(2));
     }
-
     #[test]
     fn test_zero_length_values() {
         // Test with empty strings/binary values
@@ -262,5 +311,67 @@ mod tests {
         assert_eq!(large_array.value(0), b"");
         assert_eq!(large_array.value(1), b"non-empty");
         assert_eq!(large_array.value(2), b"");
+    }
+    #[test]
+    fn test_optimize_null_buffer_no_nulls() {
+        use arrow_array::Int32Array;
+
+        // Create an array with no null buffer
+        let array_no_nulls = Arc::new(Int32Array::from(vec![1, 2, 3])) as Arc<dyn Array>;
+        let result = normalize_null_buffer(array_no_nulls.clone()).unwrap();
+
+        // Should return the same array since it already has no null buffer
+        assert!(Arc::ptr_eq(&array_no_nulls, &result));
+        assert!(result.nulls().is_none());
+        assert_eq!(result.null_count(), 0);
+
+        // Create an array with all valid values but with a null buffer
+        let values = vec![Some(1), Some(2), Some(3)];
+        let array_with_null_buffer = Arc::new(Int32Array::from(values)) as Arc<dyn Array>;
+
+        // This array should have a null buffer even though no values are null
+        // (depending on Arrow's implementation)
+        let result = normalize_null_buffer(array_with_null_buffer).unwrap();
+
+        // Result should have no null buffer and same values
+        assert_eq!(result.len(), 3);
+        assert_eq!(result.null_count(), 0);
+        let int_result = result.as_any().downcast_ref::<Int32Array>().unwrap();
+        assert_eq!(int_result.value(0), 1);
+        assert_eq!(int_result.value(1), 2);
+        assert_eq!(int_result.value(2), 3);
+    }
+
+    #[test]
+    fn test_optimize_null_buffer_with_nulls() {
+        use arrow_array::Int32Array;
+
+        // Create an array that actually has null values
+        let values = vec![Some(1), None, Some(3)];
+        let array_with_nulls = Arc::new(Int32Array::from(values)) as Arc<dyn Array>;
+        let result = normalize_null_buffer(array_with_nulls.clone()).unwrap();
+
+        // Should return the same array since it actually has nulls
+        assert!(Arc::ptr_eq(&array_with_nulls, &result));
+        assert!(result.nulls().is_some());
+        assert_eq!(result.null_count(), 1);
+        assert!(result.is_null(1));
+    }
+
+    #[test]
+    fn test_optimize_null_buffer_string_array() {
+        use arrow_array::StringArray;
+
+        // Test with string array that has no nulls but might have a null buffer
+        let values = vec![Some("hello"), Some("world"), Some("test")];
+        let array = Arc::new(StringArray::from(values)) as Arc<dyn Array>;
+        let result = normalize_null_buffer(array).unwrap();
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result.null_count(), 0);
+        let string_result = result.as_any().downcast_ref::<StringArray>().unwrap();
+        assert_eq!(string_result.value(0), "hello");
+        assert_eq!(string_result.value(1), "world");
+        assert_eq!(string_result.value(2), "test");
     }
 }

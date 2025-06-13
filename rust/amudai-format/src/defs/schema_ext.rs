@@ -94,10 +94,14 @@ impl BasicType {
             BasicType::Int8 | BasicType::Int16 | BasicType::Int32 | BasicType::Int64
         )
     }
-
     /// Returns `true` if this is one of the integer-valued types (integer or DateTime).
     pub fn is_integer_or_datetime(&self) -> bool {
         self.is_integer() || *self == BasicType::DateTime
+    }
+
+    /// Returns `true` if this is one of the floating-point types (f32 or f64).
+    pub fn is_float(&self) -> bool {
+        matches!(self, BasicType::Float32 | BasicType::Float64)
     }
 }
 
@@ -320,7 +324,32 @@ mod details {
 mod tests {
     use planus::ReadAsRoot;
 
-    use crate::defs::schema::{HashLookup, HashLookupRef};
+    use crate::defs::schema::{BasicType, HashLookup, HashLookupRef};
+
+    #[test]
+    fn test_is_float() {
+        // Floating-point types should return true
+        assert!(BasicType::Float32.is_float());
+        assert!(BasicType::Float64.is_float());
+
+        // All other types should return false
+        assert!(!BasicType::Unit.is_float());
+        assert!(!BasicType::Boolean.is_float());
+        assert!(!BasicType::Int8.is_float());
+        assert!(!BasicType::Int16.is_float());
+        assert!(!BasicType::Int32.is_float());
+        assert!(!BasicType::Int64.is_float());
+        assert!(!BasicType::Binary.is_float());
+        assert!(!BasicType::FixedSizeBinary.is_float());
+        assert!(!BasicType::String.is_float());
+        assert!(!BasicType::Guid.is_float());
+        assert!(!BasicType::DateTime.is_float());
+        assert!(!BasicType::List.is_float());
+        assert!(!BasicType::FixedSizeList.is_float());
+        assert!(!BasicType::Struct.is_float());
+        assert!(!BasicType::Map.is_float());
+        assert!(!BasicType::Union.is_float());
+    }
 
     #[test]
     fn test_hash_lookup() {

@@ -24,6 +24,7 @@ use super::{
     artifact_writer::ArtifactWriter,
     field_encoder::{EncodedField, FieldEncoder},
 };
+use crate::write::field_descriptor;
 
 /// A builder for a single field within a stripe.
 ///
@@ -187,17 +188,16 @@ impl FieldBuilder {
         };
 
         children.finish(logical_pos, prepared_fields)?;
-
         let position_count = encoder.logical_len() as u64;
         let encoded_field = encoder.finish()?;
+
+        // Create field descriptor with statistics populated from encoded field
+        let descriptor = field_descriptor::create_with_stats(position_count, &encoded_field);
 
         let prepared_field = PreparedStripeField {
             schema_id: params.data_type.schema_id()?,
             data_type: params.data_type,
-            descriptor: shard::FieldDescriptor {
-                position_count,
-                ..Default::default()
-            },
+            descriptor,
             encodings: vec![encoded_field],
         };
 

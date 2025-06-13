@@ -102,34 +102,26 @@ impl StringStatsCollector {
         self.count += array.len();
         self.null_count += array.null_count();
 
-        for value in array.iter() {
-            if let Some(string_val) = value {
-                self.update_stats_for_string(string_val);
-            }
+        for string_val in array.iter().flatten() {
+            self.update_stats_for_string(string_val);
         }
     }
-
     /// Processes a LargeStringArray (large UTF-8).
     fn process_large_string_array(&mut self, array: &LargeStringArray) {
         self.count += array.len();
         self.null_count += array.null_count();
 
-        for value in array.iter() {
-            if let Some(string_val) = value {
-                self.update_stats_for_string(string_val);
-            }
+        for string_val in array.iter().flatten() {
+            self.update_stats_for_string(string_val);
         }
     }
-
     /// Processes a StringViewArray.
     fn process_string_view_array(&mut self, array: &StringViewArray) {
         self.count += array.len();
         self.null_count += array.null_count();
 
-        for value in array.iter() {
-            if let Some(string_val) = value {
-                self.update_stats_for_string(string_val);
-            }
+        for string_val in array.iter().flatten() {
+            self.update_stats_for_string(string_val);
         }
     }
 
@@ -163,6 +155,7 @@ impl Default for StringStatsCollector {
 }
 
 /// A struct to hold the collected statistics for string types.
+#[derive(Debug, Clone)]
 pub struct StringStats {
     /// Indicates the minimum size of the string, in bytes.
     pub min_size: u64,

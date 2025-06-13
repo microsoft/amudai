@@ -6,7 +6,8 @@ use amudai_common::{Result, error::Error};
 use arrow_array::{Array, UInt8Array};
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, ScalarBuffer};
 use arrow_processing::{
-    array_sequence::ArraySequence, data_size::binary_data_size, for_each::for_each_as_binary,
+    array_sequence::ArraySequence, cast::normalize_null_buffer, data_size::binary_data_size,
+    for_each::for_each_as_binary,
 };
 
 /// A buffer for staging `binary`-like value arrays (`Binary`, `Utf8`,
@@ -109,6 +110,7 @@ impl BytesStagingBuffer {
         self.arrays
             .sample_ranges(count, Self::MIN_SAMPLED_RUN, Self::MAX_SAMPLED_RUN)
             .flatten(&self.normalized_type)
+            .and_then(normalize_null_buffer)
             .map_err(|e| Error::arrow("flatten bytes array sequence sample", e))
     }
 
@@ -130,6 +132,7 @@ impl BytesStagingBuffer {
         self.data_size -= self.data_size.min(data_size);
         arrays
             .flatten(&self.normalized_type)
+            .and_then(normalize_null_buffer)
             .map_err(|e| Error::arrow("flatten bytes array sequence", e))
     }
 
@@ -263,6 +266,7 @@ impl PrimitiveStagingBuffer {
         self.arrays
             .sample_ranges(count, Self::MIN_SAMPLED_RUN, Self::MAX_SAMPLED_RUN)
             .flatten(&self.normalized_type)
+            .and_then(normalize_null_buffer)
             .map_err(|e| Error::arrow("flatten primitive array sequence sample", e))
     }
 
@@ -283,6 +287,7 @@ impl PrimitiveStagingBuffer {
         self.logical_offset += arrays.len();
         arrays
             .flatten(&self.normalized_type)
+            .and_then(normalize_null_buffer)
             .map_err(|e| Error::arrow("flatten primitive array sequence", e))
     }
 }

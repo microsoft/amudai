@@ -172,16 +172,54 @@ impl FieldContext {
         )))
     }
 
-    /// Returns a slice of `EncodedBuffer`s for this field's data.
+    /// Returns a slice of `EncodedBuffer` descriptors for this field's data.
     ///
-    /// This method retrieves the buffer information from the field's data encoding.
-    /// It currently only supports native encodings.
+    /// This method retrieves metadata about the encoded buffers that store this field's data
+    /// within the stripe. Each buffer descriptor contains information about a specific aspect
+    /// of the field's encoding (e.g., values, nullability, offsets).
+    ///
+    /// # Buffer Types
+    ///
+    /// Fields can have different types of buffers depending on their data type and encoding:
+    ///
+    /// * **Data Buffer** (`BufferKind::Data`): Contains the primary sequence of encoded values
+    /// * **Presence Buffer** (`BufferKind::Presence`): Stores nullability information as a
+    ///   compressed bitmap indicating which positions contain valid (non-null) values
+    /// * **Offsets Buffer** (`BufferKind::Offsets`): For variable-sized types (strings, binary),
+    ///   stores the end-of-value offsets defining byte ranges in the data buffer
+    /// * **Value Dictionary** (`BufferKind::ValueDictionary`): For dictionary-encoded fields,
+    ///   maps unique integer IDs to distinct field values
+    /// * **Opaque Dictionary** (`BufferKind::OpaqueDictionary`): Shared compression dictionary
+    ///   used by block compressors across multiple blocks
+    ///
+    /// # Expected Buffer Count
+    ///
+    /// Most field types typically have 1-2 buffers:
+    /// * **Primitive types** (int, float, boolean): 1 data buffer (presence may be embedded)
+    /// * **Variable-sized types** (string, binary): 1 data buffer (offsets typically embedded)
+    /// * **Nullable fields**: May have an additional presence buffer if not embedded
+    /// * **Struct/FixedSizeList**: 0-1 presence buffers (no data buffer, only nullability)
+    /// * **List fields**: 1 offsets buffer (plus optional presence buffer)
+    ///
+    /// # Buffer Descriptors
+    ///
+    /// Each `EncodedBuffer` descriptor contains:
+    /// * `kind`: The buffer's role in the encoding scheme
+    /// * `buffer`: Reference to the actual encoded data in storage
+    /// * `block_map`: Optional reference to block metadata for compressed data
+    /// * `embedded_presence`/`embedded_offsets`: Whether auxiliary data is embedded in blocks
+    /// * Block compression and checksum information
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// * Data encodings are missing for the field.
-    /// * The data encoding is missing or not a native encoding.
+    /// * Data encodings are missing for the field
+    /// * The data encoding is missing or not a native encoding (external formats not supported)
+    ///
+    /// # Note
+    ///
+    /// This method currently only supports native Amudai encodings. External encodings
+    /// (such as Parquet) will return an error.
     pub fn get_encoded_buffers(&self) -> Result<&[shard::EncodedBuffer]> {
         let data_encoding = self
             .descriptor

@@ -202,7 +202,10 @@ impl FieldEncoderOps for ListContainerFieldEncoder {
             }
         }
 
-        Ok(EncodedField { buffers })
+        Ok(EncodedField {
+            buffers,
+            statistics: None, // Container fields don't collect primitive statistics
+        })
     }
 }
 

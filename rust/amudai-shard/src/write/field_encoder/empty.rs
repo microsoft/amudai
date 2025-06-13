@@ -1,5 +1,3 @@
-use amudai_common::error::Error;
-
 use super::FieldEncoderOps;
 
 pub struct EmptyFieldEncoder;
@@ -23,6 +21,9 @@ impl FieldEncoderOps for EmptyFieldEncoder {
     }
 
     fn finish(self: Box<Self>) -> amudai_common::Result<super::EncodedField> {
-        Err(Error::invalid_operation("EmptyFieldEncoder::finish"))
+        Ok(super::EncodedField {
+            buffers: vec![],
+            statistics: None,
+        })
     }
 }

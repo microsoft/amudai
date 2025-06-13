@@ -119,6 +119,9 @@ impl FieldEncoderOps for BooleanFieldEncoder {
             }
         }
 
-        Ok(EncodedField { buffers })
+        Ok(EncodedField {
+            buffers,
+            statistics: None, // Boolean fields don't collect primitive statistics
+        })
     }
 }

@@ -72,11 +72,7 @@ def generate_pseudo_sentence(vocabulary):
     delimiters = [" ", " ", " ", " ", ", ", ". ",
                   ": ", "; "]
 
-    num_words = random.randint(0, 20)
-
-    if num_words == 0:
-        return ""
-
+    num_words = random.randint(1, 20)
     sentence_parts = []
     for i in range(num_words):
         word = random.choice(vocabulary)
@@ -128,13 +124,11 @@ if __name__ == "__main__":
 
     random.seed(0x96d7ef1ea0d6)
 
-    vocabulary = create_pseudo_word_vocabulary()
-
-    # Determine output destination
+    vocabulary = create_pseudo_word_vocabulary()    # Determine output destination
     if output_file:
         try:
             with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
-                writer = csv.writer(csvfile)
+                writer = csv.writer(csvfile, quoting=csv.QUOTE_NONNUMERIC)
                 for i in range(count):
                     record = generate_csv_record(i, vocabulary)
                     writer.writerow(record)
@@ -143,7 +137,7 @@ if __name__ == "__main__":
             sys.exit(1)
     else:
         # Output to stdout
-        writer = csv.writer(sys.stdout)
+        writer = csv.writer(sys.stdout, quoting=csv.QUOTE_NONNUMERIC)
         for i in range(count):
             record = generate_csv_record(i, vocabulary)
             writer.writerow(record)

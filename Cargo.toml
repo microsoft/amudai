@@ -21,8 +21,8 @@ members = [
     "rust/support_crates/amudai-collections",
     "rust/support_crates/amudai-keyed-vector",
     "rust/support_crates/arrow-processing",
-    "rust/support_crates/codegentool",
     "rust/tools/amudai-cmd",
+    "rust/tools/codegentool",
 ]
 
 exclude = []

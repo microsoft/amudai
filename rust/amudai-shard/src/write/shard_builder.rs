@@ -25,6 +25,7 @@ use amudai_objectstore::{
 
 use super::{
     artifact_writer::ArtifactWriter,
+    field_descriptor,
     format_elements_ext::{CompactDataRefs, DataRefExt},
     stripe_builder::{PreparedStripe, SealedStripe, StripeBuilder, StripeBuilderParams},
 };
@@ -256,10 +257,14 @@ impl PreparedShard {
                 let Some(field) = stripe.fields.get(schema_id) else {
                     continue;
                 };
-                let Some(stripe_desc) = field.descriptor.field.as_ref() else {
-                    continue;
-                };
-                Self::merge_stripe_field_descriptor(&mut descriptor, stripe_desc)?;
+                let stripe_desc = field
+                    .descriptor
+                    .field
+                    .as_ref()
+                    .expect("Stripe field should have a descriptor");
+
+                // Merge the stripe-level field descriptor into the shard-level one
+                field_descriptor::merge(&mut descriptor, stripe_desc)?;
                 field_present = true;
             }
 
@@ -349,15 +354,6 @@ impl PreparedShard {
     fn get_stripe_url(shard_url: &ObjectUrl) -> Result<ObjectUrl> {
         let stripe_name = format!("{:x}.amudai.stripe", fastrand::u64(..));
         shard_url.resolve_relative(RelativePath::new(&stripe_name)?)
-    }
-
-    fn merge_stripe_field_descriptor(
-        shard_field: &mut shard::FieldDescriptor,
-        stripe_field: &shard::FieldDescriptor,
-    ) -> Result<()> {
-        shard_field.position_count += stripe_field.position_count;
-        // TODO: merge all props
-        Ok(())
     }
 }
 

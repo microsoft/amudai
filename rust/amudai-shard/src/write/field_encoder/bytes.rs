@@ -4,6 +4,7 @@ use amudai_blockstream::write::{
     bytes_buffer::BytesBufferEncoder, staging_buffer::BytesStagingBuffer,
 };
 use amudai_common::Result;
+use amudai_data_stats::string::StringStatsCollector;
 use amudai_encodings::{
     binary_block_encoder::BinaryBlockEncoder,
     block_encoder::{
@@ -16,7 +17,7 @@ use arrow_array::Array;
 
 use crate::write::field_encoder::FieldEncoderParams;
 
-use super::{EncodedField, FieldEncoderOps};
+use super::{EncodedField, EncodedFieldStatistics, FieldEncoderOps};
 
 /// Encodes variable-sized and fixed-size binary-like fields (`Binary`,
 /// `FixedSizeBinary`, `String`, `Guid`).
@@ -30,6 +31,11 @@ pub struct BytesFieldEncoder {
     normalized_arrow_type: arrow_schema::DataType,
     /// Encoder for converting byte data into encoded shard buffers.
     buffer_encoder: BytesBufferEncoder,
+    /// Optional statistics collector for string fields
+    ///
+    /// Only enabled for String types. Future binary statistics collectors will be
+    /// added as separate fields when binary statistics support is implemented.
+    string_stats_collector: Option<StringStatsCollector>,
 }
 
 impl BytesFieldEncoder {
@@ -43,6 +49,14 @@ impl BytesFieldEncoder {
             BasicType::Binary | BasicType::FixedSizeBinary | BasicType::String | BasicType::Guid
         ));
         let normalized_arrow_type = Self::get_normalized_arrow_type(params.basic_type);
+
+        // Enable statistics collection only for String types
+        let string_stats_collector = if params.basic_type.basic_type == BasicType::String {
+            Some(StringStatsCollector::new())
+        } else {
+            None
+        };
+
         Ok(Box::new(BytesFieldEncoder {
             staging: BytesStagingBuffer::new(normalized_arrow_type.clone()),
             normalized_arrow_type,
@@ -58,6 +72,7 @@ impl BytesFieldEncoder {
                 params.basic_type,
                 params.temp_store.clone(),
             )?,
+            string_stats_collector,
         }))
     }
 }
@@ -156,6 +171,12 @@ impl FieldEncoderOps for BytesFieldEncoder {
         if array.is_empty() {
             return Ok(());
         }
+
+        // Collect statistics if enabled (only for String types)
+        if let Some(ref mut string_stats_collector) = self.string_stats_collector {
+            string_stats_collector.process_array(array.as_ref())?;
+        }
+
         self.staging.append(array);
         if self.may_flush() {
             self.flush(false)?;
@@ -164,10 +185,14 @@ impl FieldEncoderOps for BytesFieldEncoder {
     }
 
     fn push_nulls(&mut self, count: usize) -> Result<()> {
-        self.staging.append(arrow_array::new_null_array(
-            &self.normalized_arrow_type,
-            count,
-        ));
+        let null_array = arrow_array::new_null_array(&self.normalized_arrow_type, count);
+
+        // Collect statistics for null array if enabled
+        if let Some(ref mut string_stats_collector) = self.string_stats_collector {
+            string_stats_collector.process_array(&null_array)?;
+        }
+
+        self.staging.append(null_array);
         if self.may_flush() {
             self.flush(false)?;
         }
@@ -179,8 +204,18 @@ impl FieldEncoderOps for BytesFieldEncoder {
             self.flush(true)?;
         }
         let encoded_buffer = self.buffer_encoder.finish()?;
+
+        // Finalize statistics if enabled
+        let statistics = if let Some(string_stats_collector) = self.string_stats_collector {
+            let string_stats = string_stats_collector.finish()?;
+            Some(EncodedFieldStatistics::String(string_stats))
+        } else {
+            None
+        };
+
         Ok(EncodedField {
             buffers: vec![encoded_buffer],
+            statistics,
         })
     }
 }
