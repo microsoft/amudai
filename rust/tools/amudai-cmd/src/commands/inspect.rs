@@ -281,8 +281,11 @@ fn create_field_descriptor_info(
 /// field descriptor is wrapped in a StripeFieldDescriptor.
 fn create_stripe_field_descriptor_info(
     stripe_field_desc: &amudai_shard::read::stripe::StripeFieldDescriptor,
-) -> Option<FieldDescriptorInfo> {    stripe_field_desc.field.as_ref().map(|field_desc| {
-        FieldDescriptorInfo {
+) -> Option<FieldDescriptorInfo> {
+    stripe_field_desc
+        .field
+        .as_ref()
+        .map(|field_desc| FieldDescriptorInfo {
             position_count: field_desc.position_count,
             null_count: field_desc.null_count,
             constant_value: field_desc
@@ -309,8 +312,7 @@ fn create_stripe_field_descriptor_info(
                 .membership_filters
                 .as_ref()
                 .map(create_membership_filters_info),
-        }
-    })
+        })
 }
 
 /// Creates a `RangeStatsInfo` from a `RangeStats`.

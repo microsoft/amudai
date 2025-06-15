@@ -135,7 +135,6 @@ pub fn merge(
         }
     }
 
-
     // Merge range statistics (min/max values) with sticky None behavior
     //
     // With the early return for current.position_count == 0, we know that current has data.

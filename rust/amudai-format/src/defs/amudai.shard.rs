@@ -113,7 +113,7 @@ pub struct FieldDescriptor {
     pub position_count: u64,
     /// If present, this specifies the number of logical value slots containing `null` values.    
     #[prost(fixed64, optional, tag = "2")]
-    pub null_count: ::core::option::Option<u64>,    
+    pub null_count: ::core::option::Option<u64>,
     /// If present, this indicates that all value slots contain the same value,
     /// including the possibility that all values are null. Such a field might
     /// not have any data encodings at the stripe level.
