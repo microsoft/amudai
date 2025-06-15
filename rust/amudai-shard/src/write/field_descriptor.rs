@@ -46,10 +46,13 @@ pub fn populate_statistics(descriptor: &mut shard::FieldDescriptor, encoded_fiel
             }
             EncodedFieldStatistics::String(string_stats) => {
                 populate_string_statistics(descriptor, string_stats);
-            } // Future: Handle other statistics types here
-              // EncodedFieldStatistics::Binary(binary_stats) => {
-              //     Self::populate_binary_statistics(descriptor, binary_stats);
-              // }
+            }
+            EncodedFieldStatistics::Boolean(boolean_stats) => {
+                populate_boolean_statistics(descriptor, boolean_stats);
+            }
+            EncodedFieldStatistics::Binary(binary_stats) => {
+                populate_binary_statistics(descriptor, binary_stats);
+            }
         }
     }
 }
@@ -131,6 +134,7 @@ pub fn merge(
             accumulated.nan_count = None;
         }
     }
+
 
     // Merge range statistics (min/max values) with sticky None behavior
     //
@@ -226,6 +230,52 @@ fn populate_string_statistics(
     ));
 }
 
+/// Populates field descriptor with boolean statistics.
+///
+/// # Arguments
+///
+/// * `descriptor` - The field descriptor to populate
+/// * `boolean_stats` - The boolean statistics to copy from
+fn populate_boolean_statistics(
+    descriptor: &mut shard::FieldDescriptor,
+    boolean_stats: &amudai_data_stats::boolean::BooleanStats,
+) {
+    // Map null count
+    descriptor.null_count = Some(boolean_stats.null_count as u64);
+
+    // Set boolean-specific statistics in type_specific field
+    descriptor.type_specific = Some(shard::field_descriptor::TypeSpecific::BooleanStats(
+        shard::BooleanStats {
+            true_count: boolean_stats.true_count as u64,
+            false_count: boolean_stats.false_count as u64,
+        },
+    ));
+}
+
+/// Populates field descriptor with binary statistics.
+///
+/// # Arguments
+///
+/// * `descriptor` - The field descriptor to populate
+/// * `binary_stats` - The binary statistics to copy from
+fn populate_binary_statistics(
+    descriptor: &mut shard::FieldDescriptor,
+    binary_stats: &amudai_data_stats::binary::BinaryStats,
+) {
+    // Map null count
+    descriptor.null_count = Some(binary_stats.null_count);
+
+    // Set binary-specific statistics in type_specific field using ContainerStats
+    // which is appropriate for binary data (similar to how it's used for lists/maps)
+    descriptor.type_specific = Some(shard::field_descriptor::TypeSpecific::ContainerStats(
+        shard::ContainerStats {
+            min_length: binary_stats.min_length,
+            max_length: binary_stats.max_length,
+            min_non_empty_length: binary_stats.min_non_empty_length,
+        },
+    ));
+}
+
 /// Merges range statistics by updating min and max values appropriately.
 ///
 /// This function compares minimum and maximum values from field descriptor statistics
@@ -301,7 +351,6 @@ fn merge_type_specific_stats(
     current: &shard::field_descriptor::TypeSpecific,
 ) -> Result<()> {
     use shard::field_descriptor::TypeSpecific;
-
     match (accumulated, current) {
         (
             TypeSpecific::StringStats(accumulated_stats),
@@ -337,6 +386,14 @@ fn merge_type_specific_stats(
                     accumulated_stats.ascii_count = None;
                 }
             }
+        }
+        (
+            TypeSpecific::BooleanStats(accumulated_stats),
+            TypeSpecific::BooleanStats(current_stats),
+        ) => {
+            // Merge boolean statistics by summing true and false counts
+            accumulated_stats.true_count += current_stats.true_count;
+            accumulated_stats.false_count += current_stats.false_count;
         }
         (
             TypeSpecific::ContainerStats(accumulated_stats),
@@ -1971,5 +2028,171 @@ mod tests {
         } else {
             panic!("Expected StringStats");
         }
+    }
+
+    #[test]
+    fn test_merge_boolean_statistics() {
+        let mut shard_field = shard::FieldDescriptor {
+            position_count: 100,
+            null_count: Some(5),
+            type_specific: Some(shard::field_descriptor::TypeSpecific::BooleanStats(
+                shard::BooleanStats {
+                    true_count: 60,
+                    false_count: 35,
+                },
+            )),
+            ..Default::default()
+        };
+
+        let stripe_field = shard::FieldDescriptor {
+            position_count: 50,
+            null_count: Some(2),
+            type_specific: Some(shard::field_descriptor::TypeSpecific::BooleanStats(
+                shard::BooleanStats {
+                    true_count: 30,
+                    false_count: 18,
+                },
+            )),
+            ..Default::default()
+        };
+
+        merge(&mut shard_field, &stripe_field).unwrap();
+
+        assert_eq!(shard_field.position_count, 150);
+        assert_eq!(shard_field.null_count, Some(7));
+
+        if let Some(shard::field_descriptor::TypeSpecific::BooleanStats(merged_stats)) =
+            &shard_field.type_specific
+        {
+            assert_eq!(merged_stats.true_count, 90); // 60 + 30
+            assert_eq!(merged_stats.false_count, 53); // 35 + 18
+        } else {
+            panic!("Expected boolean statistics after merge");
+        }
+    }
+    #[test]
+    fn test_create_with_stats_boolean_statistics() {
+        let boolean_stats = amudai_data_stats::boolean::BooleanStats {
+            count: 10,
+            null_count: 2,
+            true_count: 6,
+            false_count: 2,
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: Some(EncodedFieldStatistics::Boolean(boolean_stats)),
+        };
+
+        let descriptor = create_with_stats(10, &encoded_field);
+
+        assert_eq!(descriptor.position_count, 10);
+        assert_eq!(descriptor.null_count, Some(2));
+
+        // Check boolean-specific statistics
+        if let Some(shard::field_descriptor::TypeSpecific::BooleanStats(proto_boolean_stats)) =
+            &descriptor.type_specific
+        {
+            assert_eq!(proto_boolean_stats.true_count, 6);
+            assert_eq!(proto_boolean_stats.false_count, 2);
+        } else {
+            panic!("Expected boolean statistics in type_specific field");
+        }
+    }
+    #[test]
+    fn test_populate_boolean_statistics() {
+        let boolean_stats = amudai_data_stats::boolean::BooleanStats {
+            count: 8,
+            null_count: 1,
+            true_count: 5,
+            false_count: 2,
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: Some(EncodedFieldStatistics::Boolean(boolean_stats)),
+        };
+
+        let mut descriptor = shard::FieldDescriptor {
+            position_count: 8,
+            ..Default::default()
+        };
+
+        populate_statistics(&mut descriptor, &encoded_field);
+
+        assert_eq!(descriptor.null_count, Some(1));
+        assert!(descriptor.type_specific.is_some());
+
+        if let Some(shard::field_descriptor::TypeSpecific::BooleanStats(proto_boolean_stats)) =
+            &descriptor.type_specific
+        {
+            assert_eq!(proto_boolean_stats.true_count, 5);
+            assert_eq!(proto_boolean_stats.false_count, 2);
+        } else {
+            panic!("Expected boolean statistics in type_specific field");
+        }
+    }
+
+    #[test]
+    fn test_boolean_statistics_inconsistency_with_none_pattern() {
+        // This test demonstrates that boolean statistics don't follow the
+        // "sticky None" pattern that other statistics follow (null_count, nan_count, ascii_count)
+
+        // Test 1: Boolean statistics cannot be None, so they always merge by addition
+        let mut shard_field = shard::FieldDescriptor {
+            position_count: 100,
+            null_count: Some(10), // This follows sticky None pattern
+            type_specific: Some(shard::field_descriptor::TypeSpecific::BooleanStats(
+                shard::BooleanStats {
+                    true_count: 60,
+                    false_count: 30,
+                },
+            )),
+            ..Default::default()
+        };
+
+        let stripe_field = shard::FieldDescriptor {
+            position_count: 50,
+            null_count: None, // This should make merged null_count = None (sticky None)
+            type_specific: Some(shard::field_descriptor::TypeSpecific::BooleanStats(
+                shard::BooleanStats {
+                    true_count: 20,
+                    false_count: 30,
+                },
+            )),
+            ..Default::default()
+        };
+
+        merge(&mut shard_field, &stripe_field).unwrap();
+
+        // null_count follows sticky None pattern - becomes None when either is None
+        assert_eq!(
+            shard_field.null_count, None,
+            "null_count should become None (sticky None pattern)"
+        );
+
+        // But boolean statistics always merge by addition (inconsistent behavior)
+        if let Some(shard::field_descriptor::TypeSpecific::BooleanStats(bool_stats)) =
+            &shard_field.type_specific
+        {
+            assert_eq!(
+                bool_stats.true_count, 80,
+                "Boolean true_count always merges by addition"
+            ); // 60 + 20
+            assert_eq!(
+                bool_stats.false_count, 60,
+                "Boolean false_count always merges by addition"
+            ); // 30 + 30
+        } else {
+            panic!("Expected boolean statistics");
+        }
+
+        // This demonstrates the architectural inconsistency:
+        // - null_count, nan_count, ascii_count can be None and follow sticky None pattern
+        // - Boolean true_count/false_count are primitive u64 and always mergeable
+        //
+        // For consistency, boolean statistics should either:
+        // 1. Follow the sticky None pattern (require protobuf changes), OR
+        // 2. All statistics should be primitive and always mergeable (major architectural change)
     }
 }

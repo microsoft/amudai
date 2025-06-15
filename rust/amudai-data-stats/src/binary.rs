@@ -146,6 +146,19 @@ impl BinaryStatsCollector {
         }
     }
 
+    /// Processes a specified number of null values and updates the statistics.
+    ///
+    /// This method is more efficient than creating a null array when you only need to
+    /// track null counts without processing actual values.
+    ///
+    /// # Arguments
+    /// * `null_count` - The number of null values to add to the statistics
+    pub fn process_nulls(&mut self, null_count: usize) {
+        self.total_count += null_count as u64;
+        self.null_count += null_count as u64;
+        // No changes to length-related statistics since nulls don't contribute to min/max lengths
+    }
+
     /// Updates the length statistics with a new binary value length.
     ///
     /// # Arguments
@@ -583,9 +596,38 @@ mod tests {
 
         assert_eq!(stats.total_count, 4);
         assert_eq!(stats.null_count, 0);
-        // UTF-8 strings have varying byte lengths
-        assert!(stats.min_length > 0);
+        // UTF-8 strings have varying byte lengths        assert!(stats.min_length > 0);
         assert!(stats.max_length >= stats.min_length);
         assert!(stats.min_non_empty_length.is_some());
+    }
+
+    #[test]
+    fn test_binary_stats_collector_process_nulls_method() {
+        let mut collector = BinaryStatsCollector::new();
+        let data: Vec<Option<&[u8]>> = vec![Some(b"hello"), None, Some(b"world")];
+        let array = BinaryArray::from_opt_vec(data);
+        collector.process_binary_array(&array).unwrap();
+
+        // Add additional nulls using the dedicated method
+        collector.process_nulls(3);
+        let stats = collector.finalize();
+        assert_eq!(stats.total_count, 6); // 3 from array + 3 from process_nulls
+        assert_eq!(stats.null_count, 4); // 1 from array + 3 from process_nulls
+        assert_eq!(stats.min_length, 5); // Both "hello" and "world" are 5 bytes
+        assert_eq!(stats.max_length, 5);
+    }
+
+    #[test]
+    fn test_binary_stats_collector_process_nulls_only() {
+        let mut collector = BinaryStatsCollector::new();
+
+        // Only process nulls without any array data
+        collector.process_nulls(5);
+        let stats = collector.finalize();
+        assert_eq!(stats.total_count, 5);
+        assert_eq!(stats.null_count, 5);
+        assert_eq!(stats.min_length, 0); // No non-null values processed
+        assert_eq!(stats.max_length, 0);
+        assert_eq!(stats.min_non_empty_length, None);
     }
 }

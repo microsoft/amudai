@@ -66,6 +66,20 @@ impl StringStatsCollector {
         Ok(())
     }
 
+    /// Processes a specified number of null values and updates the statistics.
+    ///
+    /// This method is more efficient than creating a null array when you only need to
+    /// track null counts without processing actual values.
+    ///
+    /// # Arguments
+    ///
+    /// * `null_count` - The number of null values to add to the statistics
+    pub fn process_nulls(&mut self, null_count: usize) {
+        self.count += null_count;
+        self.null_count += null_count;
+        // No changes to size-related statistics since nulls don't contribute to min/max sizes
+    }
+
     /// Finalizes the statistics collection and returns the collected statistics.
     ///
     /// # Returns
@@ -551,12 +565,43 @@ mod tests {
         ]);
         collector.process_array(&array).unwrap();
         let stats = collector.finish().unwrap();
-
         assert_eq!(stats.min_size, 0); // Empty string
         assert_eq!(stats.max_size, 16); // Greek text
         assert_eq!(stats.min_non_empty_size, Some(4)); // Crab emoji
         assert_eq!(stats.ascii_count, 1); // Only empty string is ASCII
         assert_eq!(stats.count, 6);
         assert_eq!(stats.null_count, 2);
+    }
+
+    #[test]
+    fn test_string_stats_collector_process_nulls_method() {
+        let mut collector = StringStatsCollector::new();
+        let array = StringArray::from(vec![Some("hello"), None, Some("world")]);
+        collector.process_array(&array).unwrap();
+
+        // Add additional nulls using the dedicated method
+        collector.process_nulls(3);
+
+        let stats = collector.finish().unwrap();
+        assert_eq!(stats.count, 6); // 3 from array + 3 from process_nulls
+        assert_eq!(stats.null_count, 4); // 1 from array + 3 from process_nulls
+        assert_eq!(stats.min_size, 5); // "hello" and "world" are both 5 characters
+        assert_eq!(stats.max_size, 5);
+    }
+
+    #[test]
+    fn test_string_stats_collector_process_nulls_only() {
+        let mut collector = StringStatsCollector::new();
+
+        // Only process nulls without any array data
+        collector.process_nulls(5);
+
+        let stats = collector.finish().unwrap();
+        assert_eq!(stats.count, 5);
+        assert_eq!(stats.null_count, 5);
+        assert_eq!(stats.min_size, 0); // No non-null values processed
+        assert_eq!(stats.max_size, 0);
+        assert_eq!(stats.min_non_empty_size, None);
+        assert_eq!(stats.ascii_count, 0);
     }
 }

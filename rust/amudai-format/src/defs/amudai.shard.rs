@@ -111,9 +111,9 @@ pub struct FieldDescriptor {
     /// in this field's stored sequence.
     #[prost(fixed64, tag = "1")]
     pub position_count: u64,
-    /// If present, this specifies the number of logical value slots containing `null` values.
+    /// If present, this specifies the number of logical value slots containing `null` values.    
     #[prost(fixed64, optional, tag = "2")]
-    pub null_count: ::core::option::Option<u64>,
+    pub null_count: ::core::option::Option<u64>,    
     /// If present, this indicates that all value slots contain the same value,
     /// including the possibility that all values are null. Such a field might
     /// not have any data encodings at the stripe level.
@@ -122,29 +122,26 @@ pub struct FieldDescriptor {
     /// Dictionary size
     #[prost(fixed64, optional, tag = "4")]
     pub dictionary_size: ::core::option::Option<u64>,
-    /// For a Boolean field, this denotes the number of value slots equal to true.
-    #[prost(fixed64, optional, tag = "5")]
-    pub true_count: ::core::option::Option<u64>,
     /// For a floating-point type, this specifies the number of value slots containing NaN.
-    #[prost(fixed64, optional, tag = "6")]
+    #[prost(fixed64, optional, tag = "5")]
     pub nan_count: ::core::option::Option<u64>,
     /// Provides the minimum and maximum values for the stored sequence, where the range bounds
     /// may be inclusive or exclusive.
-    #[prost(message, optional, tag = "7")]
+    #[prost(message, optional, tag = "6")]
     pub range_stats: ::core::option::Option<RangeStats>,
     /// Estimates the number of distinct values in the field, with null counted as a single
     /// distinct value.
-    #[prost(message, optional, tag = "8")]
+    #[prost(message, optional, tag = "7")]
     pub cardinality: ::core::option::Option<CardinalityInfo>,
     /// Optional approximate membership query (AMQ) filters for the values of the field.
-    #[prost(message, optional, tag = "9")]
+    #[prost(message, optional, tag = "8")]
     pub membership_filters: ::core::option::Option<MembershipFilters>,
     /// Optional indexes specific to the field (these can exist alongside multi-field indexes
     /// at the shard or stripe level).
-    #[prost(message, optional, tag = "10")]
+    #[prost(message, optional, tag = "9")]
     pub indexes: ::core::option::Option<IndexCollection>,
     /// Additional properties associated with the field.
-    #[prost(message, repeated, tag = "11")]
+    #[prost(message, repeated, tag = "10")]
     pub properties: ::prost::alloc::vec::Vec<super::common::NameValuePair>,
     #[prost(message, repeated, tag = "40")]
     pub custom_properties: ::prost::alloc::vec::Vec<super::common::NameValuePair>,
@@ -156,7 +153,7 @@ pub struct FieldDescriptor {
     pub stored_index_size: ::core::option::Option<u64>,
     #[prost(fixed64, optional, tag = "43")]
     pub plain_data_size: ::core::option::Option<u64>,
-    #[prost(oneof = "field_descriptor::TypeSpecific", tags = "20, 21")]
+    #[prost(oneof = "field_descriptor::TypeSpecific", tags = "20, 21, 22")]
     pub type_specific: ::core::option::Option<field_descriptor::TypeSpecific>,
 }
 /// Nested message and enum types in `FieldDescriptor`.
@@ -170,6 +167,9 @@ pub mod field_descriptor {
         /// as a container of bytes).
         #[prost(message, tag = "21")]
         ContainerStats(super::ContainerStats),
+        /// Statistics specific to boolean fields.
+        #[prost(message, tag = "22")]
+        BooleanStats(super::BooleanStats),
     }
 }
 /// Provides the minimum and maximum values for the stored sequence.
@@ -205,6 +205,16 @@ pub struct StringStats {
     /// (strings with only code points below 128).
     #[prost(fixed64, optional, tag = "4")]
     pub ascii_count: ::core::option::Option<u64>,
+}
+/// Statistics specific to boolean fields.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct BooleanStats {
+    /// The number of true values in the boolean field.
+    #[prost(fixed64, tag = "1")]
+    pub true_count: u64,
+    /// The number of false values in the boolean field.
+    #[prost(fixed64, tag = "2")]
+    pub false_count: u64,
 }
 /// Relevant for variable-length List, Map, and binary types
 /// (where binary is treated as a container of bytes).

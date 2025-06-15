@@ -3,7 +3,7 @@ use super::FieldEncoderOps;
 pub struct EmptyFieldEncoder;
 
 impl EmptyFieldEncoder {
-    pub fn create() -> Box<dyn FieldEncoderOps> {
+    pub(crate) fn create() -> Box<dyn FieldEncoderOps> {
         Box::new(EmptyFieldEncoder)
     }
 }

@@ -45,7 +45,7 @@ pub struct ListContainerFieldEncoder {
 }
 
 impl ListContainerFieldEncoder {
-    pub fn create(params: &FieldEncoderParams) -> Result<Box<dyn FieldEncoderOps>> {
+    pub(crate) fn create(params: &FieldEncoderParams) -> Result<Box<dyn FieldEncoderOps>> {
         let mut staging = PrimitiveStagingBuffer::new(arrow_schema::DataType::UInt64);
         staging.append(Arc::new(arrow_array::PrimitiveArray::from(vec![0u64])));
 

@@ -23,7 +23,7 @@ pub struct UnitContainerFieldEncoder {
 }
 
 impl UnitContainerFieldEncoder {
-    pub fn create(params: &FieldEncoderParams) -> Result<Box<dyn FieldEncoderOps>> {
+    pub(crate) fn create(params: &FieldEncoderParams) -> Result<Box<dyn FieldEncoderOps>> {
         Ok(Box::new(UnitContainerFieldEncoder {
             params: params.clone(),
             presence_encoder: BitBufferEncoder::new(

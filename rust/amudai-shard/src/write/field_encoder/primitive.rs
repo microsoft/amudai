@@ -48,11 +48,11 @@ impl PrimitiveFieldEncoder {
     /// Creates a `PrimitiveFieldEncoder`.
     ///
     /// # Arguments
-    ///
+    ///   
     /// * `params`: Encoding parameters (temp store, profile, basic type).
     /// * `normalized_arrow_type`: The canonical Arrow data type used for casting
     ///   accumulated values before passing them to the block encoder.
-    pub fn create(
+    pub(crate) fn create(
         params: &FieldEncoderParams,
         normalized_arrow_type: arrow_schema::DataType,
     ) -> Result<Box<dyn FieldEncoderOps>> {
@@ -170,13 +170,12 @@ impl FieldEncoderOps for PrimitiveFieldEncoder {
         }
         Ok(())
     }
-
     fn push_nulls(&mut self, count: usize) -> Result<()> {
         let null_array = arrow_array::new_null_array(&self.normalized_arrow_type, count);
 
-        // Collect statistics for null array if enabled
+        // Collect statistics for null values efficiently
         if let Some(ref mut stats_collector) = self.stats_collector {
-            stats_collector.process_array(&null_array)?;
+            stats_collector.process_nulls(count);
         }
 
         self.staging.append(null_array);
@@ -420,6 +419,54 @@ mod tests {
             assert_eq!(stats.count, 5);
             assert_eq!(stats.null_count, 0);
             assert_eq!(stats.nan_count, 0);
+        } else {
+            panic!("Expected primitive statistics");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_field_encoder_push_nulls_optimization() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            fixed_size: 0,
+            signed: true,
+        };
+
+        let mut encoder = PrimitiveFieldEncoder::create(
+            &FieldEncoderParams {
+                basic_type,
+                temp_store,
+                encoding_profile: Default::default(),
+            },
+            arrow_schema::DataType::Int32,
+        )?;
+
+        // Push some actual data
+        let array = Arc::new(Int32Array::from(vec![1, 2, 3]));
+        encoder.push_array(array)?;
+
+        // Push nulls using the optimized method
+        encoder.push_nulls(5)?;
+
+        // Push more data
+        let array = Arc::new(Int32Array::from(vec![4, 5]));
+        encoder.push_array(array)?;
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify statistics were collected correctly
+        assert!(encoded_field.statistics.is_some());
+        if let Some(EncodedFieldStatistics::Primitive(stats)) = encoded_field.statistics {
+            assert_eq!(stats.count, 10); // 3 + 5 nulls + 2 = 10 total values
+            assert_eq!(stats.null_count, 5); // 5 nulls from push_nulls
+            assert_eq!(stats.nan_count, 0); // No NaNs for integers
+
+            // Verify range statistics (should only consider non-null values)
+            assert_eq!(stats.range_stats.min_value.unwrap().as_i64().unwrap(), 1);
+            assert_eq!(stats.range_stats.max_value.unwrap().as_i64().unwrap(), 5);
         } else {
             panic!("Expected primitive statistics");
         }

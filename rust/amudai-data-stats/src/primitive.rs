@@ -101,6 +101,18 @@ impl PrimitiveStatsCollector {
         Ok(())
     }
 
+    /// Processes a specified number of null values and updates the statistics.
+    ///
+    /// This method is more efficient than creating a null array when you only need to
+    /// track null counts without processing actual values.
+    ///
+    /// # Arguments
+    ///
+    /// * `null_count` - The number of null values to add to the statistics
+    pub fn process_nulls(&mut self, null_count: usize) {
+        self.range_stats.process_nulls(null_count);
+    }
+
     /// Finalizes the statistics collection and returns the collected statistics.
     ///
     /// # Returns
@@ -135,6 +147,7 @@ trait RangeStatsCollector: Send + Sync {
     fn get_null_count(&self) -> usize;
     fn finalize(&mut self) -> RangeStats;
     fn update(&mut self, values: &dyn Array);
+    fn process_nulls(&mut self, null_count: usize);
 }
 
 /// An implementation of `RangeStatsCollector` for primitive non-FP types.
@@ -207,7 +220,6 @@ where
     fn get_count(&self) -> usize {
         self.count
     }
-
     /// Returns the count of `NaN` values processed.
     ///
     /// # Returns
@@ -224,6 +236,20 @@ where
     /// The count of null values.
     fn get_null_count(&self) -> usize {
         self.null_count
+    }
+
+    /// Processes a specified number of null values and updates the statistics.
+    ///
+    /// This method is more efficient than creating a null array when you only need to
+    /// track null counts without processing actual values.
+    ///
+    /// # Arguments
+    ///
+    /// * `null_count` - The number of null values to add to the statistics
+    fn process_nulls(&mut self, null_count: usize) {
+        self.count += null_count;
+        self.null_count += null_count;
+        // No changes to min/max since nulls don't contribute to range statistics
     }
 }
 
@@ -316,7 +342,6 @@ where
     fn get_nan_count(&self) -> usize {
         self.nan_count
     }
-
     /// Returns the count of null values processed.
     ///
     /// # Returns
@@ -324,6 +349,20 @@ where
     /// The count of null values.
     fn get_null_count(&self) -> usize {
         self.null_count
+    }
+
+    /// Processes a specified number of null values and updates the statistics.
+    ///
+    /// This method is more efficient than creating a null array when you only need to
+    /// track null counts without processing actual values.
+    ///
+    /// # Arguments
+    ///
+    /// * `null_count` - The number of null values to add to the statistics
+    fn process_nulls(&mut self, null_count: usize) {
+        self.count += null_count;
+        self.null_count += null_count;
+        // No changes to min/max or nan_count since nulls don't contribute to these statistics
     }
 }
 
@@ -760,5 +799,383 @@ mod tests {
         assert_eq!(stats.null_count, 2);
         assert_eq!(stats.nan_count, 1);
         Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_process_nulls_method() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+        });
+        let array = Int32Array::from(vec![Some(10), None, Some(20)]);
+        collector.process_array(&array)?;
+
+        // Add additional nulls using the dedicated method
+        collector.process_nulls(3);
+
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 6); // 3 from array + 3 from process_nulls
+        assert_eq!(stats.null_count, 4); // 1 from array + 3 from process_nulls
+        assert_eq!(stats.nan_count, 0); // No NaNs for integers
+        assert_eq!(stats.range_stats.min_value.unwrap().as_i64().unwrap(), 10);
+        assert_eq!(stats.range_stats.max_value.unwrap().as_i64().unwrap(), 20);
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_process_nulls_only() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+        });
+
+        // Only process nulls without any array data
+        collector.process_nulls(5);
+
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 5);
+        assert_eq!(stats.null_count, 5);
+        assert_eq!(stats.nan_count, 0);
+        assert!(stats.range_stats.min_value.is_none()); // No non-null values processed
+        assert!(stats.range_stats.max_value.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_process_nulls_float_with_nan() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Float32,
+            signed: true,
+            fixed_size: 0,
+        });
+        let array = Float32Array::from(vec![Some(1.5), Some(f32::NAN), None, Some(2.5)]);
+        collector.process_array(&array)?;
+
+        // Add additional nulls using the dedicated method
+        collector.process_nulls(2);
+
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 6); // 4 from array + 2 from process_nulls
+        assert_eq!(stats.null_count, 3); // 1 from array + 2 from process_nulls
+        assert_eq!(stats.nan_count, 1); // 1 NaN from array, nulls don't affect this
+        assert_eq!(
+            stats.range_stats.min_value.unwrap().as_f64().unwrap(),
+            1.5f32 as f64
+        );
+        assert_eq!(
+            stats.range_stats.max_value.unwrap().as_f64().unwrap(),
+            2.5f32 as f64
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_datetime() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::DateTime,
+            signed: false,
+            fixed_size: 0,
+        });
+        // DateTime is stored as UInt64 internally (ticks)
+        let array = UInt64Array::from(vec![
+            637500000000000000u64, // Some timestamp
+            637600000000000000u64, // Later timestamp
+            637400000000000000u64, // Earlier timestamp
+        ]);
+        collector.process_array(&array)?;
+        let stats = collector.finish()?;
+        assert_eq!(
+            stats.range_stats.min_value.unwrap().as_i64().unwrap(),
+            637400000000000000i64
+        );
+        assert_eq!(
+            stats.range_stats.max_value.unwrap().as_i64().unwrap(),
+            637600000000000000i64
+        );
+        assert_eq!(stats.count, 3);
+        assert_eq!(stats.null_count, 0);
+        assert_eq!(stats.nan_count, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_empty_array() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+        });
+        let array = Int32Array::from(Vec::<i32>::new());
+        collector.process_array(&array)?;
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 0);
+        assert_eq!(stats.null_count, 0);
+        assert_eq!(stats.nan_count, 0);
+        assert!(stats.range_stats.min_value.is_none());
+        assert!(stats.range_stats.max_value.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_all_nulls_array() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+        });
+        let array = Int32Array::from(vec![None, None, None, None]);
+        collector.process_array(&array)?;
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 4);
+        assert_eq!(stats.null_count, 4);
+        assert_eq!(stats.nan_count, 0);
+        assert!(stats.range_stats.min_value.is_none());
+        assert!(stats.range_stats.max_value.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_single_value() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+        });
+        let array = Int32Array::from(vec![42]);
+        collector.process_array(&array)?;
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 1);
+        assert_eq!(stats.null_count, 0);
+        assert_eq!(stats.nan_count, 0);
+        assert_eq!(stats.range_stats.min_value.unwrap().as_i64().unwrap(), 42);
+        assert_eq!(stats.range_stats.max_value.unwrap().as_i64().unwrap(), 42);
+        assert!(stats.range_stats.min_inclusive);
+        assert!(stats.range_stats.max_inclusive);
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_boundary_values_int32() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+        });
+        let array = Int32Array::from(vec![i32::MIN, i32::MAX, 0]);
+        collector.process_array(&array)?;
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 3);
+        assert_eq!(stats.null_count, 0);
+        assert_eq!(
+            stats.range_stats.min_value.unwrap().as_i64().unwrap(),
+            i32::MIN as i64
+        );
+        assert_eq!(
+            stats.range_stats.max_value.unwrap().as_i64().unwrap(),
+            i32::MAX as i64
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_boundary_values_uint64() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int64,
+            signed: false,
+            fixed_size: 0,
+        });
+        let array = UInt64Array::from(vec![u64::MIN, u64::MAX, 1000]);
+        collector.process_array(&array)?;
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 3);
+        assert_eq!(stats.null_count, 0);
+        assert_eq!(
+            stats.range_stats.min_value.unwrap().as_i64().unwrap(),
+            u64::MIN as i64
+        );
+        // Note: u64::MAX cannot be represented as i64, but the test verifies conversion
+        assert!(stats.range_stats.max_value.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_boundary_values_float32() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Float32,
+            signed: true,
+            fixed_size: 0,
+        });
+        let array = Float32Array::from(vec![f32::MIN, f32::MAX, 0.0]);
+        collector.process_array(&array)?;
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 3);
+        assert_eq!(stats.null_count, 0);
+        assert_eq!(stats.nan_count, 0);
+        assert_eq!(
+            stats.range_stats.min_value.unwrap().as_f64().unwrap(),
+            f32::MIN as f64
+        );
+        assert_eq!(
+            stats.range_stats.max_value.unwrap().as_f64().unwrap(),
+            f32::MAX as f64
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_multiple_arrays() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+        });
+
+        // Process first array
+        let array1 = Int32Array::from(vec![1, 2, 3]);
+        collector.process_array(&array1)?;
+
+        // Process second array with different range
+        let array2 = Int32Array::from(vec![Some(10), None, Some(15)]);
+        collector.process_array(&array2)?;
+
+        // Process third array
+        let array3 = Int32Array::from(vec![-5, 0]);
+        collector.process_array(&array3)?;
+
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 8); // 3 + 3 + 2
+        assert_eq!(stats.null_count, 1); // Only one null from array2
+        assert_eq!(stats.nan_count, 0);
+        assert_eq!(stats.range_stats.min_value.unwrap().as_i64().unwrap(), -5);
+        assert_eq!(stats.range_stats.max_value.unwrap().as_i64().unwrap(), 15);
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_mixed_operations() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+        });
+
+        // Start with an array
+        let array = Int32Array::from(vec![Some(5), None, Some(10)]);
+        collector.process_array(&array)?;
+
+        // Add some nulls
+        collector.process_nulls(2);
+
+        // Add another array
+        let array2 = Int32Array::from(vec![1, 20]);
+        collector.process_array(&array2)?;
+
+        // Add more nulls
+        collector.process_nulls(1);
+
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 8); // 3 + 2 + 2 + 1
+        assert_eq!(stats.null_count, 4); // 1 + 2 + 0 + 1
+        assert_eq!(stats.nan_count, 0);
+        assert_eq!(stats.range_stats.min_value.unwrap().as_i64().unwrap(), 1);
+        assert_eq!(stats.range_stats.max_value.unwrap().as_i64().unwrap(), 20);
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_process_nulls_zero_count() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+        });
+
+        let array = Int32Array::from(vec![1, 2, 3]);
+        collector.process_array(&array)?;
+
+        // Adding zero nulls should not change anything
+        collector.process_nulls(0);
+
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 3);
+        assert_eq!(stats.null_count, 0);
+        assert_eq!(stats.nan_count, 0);
+        assert_eq!(stats.range_stats.min_value.unwrap().as_i64().unwrap(), 1);
+        assert_eq!(stats.range_stats.max_value.unwrap().as_i64().unwrap(), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_float_special_values() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Float32,
+            signed: true,
+            fixed_size: 0,
+        });
+
+        let array = Float32Array::from(vec![
+            Some(f32::INFINITY),
+            Some(f32::NEG_INFINITY),
+            Some(f32::NAN),
+            Some(1.0),
+            None,
+        ]);
+        collector.process_array(&array)?;
+
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 5);
+        assert_eq!(stats.null_count, 1);
+        assert_eq!(stats.nan_count, 1); // Only NaN, not infinities
+
+        // Infinities should be included in min/max
+        assert_eq!(
+            stats.range_stats.min_value.unwrap().as_f64().unwrap(),
+            f32::NEG_INFINITY as f64
+        );
+        assert_eq!(
+            stats.range_stats.max_value.unwrap().as_f64().unwrap(),
+            f32::INFINITY as f64
+        );
+        assert!(stats.range_stats.min_inclusive);
+        assert!(stats.range_stats.max_inclusive);
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_stats_collector_float64_only_nan() -> Result<()> {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Float64,
+            signed: true,
+            fixed_size: 0,
+        });
+
+        let array = Float64Array::from(vec![Some(f64::NAN), Some(f64::NAN), None]);
+        collector.process_array(&array)?;
+
+        let stats = collector.finish()?;
+        assert_eq!(stats.count, 3);
+        assert_eq!(stats.null_count, 1);
+        assert_eq!(stats.nan_count, 2);
+
+        // When all non-null values are NaN, min/max should be None
+        assert!(stats.range_stats.min_value.is_none());
+        assert!(stats.range_stats.max_value.is_none());
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "unexpected type")]
+    fn test_primitive_stats_collector_unsupported_type() {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+        });
+
+        // Try to process a string array with an int32 collector
+        let array = arrow_array::StringArray::from(vec!["hello", "world"]);
+        let _ = collector.process_array(&array);
     }
 }

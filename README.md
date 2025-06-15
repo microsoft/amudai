@@ -29,7 +29,9 @@ cargo install planus-cli
 
 #### Windows
 
-Download `protoc` binary from https://github.com/protocolbuffers/protobuf/releases/latest (e.g. https://github.com/protocolbuffers/protobuf/releases/download/v29.1/protoc-29.1-win64.zip), unpack and place `protoc.exe` in your `%PATH%`.
+Download `protoc` binary from https://github.com/protocolbuffers/protobuf/releases/latest (e.g. https://github.com/protocolbuffers/protobuf/releases/download/v31.1/protoc-31.1-win64.zip), unpack and place `protoc.exe` in your `%PATH%`.
+
+Alternatively, you can run `choco install protoc` from an elevated prompt.
 
 ```
 cargo install planus-cli

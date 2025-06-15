@@ -155,8 +155,10 @@ pub enum EncodedFieldStatistics {
     Primitive(amudai_data_stats::primitive::PrimitiveStats),
     /// Statistics for string types
     String(amudai_data_stats::string::StringStats),
-    // Future: Add other statistic types here
-    // Binary(amudai_data_stats::binary::BinaryStats),
+    /// Statistics for boolean types
+    Boolean(amudai_data_stats::boolean::BooleanStats),
+    /// Statistics for binary types
+    Binary(amudai_data_stats::binary::BinaryStats),
 }
 
 impl EncodedField {
@@ -274,7 +276,7 @@ pub struct FieldEncoderParams {
     pub encoding_profile: BlockEncodingProfile,
 }
 
-trait FieldEncoderOps: Send + Sync + 'static {
+pub(crate) trait FieldEncoderOps: Send + Sync + 'static {
     fn push_array(&mut self, array: Arc<dyn Array>) -> Result<()>;
 
     fn push_nulls(&mut self, count: usize) -> Result<()>;

@@ -120,8 +120,6 @@ struct FieldDescriptorInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     dictionary_size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    true_count: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     nan_count: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stored_data_size: Option<u64>,
@@ -254,7 +252,6 @@ fn create_field_descriptor_info(
             .as_ref()
             .map(|v| format!("{:?}", v)),
         dictionary_size: field_desc.dictionary_size,
-        true_count: field_desc.true_count,
         nan_count: field_desc.nan_count,
         stored_data_size: field_desc.stored_data_size,
         stored_index_size: field_desc.stored_index_size,
@@ -284,11 +281,8 @@ fn create_field_descriptor_info(
 /// field descriptor is wrapped in a StripeFieldDescriptor.
 fn create_stripe_field_descriptor_info(
     stripe_field_desc: &amudai_shard::read::stripe::StripeFieldDescriptor,
-) -> Option<FieldDescriptorInfo> {
-    stripe_field_desc
-        .field
-        .as_ref()
-        .map(|field_desc| FieldDescriptorInfo {
+) -> Option<FieldDescriptorInfo> {    stripe_field_desc.field.as_ref().map(|field_desc| {
+        FieldDescriptorInfo {
             position_count: field_desc.position_count,
             null_count: field_desc.null_count,
             constant_value: field_desc
@@ -296,7 +290,6 @@ fn create_stripe_field_descriptor_info(
                 .as_ref()
                 .map(|v| format!("{:?}", v)),
             dictionary_size: field_desc.dictionary_size,
-            true_count: field_desc.true_count,
             nan_count: field_desc.nan_count,
             stored_data_size: field_desc.stored_data_size,
             stored_index_size: field_desc.stored_index_size,
@@ -316,7 +309,8 @@ fn create_stripe_field_descriptor_info(
                 .membership_filters
                 .as_ref()
                 .map(create_membership_filters_info),
-        })
+        }
+    })
 }
 
 /// Creates a `RangeStatsInfo` from a `RangeStats`.
