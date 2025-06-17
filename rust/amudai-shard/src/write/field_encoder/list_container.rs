@@ -16,7 +16,11 @@ use amudai_format::{
     defs::{schema_ext::BasicTypeDescriptor, shard},
     schema::BasicType,
 };
-use arrow_array::{Array, cast::AsArray};
+use arrow_array::{
+    Array,
+    cast::AsArray,
+    types::{Int32Type, Int64Type},
+};
 
 use crate::write::field_encoder::FieldEncoderParams;
 
@@ -245,6 +249,12 @@ pub fn make_offsets_array(source: &dyn Array, last_offset: u64) -> Result<(Arc<d
         arrow_schema::DataType::Map(_, _) => {
             rebase_offsets(last_offset, source.as_map().value_offsets())
         }
+        arrow_schema::DataType::Int32 => {
+            rebase_offsets(last_offset, source.as_primitive::<Int32Type>().values())
+        }
+        arrow_schema::DataType::Int64 => {
+            rebase_offsets(last_offset, source.as_primitive::<Int64Type>().values())
+        }
         _ => {
             return Err(Error::invalid_arg(
                 "array",
@@ -408,14 +418,15 @@ mod tests {
     }
 
     #[test]
-    fn test_make_offsets_invalid_array_type() {
+    fn test_make_offsets_from_int_array() {
         let int_array = Arc::new(Int32Array::from(vec![1, 2, 3])) as Arc<dyn Array>;
-        let result = make_offsets_array(&*int_array, 0);
-        assert!(result.is_err());
-        assert_eq!(
-            result.err().unwrap().to_string(),
-            "invalid argument array: source array does not have offsets"
-        );
+        let result = make_offsets_array(&*int_array, 0).unwrap();
+        let offsets = result
+            .0
+            .as_any()
+            .downcast_ref::<PrimitiveArray<UInt64Type>>()
+            .unwrap();
+        assert_eq!(offsets.values(), &[1, 2]);
     }
 
     fn make_map<K, V, I>(iter: I) -> Arc<dyn Array>

@@ -57,7 +57,7 @@ impl FieldEncoder {
     }
 
     pub fn push_array(&mut self, array: Arc<dyn Array>) -> Result<()> {
-        let len = array.len();
+        let len = self.get_logical_len(&array);
         self.inner.push_array(array)?;
         self.logical_len += len;
         Ok(())
@@ -132,6 +132,23 @@ impl FieldEncoder {
                 unit_container::UnitContainerFieldEncoder::create(params)
             }
             BasicType::Union => todo!("Implement union encoding support"),
+        }
+    }
+
+    fn get_logical_len(&self, array: &dyn Array) -> usize {
+        use arrow_schema::DataType;
+        let len = array.len();
+        if matches!(
+            self.basic_type().basic_type,
+            BasicType::List | BasicType::Map
+        ) && matches!(array.data_type(), DataType::Int32 | DataType::Int64)
+        {
+            // List offsets supplied as a plain integer array, the actual logical
+            // length is one less the number of offsets.
+            assert_ne!(len, 0);
+            len - 1
+        } else {
+            len
         }
     }
 }

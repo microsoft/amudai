@@ -60,16 +60,7 @@ impl ShardStore {
         I: IntoIterator<Item = Result<RecordBatch, arrow_schema::ArrowError>>,
     {
         let schema = batches.schema();
-        let shard_schema = SchemaBuilder::from_arrow_schema(&schema).unwrap();
-
-        let mut shard_builder = ShardBuilder::new(ShardBuilderParams {
-            schema: shard_schema.into(),
-            object_store: self.object_store.clone(),
-            temp_store: temp_file_store::create_in_memory(32 * 1024 * 1024).unwrap(),
-            encoding_profile: Default::default(),
-        })
-        .unwrap();
-
+        let mut shard_builder = self.create_shard_builder(&schema);
         let mut stripe_builder = shard_builder.build_stripe().unwrap();
 
         for batch in batches {
@@ -78,6 +69,21 @@ impl ShardStore {
         }
         let stripe = stripe_builder.finish().unwrap();
         shard_builder.add_stripe(stripe).unwrap();
+        self.seal_shard_builder(shard_builder)
+    }
+
+    pub fn create_shard_builder(&self, schema: &Arc<Schema>) -> ShardBuilder {
+        let shard_schema = SchemaBuilder::from_arrow_schema(&schema).unwrap();
+        ShardBuilder::new(ShardBuilderParams {
+            schema: shard_schema.into(),
+            object_store: self.object_store.clone(),
+            temp_store: temp_file_store::create_in_memory(256 * 1024 * 1024).unwrap(),
+            encoding_profile: Default::default(),
+        })
+        .unwrap()
+    }
+
+    pub fn seal_shard_builder(&self, shard_builder: ShardBuilder) -> DataRef {
         let shard = shard_builder
             .finish()
             .unwrap()

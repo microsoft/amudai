@@ -221,6 +221,10 @@ impl FieldBuilder {
                 let array = array.as_list::<i64>();
                 Self::slice_list_values(array.value_offsets(), array.values())
             }
+            arrow_schema::DataType::Int32 | arrow_schema::DataType::Int64 => {
+                // Assume we're processing list offsets only (no child item array).
+                return Ok(());
+            }
             _ => {
                 return Err(Error::invalid_arg(
                     "array",

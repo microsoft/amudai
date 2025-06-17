@@ -48,7 +48,91 @@ impl StripeBuilder {
         &self.params.schema
     }
 
-    /// Returns a mutable reference to a `FieldBuilder` at the given index.
+    /// Retrieves or creates a mutable reference to a `FieldBuilder` for manual data insertion.
+    ///
+    /// This method provides direct access to individual field builders, enabling fine-grained
+    /// control over data insertion when the high-level [`push_batch`](Self::push_batch) API
+    /// is insufficient. It's particularly useful for memory-efficient processing of large
+    /// or complex data structures, and for scenarios requiring custom data transformation
+    /// or chunked processing.
+    ///
+    /// # Field Location
+    ///
+    /// Fields can be located in two ways:
+    /// - **By ordinal position**: `FieldLocator::Ordinal(index)` - Uses the zero-based field index
+    /// - **By name**: `FieldLocator::Name(name)` - Uses the field name from the schema
+    ///
+    /// The method will automatically create a new `FieldBuilder` if one doesn't already exist
+    /// for the specified field, using the field's data type from the stripe's schema.
+    ///
+    /// # Use Cases
+    ///
+    /// ## Memory-Constrained Scenarios
+    /// When creating complete `RecordBatch` instances would be impractical due to memory
+    /// constraints, this method allows you to build field data incrementally:
+    ///
+    /// ```rust,ignore
+    /// // For a List<i64> field with millions of items per list
+    /// let list_field = stripe_builder.get_field(&FieldLocator::Name("large_numbers"))?;
+    /// let items_field = list_field.get_child(&FieldLocator::Ordinal(0))?;
+    ///
+    /// // Push data in small chunks instead of one massive array
+    /// for chunk in data_chunks {
+    ///     items_field.push_array(chunk)?;
+    /// }
+    ///
+    /// // Manually handle list offsets
+    /// list_field.push_array(offsets_array)?;
+    /// stripe_builder.set_next_record_position(total_lists);
+    /// ```
+    ///
+    /// ## Custom Data Processing
+    /// For scenarios requiring data transformation or custom encoding that doesn't fit
+    /// the standard batch processing model:
+    ///
+    /// ```rust,ignore
+    /// // Process nested structures with custom logic
+    /// let struct_field = stripe_builder.get_field(&FieldLocator::Ordinal(2))?;
+    /// let name_field = struct_field.get_child(&FieldLocator::Name("name"))?;
+    /// let scores_field = struct_field.get_child(&FieldLocator::Name("scores"))?;
+    ///
+    /// // Apply custom transformations and push to individual fields
+    /// name_field.push_array(transformed_names)?;
+    /// scores_field.push_array(processed_scores)?;
+    /// ```
+    ///
+    /// # Field Builder Operations
+    ///
+    /// Once you have a `FieldBuilder`, you can:
+    /// - **Push arrays**: [`FieldBuilder::push_array`] to add Arrow arrays
+    /// - **Access children**: [`FieldBuilder::get_child`] for nested structures
+    /// - **Sync positions**: [`FieldBuilder::sync_with_parent`] to align with parent records
+    ///
+    /// # Important Notes
+    ///
+    /// - **Position tracking**: When using manual field insertion, you're responsible for
+    ///   maintaining consistent record positions across all fields. Use
+    ///   [`set_next_record_position`](Self::set_next_record_position) to coordinate.
+    /// - **Schema compatibility**: Arrays pushed to fields must be compatible with the
+    ///   field's data type as defined in the stripe's schema.
+    /// - **Child field access**: For nested types (structs, lists, maps), use the returned
+    ///   `FieldBuilder`'s [`get_child`](FieldBuilder::get_child) method to access nested fields.
+    ///
+    /// # Parameters
+    ///
+    /// * `locator` - A [`FieldLocator`] specifying the field by either ordinal index or name
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(&mut FieldBuilder)` - A mutable reference to the field builder
+    /// * `Err(Error)` - If the field cannot be found or created (e.g., invalid index/name)
+    ///
+    /// # See Also
+    ///
+    /// * [`push_batch`](Self::push_batch) - High-level API for pushing complete record batches
+    /// * [`set_next_record_position`](Self::set_next_record_position) - For coordinating record positions
+    /// * [`FieldBuilder`] - For operations available on individual field builders
+    /// * [`FieldLocator`] - For field addressing options
     pub fn get_field(&mut self, locator: &FieldLocator) -> Result<&mut FieldBuilder> {
         self.fields.get_or_create(locator, |index, data_type| {
             Self::create_field(&self.params, index, data_type)
@@ -101,6 +185,90 @@ impl StripeBuilder {
 
         self.batch_pos += batch.num_rows();
         Ok(())
+    }
+
+    /// Manually sets the logical position of the next record to be added to the stripe.
+    ///
+    /// This method updates the internal record position counter that tracks the total number
+    /// of records that have been logically added to the stripe. It's essential for maintaining
+    /// consistency when using the low-level field manipulation APIs instead of the high-level
+    /// [`push_batch`](Self::push_batch) method.
+    ///
+    /// # When to Use
+    ///
+    /// This method should **only** be used when manually manipulating stripe fields through
+    /// [`get_field`](Self::get_field) and directly pushing arrays to individual
+    /// [`FieldBuilder`] instances. It's not needed when using [`push_batch`](Self::push_batch),
+    /// as that method automatically manages record positions.
+    ///
+    /// # Position Coordination
+    ///
+    /// When working with multiple fields manually, it's crucial to keep their logical record
+    /// counts synchronized. This method helps coordinate the stripe-level position with
+    /// field-level positions:
+    ///
+    /// ```rust,ignore
+    /// // After manually adding 1000 records to various fields
+    /// let name_field = stripe_builder.get_field(&FieldLocator::Name("name"))?;
+    /// let age_field = stripe_builder.get_field(&FieldLocator::Name("age"))?;
+    ///
+    /// // Push arrays with 1000 elements each
+    /// name_field.push_array(names_array)?;  // 1000 names
+    /// age_field.push_array(ages_array)?;    // 1000 ages
+    ///
+    /// // Update stripe's logical position to reflect the new records
+    /// stripe_builder.set_next_record_position(1000);
+    /// ```
+    ///
+    /// # Memory-Efficient Processing
+    ///
+    /// This method is particularly useful in memory-constrained scenarios where you're
+    /// processing data in chunks but need to maintain accurate record counts:
+    ///
+    /// ```rust,ignore
+    /// let mut total_records = 0;
+    /// for chunk in data_chunks {
+    ///     let field = stripe_builder.get_field(&FieldLocator::Ordinal(0))?;
+    ///     field.push_array(chunk.to_arrow_array())?;
+    ///     total_records += chunk.len();
+    /// }
+    ///
+    /// // Synchronize the stripe's logical position
+    /// stripe_builder.set_next_record_position(total_records as u64);
+    /// ```
+    ///
+    /// # Position Invariants
+    ///
+    /// The method enforces that the new position must be greater than or equal to the
+    /// current position, preventing accidental position regression that could lead to
+    /// data inconsistencies.
+    ///
+    /// # Parameters
+    ///
+    /// * `pos` - The logical position of the next record to be added. This represents
+    ///   the total count of records that have been logically processed by the stripe.
+    ///   Must be >= the current position.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `pos` is less than the current record position, as this would indicate
+    /// a programming error that could lead to data corruption.
+    ///
+    /// # Important Notes
+    ///
+    /// - **Not for batch processing**: Don't use this method when using [`push_batch`](Self::push_batch);
+    ///   the batch API handles position management automatically.
+    /// - **Position tracking**: The position represents logical records, not physical
+    ///   array elements. For nested structures, this should reflect the number of
+    ///   top-level records, not the total number of nested elements.
+    ///
+    /// # See Also
+    ///
+    /// * [`get_field`](Self::get_field) - For manual field manipulation
+    /// * [`push_batch`](Self::push_batch) - High-level API with automatic position management
+    pub fn set_next_record_position(&mut self, pos: u64) {
+        assert!(pos >= self.batch_pos as u64);
+        self.batch_pos = pos as usize;
     }
 
     /// Finishes building the stripe and returns a `PreparedStripe`
