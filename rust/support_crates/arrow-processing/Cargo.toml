@@ -12,6 +12,7 @@ arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-cast = { workspace = true }
 arrow-data = { workspace = true }
+arrow-json = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 fastrand = { workspace = true }

@@ -15,11 +15,12 @@ members = [
     "rust/amudai-shard",
     "rust/amudai-testkit",
     "rust/amudai-text-index",
-    "rust/experiments/sequence_bench",
     "rust/support_crates/amudai-budget-tracker",
     "rust/support_crates/amudai-bytes",
     "rust/support_crates/amudai-collections",
     "rust/support_crates/amudai-keyed-vector",
+    "rust/support_crates/arrow-builders",
+    "rust/support_crates/arrow-builders-macros",
     "rust/support_crates/arrow-processing",
     "rust/tools/amudai-cmd",
     "rust/tools/codegentool",
@@ -110,6 +111,8 @@ amudai-sequence = { path = "rust/amudai-sequence" }
 amudai-shard = { path = "rust/amudai-shard" }
 amudai-text-index = { path = "rust/amudai-text-index" }
 amudai-testkit = { path = "rust/amudai-testkit" }
+arrow-builders = { path = "rust/support_crates/arrow-builders" }
+arrow-builders-macros = { path = "rust/support_crates/arrow-builders-macros" }
 arrow-processing = { path = "rust/support_crates/arrow-processing" }
 
 [profile.devrel]
