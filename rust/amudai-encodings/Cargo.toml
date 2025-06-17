@@ -8,7 +8,6 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-anymap = { workspace = true }
 arrayref = { workspace = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }

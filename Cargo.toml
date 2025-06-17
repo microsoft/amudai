@@ -42,7 +42,6 @@ rust-version = "1.86"
 [workspace.dependencies]
 ahash = "0.8"
 anyhow = "1"
-anymap = "0.12"
 arrayref = "0.3"
 arrow = "55"
 arrow-arith = "55"

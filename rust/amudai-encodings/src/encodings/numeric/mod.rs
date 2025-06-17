@@ -20,7 +20,11 @@ use stats::{
     IntegerStatsCollector, NumericStats, NumericStatsCollector, NumericStatsCollectorFlags,
     StatsCollector,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
+    sync::Arc,
+};
 use truncation::{
     TruncatableSInteger, TruncateU8Encoding, TruncateU16Encoding, TruncateU32Encoding,
     TruncateU64Encoding,
@@ -319,12 +323,12 @@ where
 /// The pool that contains pre-initialized encodings sets
 /// for all supported numeric data types.
 pub struct NumericEncodingsPool {
-    encodings: anymap::Map<dyn anymap::any::Any + Send + Sync>,
+    encodings: EncodingsMap,
 }
 
 impl NumericEncodingsPool {
     pub fn new() -> Self {
-        let mut encodings = anymap::Map::new();
+        let mut encodings = EncodingsMap::new();
         encodings.insert(Self::create_sinteger_encodings::<i8>());
         encodings.insert(Self::create_sinteger_encodings::<i16>());
         encodings.insert(Self::create_sinteger_encodings::<i32>());
@@ -345,14 +349,12 @@ impl NumericEncodingsPool {
     where
         T: NumericValue,
     {
-        self.encodings
-            .get::<NumericEncodings<T>>()
-            .unwrap_or_else(|| {
-                panic!(
-                    "Numeric encoder not found for type: {}",
-                    std::any::type_name::<T>()
-                )
-            })
+        self.encodings.get().unwrap_or_else(|| {
+            panic!(
+                "Numeric encoder not found for type: {}",
+                std::any::type_name::<T>()
+            )
+        })
     }
 
     /// Initialize encodings set for signed integer type `T`.
@@ -438,6 +440,36 @@ impl NumericEncodingsPool {
 impl Default for NumericEncodingsPool {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// A hashmap for storing encodings sets per numeric type.
+struct EncodingsMap {
+    encodings: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+}
+
+impl EncodingsMap {
+    fn new() -> Self {
+        Self {
+            encodings: HashMap::new(),
+        }
+    }
+
+    fn insert<T>(&mut self, encodings: NumericEncodings<T>)
+    where
+        T: NumericValue,
+    {
+        self.encodings
+            .insert(TypeId::of::<T>(), Arc::new(encodings));
+    }
+
+    fn get<T>(&self) -> Option<&NumericEncodings<T>>
+    where
+        T: NumericValue,
+    {
+        self.encodings
+            .get(&TypeId::of::<T>())
+            .and_then(|enc| enc.downcast_ref::<NumericEncodings<T>>())
     }
 }
 
