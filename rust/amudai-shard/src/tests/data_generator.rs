@@ -156,7 +156,7 @@ pub fn generate_batches(
     batch_size: Range<usize>,
     record_count: usize,
 ) -> Box<dyn Iterator<Item = RecordBatch>> {
-    let batch_sizes = arrow_processing::array_sequence::random_split(
+    let batch_sizes = amudai_arrow_processing::array_sequence::random_split(
         record_count,
         batch_size.start,
         batch_size.end,

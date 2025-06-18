@@ -2,13 +2,13 @@
 
 use std::sync::Arc;
 
-use amudai_common::{Result, error::Error};
-use arrow_array::{Array, UInt8Array};
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, ScalarBuffer};
-use arrow_processing::{
+use amudai_arrow_processing::{
     array_sequence::ArraySequence, cast::normalize_null_buffer, data_size::binary_data_size,
     for_each::for_each_as_binary,
 };
+use amudai_common::{Result, error::Error};
+use arrow_array::{Array, UInt8Array};
+use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, ScalarBuffer};
 
 /// A buffer for staging `binary`-like value arrays (`Binary`, `Utf8`,
 /// `FixedSizeBinary`), optimized for efficient appending, sampling

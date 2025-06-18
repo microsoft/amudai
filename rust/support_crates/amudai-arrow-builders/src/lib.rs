@@ -36,7 +36,7 @@
 //! ### Primitive Builders
 //!
 //! ```rust
-//! use arrow_builders::{StringBuilder, Int64Builder, ArrayBuilder};
+//! use amudai_arrow_builders::{StringBuilder, Int64Builder, ArrayBuilder};
 //!
 //! // Build a string array
 //! let mut string_builder = StringBuilder::default();
@@ -56,7 +56,7 @@
 //! ### List Builders
 //!
 //! ```rust
-//! use arrow_builders::{ListBuilder, Int64Builder, ArrayBuilder};
+//! use amudai_arrow_builders::{ListBuilder, Int64Builder, ArrayBuilder};
 //!
 //! let mut list_builder = ListBuilder::<Int64Builder>::default();
 //!
@@ -78,7 +78,7 @@
 //! ### Map Builders
 //!
 //! ```rust
-//! use arrow_builders::{MapBuilder, StringBuilder, Int64Builder, ArrayBuilder};
+//! use amudai_arrow_builders::{MapBuilder, StringBuilder, Int64Builder, ArrayBuilder};
 //!
 //! let mut map_builder = MapBuilder::<StringBuilder, Int64Builder>::default();
 //!
@@ -98,11 +98,11 @@
 //! ## Struct Builders with Macros
 //!
 //! The most convenient way to work with struct builders is using the
-//! [`struct_builder!`](arrow_builders_macros::struct_builder) macro:
+//! [`struct_builder!`](amudai_arrow_builders_macros::struct_builder) macro:
 //!
 //! ```rust
-//! use arrow_builders_macros::struct_builder;
-//! use arrow_builders::ArrayBuilder;
+//! use amudai_arrow_builders_macros::struct_builder;
+//! use amudai_arrow_builders::ArrayBuilder;
 //!
 //! // Define a struct builder
 //! struct_builder!(
@@ -148,7 +148,7 @@
 //! ### Deeply Nested Structures
 //!
 //! ```rust
-//! use arrow_builders_macros::struct_builder;
+//! use amudai_arrow_builders_macros::struct_builder;
 //!
 //! struct_builder!(
 //!     struct ComplexData {
@@ -195,8 +195,8 @@
 //! For building record batches (tables), use [`RecordBatchBuilder`]:
 //!
 //! ```rust
-//! use arrow_builders_macros::struct_builder;
-//! use arrow_builders::record_batch::RecordBatchBuilder;
+//! use amudai_arrow_builders_macros::struct_builder;
+//! use amudai_arrow_builders::record_batch::RecordBatchBuilder;
 //!
 //! struct_builder!(
 //!     struct Person {

@@ -37,7 +37,7 @@
 //! # Usage with Macros
 //!
 //! While this module can be used directly, the most convenient way to work with struct builders
-//! is through the [`struct_builder!`](arrow_builders_macros::struct_builder) macro, which
+//! is through the [`struct_builder!`](amudai_arrow_builders_macros::struct_builder) macro, which
 //! automatically generates the necessary [`StructFieldsBuilder`] implementation.
 
 use std::sync::Arc;
@@ -56,7 +56,7 @@ use crate::ArrayBuilder;
 /// to ensure they can be safely used in multi-threaded contexts and stored in various data structures.
 ///
 /// This trait should rarely be implemented manually. The most convenient way to work with struct builders
-/// is using the [`struct_builder!`](arrow_builders_macros::struct_builder) macro.
+/// is using the [`struct_builder!`](amudai_arrow_builders_macros::struct_builder) macro.
 pub trait StructFieldsBuilder: Default + Send + Sync + 'static {
     /// Returns the current logical position in the struct array being built.
     ///

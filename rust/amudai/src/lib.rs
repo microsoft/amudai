@@ -103,9 +103,11 @@ pub use amudai_shard as shard;
 pub use amudai_text_index as text_index;
 
 pub mod support {
+    pub use amudai_arrow_builders as arrow_builders;
+    pub use amudai_arrow_builders_macros as arrow_builders_macros;
+    pub use amudai_arrow_processing as arrow_processing;
     pub use amudai_budget_tracker as budget_tracker;
     pub use amudai_bytes as bytes;
     pub use amudai_collections as collections;
     pub use amudai_keyed_vector as keyed_vector;
-    pub use arrow_processing;
 }

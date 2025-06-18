@@ -1,14 +1,16 @@
 [package]
-name = "codegentool"
+name = "amudai-arrow-builders-macros"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 readme.workspace = true
 description.workspace = true
 rust-version.workspace = true
-publish = false
+
+[lib]
+proc-macro = true
 
 [dependencies]
-clap = { workspace = true }
-prost-build = { workspace = true }
-xshell = { workspace = true }
+syn = { version = "2.0", features = ["full"] }
+quote = "1.0"
+proc-macro2 = "1.0"

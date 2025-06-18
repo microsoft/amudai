@@ -66,12 +66,12 @@ Top-level convenient "facade" crate.
 
 Collection of shared library/utility crates that amudai-* can freely depend on.
 
-### arrow-processing
+### amudai-arrow-processing
 
 Arrow utilities and extensions for more streamlined processing of arrays.
 Does not take any dependency on amudai-* crates.
 
-### codegentool
+### amudai-codegentool
 
 Code-generation tasks for Amudai development.
 

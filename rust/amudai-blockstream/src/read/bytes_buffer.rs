@@ -548,7 +548,7 @@ mod tests {
 
             value_offset += value_count;
             let array = StringArray::from(values);
-            let array = arrow_processing::cast::binary_like_to_large_binary(&array).unwrap();
+            let array = amudai_arrow_processing::cast::binary_like_to_large_binary(&array).unwrap();
             encoder.encode_block(&array)?;
         }
 

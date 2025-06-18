@@ -1,6 +1,6 @@
+use amudai_arrow_builders_macros::struct_builder;
+use amudai_arrow_processing::array_to_json::{array_to_ndjson, record_batch_to_ndjson};
 use arrow_array::{Array, cast::AsArray};
-use arrow_builders_macros::struct_builder;
-use arrow_processing::array_to_json::{array_to_ndjson, record_batch_to_ndjson};
 
 use crate::{
     ArrayBuilder, BinaryBuilder, FixedSizeBinaryBuilder, Int64Builder, ListBuilder, MapBuilder,

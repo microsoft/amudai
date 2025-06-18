@@ -1,5 +1,5 @@
 [package]
-name = "arrow-builders"
+name = "amudai-arrow-builders"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -12,7 +12,7 @@ arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 
-arrow-builders-macros = { workspace = true }
+amudai-arrow-builders-macros = { workspace = true }
 
 [dev-dependencies]
-arrow-processing = { workspace = true }
+amudai-arrow-processing = { workspace = true }

@@ -85,7 +85,7 @@ cargo test
 
 ## Code generation
 
-This repository includes code generated from various types of "interface definition" files, particularly Protocol Buffers and FlatBuffers. Currently, the generated code is included in the repository. To regenerate it, please refer to the [codegentool](./rust/tools/codegentool/README.md) documentation.
+This repository includes code generated from various types of "interface definition" files, particularly Protocol Buffers and FlatBuffers. Currently, the generated code is included in the repository. To regenerate it, please refer to the [amudai-codegentool](./rust/tools/amudai-codegentool/README.md) documentation.
 
 # Trademarks
 

@@ -388,7 +388,7 @@ mod tests {
         let decoder = field.create_decoder().unwrap();
 
         fastrand::seed(987321546);
-        let ranges = arrow_processing::array_sequence::sample_subranges(
+        let ranges = amudai_arrow_processing::array_sequence::sample_subranges(
             shard.directory().total_record_count as usize,
             1,
             2000,

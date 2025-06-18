@@ -17,6 +17,7 @@ fastrand = { workspace = true }
 itertools = { workspace = true }
 
 amudai-arrow-compat = { workspace = true }
+amudai-arrow-processing = { workspace = true }
 amudai-bytes = { workspace = true }
 amudai-common = { workspace = true }
 amudai-encodings = { workspace = true }
@@ -25,7 +26,6 @@ amudai-io = { workspace = true }
 amudai-io-impl = { workspace = true }
 amudai-objectstore = { workspace = true }
 amudai-sequence = { workspace = true }
-arrow-processing = { workspace = true }
 
 [dev-dependencies]
 amudai-io-impl = { workspace = true }

@@ -36,7 +36,7 @@
 //!
 //! # Integration with Struct Builders
 //!
-//! [`RecordBatchBuilder`] is designed to work seamlessly with the [`struct_builder!`](arrow_builders_macros::struct_builder)
+//! [`RecordBatchBuilder`] is designed to work seamlessly with the [`struct_builder!`](amudai_arrow_builders_macros::struct_builder)
 //! macro. The macro generates the necessary [`StructFieldsBuilder`] implementation that
 //! provides field accessor methods and manages the underlying field builders.
 

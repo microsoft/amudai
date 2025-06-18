@@ -9,7 +9,10 @@ rust-version.workspace = true
 
 [dependencies]
 amudai-arrow = { workspace = true }
+amudai-arrow-builders = { workspace = true }
+amudai-arrow-builders-macros = { workspace = true }
 amudai-arrow-compat = { workspace = true }
+amudai-arrow-processing = { workspace = true }
 amudai-blockstream = { workspace = true }
 amudai-budget-tracker = { workspace = true }
 amudai-bytes = { workspace = true }
@@ -25,4 +28,3 @@ amudai-objectstore = { workspace = true }
 amudai-sequence = { workspace = true }
 amudai-shard = { workspace = true }
 amudai-text-index = { workspace = true }
-arrow-processing = { workspace = true }

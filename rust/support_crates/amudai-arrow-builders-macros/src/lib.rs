@@ -33,7 +33,7 @@ impl syn::parse::Parse for StructBuilderInput {
 /// # Usage
 ///
 /// ```rust,ignore
-/// use arrow_builders_macros::struct_builder;
+/// use amudai_arrow_builders_macros::struct_builder;
 ///
 /// struct_builder!(struct Foo {
 ///     name: String,
@@ -63,7 +63,7 @@ pub fn struct_builder(input: TokenStream) -> TokenStream {
     let crate_path = if let Some(path) = &input.crate_path {
         quote! { #path }
     } else {
-        quote! { arrow_builders }
+        quote! { amudai_arrow_builders }
     };
 
     let fields = match &input.struct_def.data {
