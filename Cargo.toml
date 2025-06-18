@@ -8,6 +8,7 @@ members = [
     "rust/amudai-data-stats",
     "rust/amudai-encodings",
     "rust/amudai-format",
+    "rust/amudai-hashmap-index",
     "rust/amudai-io",
     "rust/amudai-io-impl",
     "rust/amudai-objectstore",
@@ -105,6 +106,7 @@ amudai-common = { path = "rust/amudai-common" }
 amudai-data-stats = { path = "rust/amudai-data-stats" }
 amudai-encodings = { path = "rust/amudai-encodings" }
 amudai-format = { path = "rust/amudai-format" }
+amudai-hashmap-index = { path = "rust/amudai-hashmap-index" }
 amudai-io = { path = "rust/amudai-io" }
 amudai-io-impl = { path = "rust/amudai-io-impl" }
 amudai-keyed-vector = { path = "rust/support_crates/amudai-keyed-vector" }
