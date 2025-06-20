@@ -1,4 +1,5 @@
 #!/bin/sh 
+
 _non_interactive=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -17,8 +18,6 @@ while [ $# -gt 0 ]; do
     ;;
   esac
 done
-
-
 
 function check_az_logged_in() {
     local _token_exp_time_s=$(az account get-access-token --query "expiresOn" --output tsv 2> /dev/null)
@@ -68,4 +67,6 @@ then
     az login
 fi
 set -e    
-az account get-access-token --query "join(' ', ['Bearer', accessToken])" --output tsv | $_cargo login --registry Azure-Kusto-Service_PublicPackages
+
+az account get-access-token --query "join(' ', ['Bearer', accessToken])" --output tsv | $_cargo login --registry Azure-Kusto-Amudai
+
