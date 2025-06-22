@@ -17,7 +17,6 @@ amudai-io = { workspace = true }
 amudai-objectstore = { workspace = true }
 amudai-sequence = { workspace = true }
 amudai-shard = { workspace = true }
-amudai-text-index = { workspace = true }
 
 arrow = { workspace = true }
 itertools = { workspace = true }

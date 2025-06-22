@@ -95,6 +95,7 @@ pub use amudai_common as common;
 pub use amudai_data_stats as data_stats;
 pub use amudai_encodings as encodings;
 pub use amudai_format;
+pub use amudai_hashmap_index as hashmap_index;
 pub use amudai_io as io;
 pub use amudai_io_impl as io_impl;
 pub use amudai_objectstore as objectstore;
