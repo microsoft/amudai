@@ -58,6 +58,7 @@ impl BitBufferDecoder {
                 basic_type: BasicType::Int8,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
         )?;
         Ok(BitBufferDecoder::Blocks(decoder))
@@ -79,6 +80,7 @@ impl BitBufferDecoder {
                 basic_type: BasicType::Int8,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
         )?;
         Ok(BitBufferDecoder::Blocks(decoder))

@@ -192,6 +192,7 @@ mod tests {
                 basic_type: BasicType::Int32,
                 fixed_size: 0,
                 signed: true,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -223,7 +224,8 @@ mod tests {
         let basic_type = BasicTypeDescriptor {
             basic_type: BasicType::Int32,
             signed: true,
-            fixed_size: std::mem::size_of::<i32>(),
+            fixed_size: std::mem::size_of::<i32>() as u32,
+            extended_type: Default::default(),
         };
 
         let mut encoder = PrimitiveBufferEncoder::new(policy, basic_type, temp_store)?;
@@ -258,6 +260,7 @@ mod tests {
                 basic_type: BasicType::Int32,
                 fixed_size: 0,
                 signed: true,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -290,6 +293,7 @@ mod tests {
                 basic_type: BasicType::Int32,
                 fixed_size: 0,
                 signed: true,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -322,6 +326,7 @@ mod tests {
                 basic_type: BasicType::Int32,
                 fixed_size: 0,
                 signed: true,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -356,6 +361,7 @@ mod tests {
                 basic_type: BasicType::Int32,
                 fixed_size: 0,
                 signed: true,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -388,6 +394,7 @@ mod tests {
                 basic_type: BasicType::Int32,
                 fixed_size: 0,
                 signed: true,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -417,6 +424,7 @@ mod tests {
                 basic_type: BasicType::Int32,
                 fixed_size: 0,
                 signed: true,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -440,6 +448,7 @@ mod tests {
                 basic_type: BasicType::Int32,
                 fixed_size: 0,
                 signed: true,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -484,6 +493,7 @@ mod tests {
                 basic_type: BasicType::Int32,
                 fixed_size: 0,
                 signed: true,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -523,6 +533,7 @@ mod tests {
                 basic_type: BasicType::Int32,
                 fixed_size: 0,
                 signed: true,
+                extended_type: Default::default(),
             },
         )
         .unwrap();

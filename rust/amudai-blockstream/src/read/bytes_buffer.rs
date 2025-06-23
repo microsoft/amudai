@@ -160,6 +160,7 @@ mod tests {
                 basic_type: BasicType::String,
                 fixed_size: 0,
                 signed: false,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -189,6 +190,7 @@ mod tests {
                 basic_type: BasicType::String,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -221,6 +223,7 @@ mod tests {
                 basic_type: BasicType::String,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -253,6 +256,7 @@ mod tests {
                 basic_type: BasicType::String,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -290,6 +294,7 @@ mod tests {
                 basic_type: BasicType::String,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -322,6 +327,7 @@ mod tests {
                 basic_type: BasicType::String,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -350,6 +356,7 @@ mod tests {
                 basic_type: BasicType::String,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -373,6 +380,7 @@ mod tests {
                 basic_type: BasicType::String,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -417,6 +425,7 @@ mod tests {
                 basic_type: BasicType::String,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -460,6 +469,7 @@ mod tests {
                 basic_type: BasicType::String,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -495,6 +505,7 @@ mod tests {
                 basic_type: BasicType::FixedSizeBinary,
                 fixed_size: 8, // 8-byte fixed size binary
                 signed: false,
+                extended_type: Default::default(),
             },
         )
         .unwrap();
@@ -532,6 +543,7 @@ mod tests {
             basic_type: BasicType::String,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
 
         let mut encoder = BytesBufferEncoder::new(policy, basic_type, temp_store)?;
@@ -574,6 +586,7 @@ mod tests {
             basic_type: BasicType::FixedSizeBinary,
             signed: false,
             fixed_size: 8,
+            extended_type: Default::default(),
         };
 
         let mut encoder = BytesBufferEncoder::new(policy, basic_type, temp_store)?;

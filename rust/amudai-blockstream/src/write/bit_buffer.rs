@@ -290,6 +290,7 @@ impl BitBufferBlocksEncoder {
                 basic_type: BasicType::Int8,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
             temp_store,
         )?;
@@ -688,6 +689,7 @@ mod tests {
                 basic_type: BasicType::Int8,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
         )
         .unwrap();

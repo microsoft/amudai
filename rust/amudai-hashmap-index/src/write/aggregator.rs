@@ -29,9 +29,10 @@ impl EntriesAggregator {
     /// * `temp_store` - The temporary file store to use for creating temporary files.
     ///                  
     /// * `max_memory_usage` - The maximum memory usage allowed for the aggregator. This is
-    ///                     a recommendation that affects the number of sorters running
-    ///                     in parallel. It's still possible that a single sorter uses
-    ///                     more memory than this limit.
+    ///   a recommendation that affects the number of sorters running
+    ///   in parallel. It's still possible that a single sorter uses
+    ///   more memory than this limit.
+    ///
     /// # Errors
     /// Returns an error if temporary file allocation fails.
     pub fn new(temp_store: Arc<dyn TemporaryFileStore>, max_memory_usage: usize) -> Result<Self> {
@@ -110,7 +111,7 @@ impl EntriesAggregator {
     pub fn sorted_entries(&mut self, buckets_count: usize) -> Result<SortedEntries> {
         let mut temp_files = std::mem::take(&mut self.temp_files)
             .into_iter()
-            .map(|temp_file| Some(temp_file))
+            .map(Some)
             .collect::<Vec<_>>();
 
         // Estimate the memory usage per file based on the current size of each temporary file.
@@ -128,7 +129,7 @@ impl EntriesAggregator {
         // to limit the number of concurrent sort operations.
         let temp_files = temp_files
             .chunks_mut(allowed_parallelism)
-            .map(|chunk| {
+            .flat_map(|chunk| {
                 chunk
                     .into_par_iter()
                     .map(|temp_file| {
@@ -136,7 +137,6 @@ impl EntriesAggregator {
                     })
                     .collect::<Vec<_>>()
             })
-            .flatten()
             .collect::<Result<Vec<_>>>()?;
 
         SortedEntries::new(temp_files, buckets_count)
@@ -216,8 +216,7 @@ impl EntriesAggregator {
                         let hash = u64::from_le_bytes(buffer[0..8].try_into().unwrap());
                         let positions_count =
                             u64::from_le_bytes(buffer[8..16].try_into().unwrap()) as usize;
-                        let mut positions_buf = vec![];
-                        positions_buf.resize(positions_count * 8, 0);
+                        let mut positions_buf = vec![0; positions_count * 8];
                         reader.read_exact(&mut positions_buf)?;
                         sorted_entries.push((hash, positions_buf));
                     }
@@ -278,7 +277,7 @@ impl SortedEntries {
 
         let read_values = readers
             .iter_mut()
-            .map(|reader| Self::read_value(reader))
+            .map(Self::read_value)
             .collect::<Result<Vec<_>>>()?;
 
         Ok(SortedEntries {
@@ -297,10 +296,10 @@ impl SortedEntries {
                     u64::from_le_bytes(buffer[8..16].try_into().unwrap()) as usize;
 
                 let mut positions = vec![0u64; positions_count];
-                for i in 0..positions_count {
+                for position in positions.iter_mut() {
                     let mut pos_buf = [0u8; 8];
                     reader.read_exact(&mut pos_buf)?;
-                    positions[i] = u64::from_le_bytes(pos_buf);
+                    *position = u64::from_le_bytes(pos_buf);
                 }
                 Ok(Some((hash, positions)))
             }

@@ -126,6 +126,7 @@ mod tests {
             basic_type: amudai_format::schema::BasicType::Binary,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
 
         let context = Arc::new(EncodingContext::default());

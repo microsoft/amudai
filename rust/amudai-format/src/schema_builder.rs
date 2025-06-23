@@ -4,7 +4,9 @@ use ahash::AHashMap;
 
 use crate::{
     checksum,
-    defs::{self, schema::HashLookup, schema_ext::hash_field_name},
+    defs::{
+        self, hash_lookup_ext::hash_field_name, schema::HashLookup, schema_ext::KnownExtendedType,
+    },
     schema::{BasicType, SchemaId, SchemaMessage},
 };
 
@@ -250,10 +252,6 @@ pub struct DataTypeBuilder {
 }
 
 impl DataTypeBuilder {
-    pub const KUSTO_DECIMAL_EXTENSION_LABEL: &'static str = "KustoDecimal";
-    pub const KUSTO_TIMESPAN_EXTENSION_LABEL: &'static str = "KustoTimeSpan";
-    pub const KUSTO_DYNAMIC_EXTENSION_LABEL: &'static str = "KustoDynamic";
-
     /// Creates a new `DataTypeBuilder` with the specified parameters.
     pub fn new(
         field_name: impl Into<String>,
@@ -301,19 +299,19 @@ impl DataTypeBuilder {
 
     pub fn new_timespan() -> DataTypeBuilder {
         let mut dt = DataTypeBuilder::new("", BasicType::Int64, true, 0, vec![]);
-        dt.set_extended_type(Self::KUSTO_TIMESPAN_EXTENSION_LABEL);
+        dt.set_extended_type(KnownExtendedType::KUSTO_TIMESPAN_LABEL);
         dt
     }
 
     pub fn new_decimal() -> DataTypeBuilder {
         let mut dt = DataTypeBuilder::new("", BasicType::FixedSizeBinary, false, 16, vec![]);
-        dt.set_extended_type(Self::KUSTO_DECIMAL_EXTENSION_LABEL);
+        dt.set_extended_type(KnownExtendedType::KUSTO_DECIMAL_LABEL);
         dt
     }
 
     pub fn new_dynamic() -> DataTypeBuilder {
         let mut dt = DataTypeBuilder::new("", BasicType::Binary, false, 0, vec![]);
-        dt.set_extended_type(Self::KUSTO_DYNAMIC_EXTENSION_LABEL);
+        dt.set_extended_type(KnownExtendedType::KUSTO_DYNAMIC_LABEL);
         dt
     }
 

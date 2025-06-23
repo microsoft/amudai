@@ -272,6 +272,7 @@ mod tests {
             basic_type: BasicType::Binary,
             fixed_size: 0,
             signed: false,
+            extended_type: Default::default(),
         };
 
         let mut encoder = BytesFieldEncoder::create(&FieldEncoderParams {
@@ -338,6 +339,7 @@ mod tests {
             basic_type: BasicType::FixedSizeBinary,
             fixed_size: 4,
             signed: false,
+            extended_type: Default::default(),
         };
 
         let mut encoder = BytesFieldEncoder::create(&FieldEncoderParams {
@@ -376,6 +378,7 @@ mod tests {
             basic_type: BasicType::Guid,
             fixed_size: 16,
             signed: false,
+            extended_type: Default::default(),
         };
 
         let mut encoder = BytesFieldEncoder::create(&FieldEncoderParams {
@@ -416,6 +419,7 @@ mod tests {
             basic_type: BasicType::String,
             fixed_size: 0,
             signed: false,
+            extended_type: Default::default(),
         };
 
         let mut encoder = BytesFieldEncoder::create(&FieldEncoderParams {

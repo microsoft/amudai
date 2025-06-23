@@ -317,7 +317,8 @@ mod tests {
         let basic_type = BasicTypeDescriptor {
             basic_type: amudai_format::schema::BasicType::Int64,
             signed: true,
-            fixed_size: std::mem::size_of::<i64>(),
+            fixed_size: std::mem::size_of::<i64>() as u32,
+            extended_type: Default::default(),
         };
 
         run_round_trip_test::<arrow_array::types::Int64Type, _, _>(policy, basic_type, |len| {
@@ -338,7 +339,8 @@ mod tests {
         let basic_type = BasicTypeDescriptor {
             basic_type: amudai_format::schema::BasicType::Float32,
             signed: true,
-            fixed_size: std::mem::size_of::<f32>(),
+            fixed_size: std::mem::size_of::<f32>() as u32,
+            extended_type: Default::default(),
         };
 
         run_round_trip_test::<arrow_array::types::Float32Type, _, _>(policy, basic_type, |len| {
@@ -359,7 +361,8 @@ mod tests {
         let basic_type = BasicTypeDescriptor {
             basic_type: amudai_format::schema::BasicType::Float64,
             signed: true,
-            fixed_size: std::mem::size_of::<f64>(),
+            fixed_size: std::mem::size_of::<f64>() as u32,
+            extended_type: Default::default(),
         };
 
         run_round_trip_test::<arrow_array::types::Float64Type, _, _>(policy, basic_type, |len| {
@@ -380,7 +383,8 @@ mod tests {
         let basic_type = BasicTypeDescriptor {
             basic_type: amudai_format::schema::BasicType::DateTime,
             signed: false,
-            fixed_size: std::mem::size_of::<u64>(),
+            fixed_size: std::mem::size_of::<u64>() as u32,
+            extended_type: Default::default(),
         };
 
         run_round_trip_test::<arrow_array::types::UInt64Type, _, _>(policy, basic_type, |len| {

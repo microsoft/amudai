@@ -74,7 +74,7 @@ impl HashmapIndexBuilderParams {
     const MAX_PARTITIONS_COUNT: usize = 1024;
 
     /// Default memory usage limit for the index builder.
-    const DEFAULT_MEM_USAGE_LIMIT: usize = 1 * 1024 * 1024 * 1024; // 1 GB
+    const DEFAULT_MEM_USAGE_LIMIT: usize = 1024 * 1024 * 1024; // 1 GB
 
     /// Calculates the effective number of partitions for the index.
     /// The resulted number is rounded to next power of two if necessary
@@ -108,8 +108,8 @@ impl HashmapIndexBuilderParams {
 /// The hashmap index is organized hierarchically:
 ///
 /// - **Partitions**: Top-level divisions based on hash value prefixes, implemented as Amudai shards,
-///                   where each shard consists of a single stripe.
-/// - **Buckets**:    Hash-based groupings within stripe for fast retrieval.
+///   where each shard consists of a single stripe.
+/// - **Buckets**: Hash-based groupings within stripe for fast retrieval.
 ///
 /// More formal definition of the index structure:
 ///

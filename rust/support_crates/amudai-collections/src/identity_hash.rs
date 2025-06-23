@@ -88,7 +88,7 @@ impl Hasher for IdentityHasher {
 
     #[inline]
     fn write_u64(&mut self, i: u64) {
-        self.0 = i as u64;
+        self.0 = i;
     }
 
     #[inline]

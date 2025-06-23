@@ -133,7 +133,7 @@ impl ValueSequence {
     ///   the fixed size.
     pub fn push_binary(&mut self, value: &[u8]) {
         if self.type_desc.basic_type == BasicType::FixedSizeBinary {
-            assert_eq!(self.type_desc.fixed_size, value.len());
+            assert_eq!(self.type_desc.fixed_size as usize, value.len());
         } else {
             assert_eq!(self.type_desc.basic_type, BasicType::Binary);
             self.offsets.as_mut().unwrap().push_length(value.len());
@@ -295,7 +295,7 @@ impl ValueSequence {
                 self.append_values::<u8>(&source.values, data_start, data_end - data_start);
             }
             BasicType::FixedSizeBinary => {
-                let size = self.type_desc.fixed_size;
+                let size = self.type_desc.fixed_size as usize;
                 self.append_values::<u8>(&source.values, offset * size, len * size);
             }
             BasicType::Guid => {
@@ -335,7 +335,7 @@ impl ValueSequence {
     /// The caller should check the presence of values using the `presence` field.
     pub fn fixed_binary_values(&self) -> Option<BinaryValuesIter<'_, FixedSizeOffsetsIter>> {
         if self.type_desc.basic_type == BasicType::FixedSizeBinary {
-            let fixed_size = self.type_desc.fixed_size;
+            let fixed_size = self.type_desc.fixed_size as usize;
             let count = self.values.bytes_len() / fixed_size;
             Some(BinaryValuesIter::new(
                 &self.values,
@@ -366,8 +366,8 @@ impl ValueSequence {
             offsets[index] as usize..offsets[index + 1] as usize
         } else {
             assert_eq!(self.type_desc.basic_type, BasicType::FixedSizeBinary);
-            let start = self.type_desc.fixed_size * index;
-            let end = start + self.type_desc.fixed_size;
+            let start = self.type_desc.fixed_size as usize * index;
+            let end = start + self.type_desc.fixed_size as usize;
             start..end
         };
         &self.values.as_bytes()[range]
@@ -502,6 +502,7 @@ mod tests {
             basic_type: amudai_format::schema::BasicType::Binary,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut builder = BinarySequenceBuilder::new(type_desc);
         builder.add_value(b"hello");
@@ -535,6 +536,7 @@ mod tests {
             basic_type: amudai_format::schema::BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let sequence = ValueSequence::empty(type_desc);
 
@@ -549,6 +551,7 @@ mod tests {
             basic_type: amudai_format::schema::BasicType::Int64,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let sequence = ValueSequence::nulls(type_desc, 5);
 
@@ -568,6 +571,7 @@ mod tests {
             basic_type: amudai_format::schema::BasicType::Binary,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
 
         let mut source_builder = BinarySequenceBuilder::new(type_desc.clone());
@@ -600,6 +604,7 @@ mod tests {
             basic_type: amudai_format::schema::BasicType::FixedSizeBinary,
             signed: false,
             fixed_size: 4,
+            extended_type: Default::default(),
         };
 
         let mut sequence = ValueSequence::empty(type_desc);
@@ -608,6 +613,7 @@ mod tests {
             basic_type: amudai_format::schema::BasicType::FixedSizeBinary,
             signed: false,
             fixed_size: 4,
+            extended_type: Default::default(),
         };
         let mut source = ValueSequence::empty(source_desc);
 
@@ -629,6 +635,7 @@ mod tests {
             basic_type: amudai_format::schema::BasicType::String,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut builder = BinarySequenceBuilder::new(type_desc);
         builder.add_value("hello".as_bytes());
@@ -646,6 +653,7 @@ mod tests {
             basic_type: BasicType::Binary,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -667,6 +675,7 @@ mod tests {
             basic_type: BasicType::Binary,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -686,6 +695,7 @@ mod tests {
             basic_type: BasicType::FixedSizeBinary,
             signed: false,
             fixed_size: 4,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -704,6 +714,7 @@ mod tests {
             basic_type: BasicType::FixedSizeBinary,
             signed: false,
             fixed_size: 4,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -718,6 +729,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -731,6 +743,7 @@ mod tests {
             basic_type: BasicType::String,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
         sequence.push_str("hello");
@@ -752,6 +765,7 @@ mod tests {
             basic_type: BasicType::String,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -774,6 +788,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -795,6 +810,7 @@ mod tests {
             basic_type: BasicType::Float64,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -815,6 +831,7 @@ mod tests {
             basic_type: BasicType::Int8,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -836,6 +853,7 @@ mod tests {
             basic_type: BasicType::Int16,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -850,6 +868,7 @@ mod tests {
             basic_type: BasicType::String,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -863,6 +882,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -887,6 +907,7 @@ mod tests {
             basic_type: BasicType::String,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -914,6 +935,7 @@ mod tests {
             basic_type: BasicType::Binary,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -938,6 +960,7 @@ mod tests {
             basic_type: BasicType::FixedSizeBinary,
             signed: false,
             fixed_size: 4,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -960,6 +983,7 @@ mod tests {
             basic_type: BasicType::Int64,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
 
@@ -988,6 +1012,7 @@ mod tests {
             basic_type: BasicType::Int64,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         };
         let mut sequence = ValueSequence::empty(type_desc);
         sequence.push_value(1i64);

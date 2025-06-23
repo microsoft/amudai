@@ -312,6 +312,7 @@ mod tests {
                         basic_type: BasicType::FixedSizeBinary,
                         signed: false,
                         fixed_size: 16,
+                        extended_type: Default::default(),
                     },
                     &Default::default(),
                     &context,

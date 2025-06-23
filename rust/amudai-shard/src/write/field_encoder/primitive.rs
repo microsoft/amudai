@@ -225,6 +225,7 @@ mod tests {
             basic_type: BasicType::DateTime,
             fixed_size: 0,
             signed: false,
+            extended_type: Default::default(),
         };
 
         let now = SystemTime::now();
@@ -284,6 +285,7 @@ mod tests {
             basic_type: BasicType::Int32,
             fixed_size: 0,
             signed: true,
+            extended_type: Default::default(),
         };
         let mut encoder = PrimitiveFieldEncoder::create(
             &FieldEncoderParams {
@@ -341,6 +343,7 @@ mod tests {
             basic_type: BasicType::Float32,
             fixed_size: 0,
             signed: true,
+            extended_type: Default::default(),
         };
         let mut encoder = PrimitiveFieldEncoder::create(
             &FieldEncoderParams {
@@ -396,6 +399,7 @@ mod tests {
             basic_type: BasicType::Int32,
             fixed_size: 0,
             signed: true,
+            extended_type: Default::default(),
         };
 
         let mut encoder = PrimitiveFieldEncoder::create(
@@ -433,6 +437,7 @@ mod tests {
             basic_type: BasicType::Int32,
             fixed_size: 0,
             signed: true,
+            extended_type: Default::default(),
         };
 
         let mut encoder = PrimitiveFieldEncoder::create(

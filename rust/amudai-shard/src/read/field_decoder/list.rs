@@ -110,6 +110,7 @@ impl ListFieldDecoder {
                 basic_type: BasicType::Int64,
                 fixed_size: 0,
                 signed: false,
+                extended_type: Default::default(),
             },
         )?;
 

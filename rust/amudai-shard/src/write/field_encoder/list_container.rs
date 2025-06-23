@@ -73,6 +73,7 @@ impl ListContainerFieldEncoder {
                     basic_type: BasicType::Int64,
                     fixed_size: 0,
                     signed: false,
+                    extended_type: Default::default(),
                 },
                 params.temp_store.clone(),
             )?,

@@ -168,6 +168,7 @@ mod tests {
             basic_type: BasicType::Boolean,
             fixed_size: 0,
             signed: false,
+            extended_type: Default::default(),
         };
 
         let mut encoder = BooleanFieldEncoder::create(&FieldEncoderParams {
@@ -267,6 +268,7 @@ mod tests {
             basic_type: BasicType::Boolean,
             fixed_size: 0,
             signed: false,
+            extended_type: Default::default(),
         };
 
         let mut encoder = BooleanFieldEncoder::create(&FieldEncoderParams {
@@ -303,6 +305,7 @@ mod tests {
             basic_type: BasicType::Boolean,
             fixed_size: 0,
             signed: false,
+            extended_type: Default::default(),
         };
 
         let mut encoder = BooleanFieldEncoder::create(&FieldEncoderParams {
@@ -339,6 +342,7 @@ mod tests {
             basic_type: BasicType::Boolean,
             fixed_size: 0,
             signed: false,
+            extended_type: Default::default(),
         };
 
         let mut encoder = BooleanFieldEncoder::create(&FieldEncoderParams {
@@ -376,6 +380,7 @@ mod tests {
             basic_type: BasicType::Boolean,
             fixed_size: 0,
             signed: false,
+            extended_type: Default::default(),
         };
 
         let encoder = BooleanFieldEncoder::create(&FieldEncoderParams {

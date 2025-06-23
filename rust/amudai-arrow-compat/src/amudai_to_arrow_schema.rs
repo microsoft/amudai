@@ -8,11 +8,11 @@
 
 use amudai_common::{Result, error::Error};
 use amudai_format::{
+    defs::schema_ext::KnownExtendedType,
     schema::{
         BasicType as AmudaiBasicType, DataType as AmudaiDataType, Field as AmudaiField,
         Schema as AmudaiSchema,
     },
-    schema_builder::DataTypeBuilder,
 };
 use arrow_schema::{
     DataType as ArrowDataType, Field as ArrowField, Fields as ArrowFields, Schema as ArrowSchema,
@@ -53,7 +53,6 @@ pub trait ToArrowSchema {
 impl ToArrowDataType for AmudaiDataType {
     fn to_arrow_data_type(&self) -> Result<ArrowDataType> {
         let desc = self.describe()?;
-        let extension_label = self.extension_label()?;
         let arrow_dt = match self.basic_type()? {
             AmudaiBasicType::Boolean => ArrowDataType::Boolean,
             AmudaiBasicType::Int8 => {
@@ -78,7 +77,7 @@ impl ToArrowDataType for AmudaiDataType {
                 }
             }
             AmudaiBasicType::Int64 => {
-                if extension_label == Some(DataTypeBuilder::KUSTO_TIMESPAN_EXTENSION_LABEL) {
+                if desc.extended_type == KnownExtendedType::KustoTimeSpan {
                     ArrowDataType::Duration(TimeUnit::Nanosecond)
                 } else if desc.signed {
                     ArrowDataType::Int64
@@ -89,14 +88,19 @@ impl ToArrowDataType for AmudaiDataType {
             AmudaiBasicType::Float32 => ArrowDataType::Float32,
             AmudaiBasicType::Float64 => ArrowDataType::Float64,
             AmudaiBasicType::Binary => {
-                if extension_label == Some(DataTypeBuilder::KUSTO_DYNAMIC_EXTENSION_LABEL) {
+                if desc.extended_type == KnownExtendedType::KustoDynamic {
                     ArrowDataType::LargeUtf8
                 } else {
                     ArrowDataType::LargeBinary
                 }
             }
             AmudaiBasicType::FixedSizeBinary => {
-                ArrowDataType::FixedSizeBinary(desc.fixed_size as i32)
+                if desc.extended_type == KnownExtendedType::KustoDecimal {
+                    // TODO: decide on the representation
+                    ArrowDataType::Decimal128(38, 16)
+                } else {
+                    ArrowDataType::FixedSizeBinary(desc.fixed_size as i32)
+                }
             }
             AmudaiBasicType::String => ArrowDataType::LargeUtf8,
             AmudaiBasicType::DateTime => ArrowDataType::Timestamp(TimeUnit::Nanosecond, None),
@@ -222,7 +226,7 @@ impl ToArrowDataType for AmudaiDataType {
 impl ToArrowField for AmudaiField {
     fn to_arrow_field(&self) -> Result<ArrowField> {
         let amudai_data_type = self.data_type()?;
-        let extension_label = amudai_data_type.extension_label()?;
+        let desc = amudai_data_type.describe()?;
         let arrow_data_type = amudai_data_type.to_arrow_data_type()?;
         let mut field = ArrowField::new(
             self.name()?,
@@ -235,7 +239,7 @@ impl ToArrowField for AmudaiField {
                 "ARROW:extension:name".to_string(),
                 "arrow.uuid".to_string(),
             )]));
-        } else if let Some(DataTypeBuilder::KUSTO_DYNAMIC_EXTENSION_LABEL) = extension_label {
+        } else if desc.extended_type == KnownExtendedType::KustoDynamic {
             field.set_metadata(HashMap::from([(
                 "ARROW:extension:name".to_string(),
                 "arrow.json".to_string(),

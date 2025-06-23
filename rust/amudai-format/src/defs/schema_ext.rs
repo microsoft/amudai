@@ -1,8 +1,164 @@
 use amudai_bytes::Bytes;
+use amudai_common::{error::Error, result::Result};
 
-use amudai_common::{result::Result, verify_arg};
+use super::schema::BasicType;
 
-use super::schema::{BasicType, HashLookup, HashLookupRef};
+/// Represents the known extension types supported by the Amudai format.
+///
+/// Extension types serve as semantic annotations on basic types, enhancing their meaning
+/// and refining the set of applicable operations without changing the underlying storage
+/// representation. They are particularly important for format evolution and extensibility,
+/// as new extension types can be added without disrupting existing readers.
+///
+/// The distinction between basic types and extension types allows Amudai to:
+/// - Maintain backward compatibility when introducing new semantic types
+/// - Provide hints for more suitable data encoding and indexing
+/// - Bridge compatibility with systems like Kusto while using standardized storage formats
+///
+/// # Extension Type Concept
+///
+/// An extension type can be thought of as an annotation that:
+/// - Enhances semantics of the underlying basic type
+/// - Refines the set of applicable operations (such as scalar functions)  
+/// - Limits the range of permissible values
+/// - Provides encoding/indexing hints to the storage layer
+///
+/// For example, a `KustoTimeSpan` is stored as an `i64` (basic type) representing
+/// 100-nanosecond ticks, but the extension type annotation tells query engines
+/// that this should be interpreted as a time duration with specific operations available.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KnownExtendedType {
+    /// No extension type is applied. The field uses only its basic type semantics.
+    #[default]
+    None,
+
+    /// Kusto decimal type with 128-bit precision.
+    ///
+    /// This represents a decimal number with high precision, stored as a
+    /// `FixedSizeBinary<16>` basic type using the DecNumber128 format
+    /// (IEEE 754-2019 decimal128 floating-point format).
+    ///
+    /// When accessed through Arrow interoperability, this may be converted
+    /// to a string representation for compatibility.
+    KustoDecimal,
+
+    /// Kusto time span (duration) type.
+    ///
+    /// Represents a duration or time interval, stored as an `i64` basic type
+    /// containing 100-nanosecond ticks. This provides high precision timing
+    /// information while maintaining efficient storage.
+    ///
+    /// When accessed through Arrow interoperability, this is converted to
+    /// Arrow's `Duration(nanosecond)` type.
+    KustoTimeSpan,
+
+    /// Kusto dynamic type for semi-structured data.
+    ///
+    /// Represents dynamically-typed values that can contain complex nested
+    /// structures, arrays, objects, or primitive values. The data is stored
+    /// as a `Binary` basic type containing a compact encoded representation
+    /// equivalent to Kusto's current dynamic encoding format.
+    ///
+    /// This type is essential for semi-structured data scenarios where the
+    /// exact schema is not known at ingestion time or varies between records.
+    ///
+    /// When accessed through Arrow interoperability, this is converted to
+    /// a JSON string with `{ "ARROW:extension:name": "arrow.json" }` metadata.
+    KustoDynamic,
+
+    /// Represents an unknown or unrecognized extension type.
+    ///
+    /// This variant is used when parsing extension type labels that are not
+    /// among the known types. It allows the system to handle forward compatibility
+    /// gracefully when encountering newer extension types that weren't known
+    /// when this code was compiled.
+    Other,
+}
+
+impl KnownExtendedType {
+    /// String label for the Kusto decimal extension type.
+    ///
+    /// This constant defines the canonical string representation used to identify
+    /// the `KustoDecimal` extension type in serialized metadata and when parsing
+    /// extension type labels from external sources.
+    pub const KUSTO_DECIMAL_LABEL: &'static str = "KustoDecimal";
+
+    /// String label for the Kusto time span extension type.
+    ///
+    /// This constant defines the canonical string representation used to identify
+    /// the `KustoTimeSpan` extension type in serialized metadata and when parsing
+    /// extension type labels from external sources.
+    pub const KUSTO_TIMESPAN_LABEL: &'static str = "KustoTimeSpan";
+
+    /// String label for the Kusto dynamic extension type.
+    ///
+    /// This constant defines the canonical string representation used to identify
+    /// the `KustoDynamic` extension type in serialized metadata and when parsing
+    /// extension type labels from external sources.
+    pub const KUSTO_DYNAMIC_LABEL: &'static str = "KustoDynamic";
+
+    /// Returns the canonical string representation of this extension type.
+    ///
+    /// This method provides the standard string label used to identify the extension
+    /// type in serialized formats, metadata, and external interfaces. The returned
+    /// string matches the constants defined for each known type.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok("")` for `None` - indicates no extension type is applied
+    /// - `Ok("KustoDecimal")` for `KustoDecimal`
+    /// - `Ok("KustoTimeSpan")` for `KustoTimeSpan`  
+    /// - `Ok("KustoDynamic")` for `KustoDynamic`
+    /// - `Err(...)` for `Other` - unknown extension types cannot be converted to strings
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for `KnownExtendedType::Other` since unknown extension types
+    /// don't have a defined string representation in this enumeration.
+    pub fn as_str(&self) -> amudai_common::Result<&'static str> {
+        match self {
+            KnownExtendedType::None => Ok(""),
+            KnownExtendedType::KustoDecimal => Ok(Self::KUSTO_DECIMAL_LABEL),
+            KnownExtendedType::KustoTimeSpan => Ok(Self::KUSTO_TIMESPAN_LABEL),
+            KnownExtendedType::KustoDynamic => Ok(Self::KUSTO_DYNAMIC_LABEL),
+            KnownExtendedType::Other => Err(Error::invalid_operation(
+                "as_str for KnownExtendedType::Other",
+            )),
+        }
+    }
+}
+
+/// Implements string parsing for `KnownExtendedType`.
+///
+/// This implementation allows converting string labels into their corresponding
+/// `KnownExtendedType` variants. It's primarily used when deserializing extension
+/// type information from metadata or when parsing extension type labels from
+/// external sources.
+///
+/// # Parsing Rules
+///
+/// - `"KustoDecimal"` → `KnownExtendedType::KustoDecimal`
+/// - `"KustoTimeSpan"` → `KnownExtendedType::KustoTimeSpan`
+/// - `"KustoDynamic"` → `KnownExtendedType::KustoDynamic`
+/// - `""` (empty string) → `KnownExtendedType::None`
+/// - Any other string → `KnownExtendedType::Other`
+///
+/// Note that unknown extension types are mapped to `Other` rather than producing
+/// an error, which provides forward compatibility when encountering newer extension
+/// types that weren't known when this code was compiled.
+impl std::str::FromStr for KnownExtendedType {
+    type Err = amudai_common::error::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            Self::KUSTO_DECIMAL_LABEL => Ok(Self::KustoDecimal),
+            Self::KUSTO_TIMESPAN_LABEL => Ok(Self::KustoTimeSpan),
+            Self::KUSTO_DYNAMIC_LABEL => Ok(Self::KustoDynamic),
+            "" => Ok(Self::None),
+            _ => Ok(Self::Other),
+        }
+    }
+}
 
 impl BasicType {
     /// Returns `true` if the type is a composite (container) type.
@@ -105,27 +261,117 @@ impl BasicType {
     }
 }
 
-/// Describes a basic data type, including its size and signedness.
-/// For a nested `DataType` node, this struct defines the fundamental type of the node
-/// itself (e.g., `Struct`, `List`, `Map`, etc.), without considering any child nodes.
+/// Describes a basic data type with its essential characteristics for storage and encoding.
+///
+/// `BasicTypeDescriptor` is a compact, self-contained description of a data type that
+/// encapsulates all the information needed by encoders, decoders, and statistics collectors
+/// to process values of that type. For nested `DataType` nodes, this struct defines the
+/// fundamental type of the node itself (e.g., `Struct`, `List`, `Map`, etc.), without
+/// considering any child nodes.
+///
+/// # Role in Amudai
+///
+/// This struct serves as a bridge between the schema system and the data processing
+/// layers:
+/// - **Encoders** use it to select appropriate encoding strategies and parameters
+/// - **Decoders** use it to reconstruct original values from encoded blocks
+/// - **Statistics collectors** use it to determine which statistics to gather and how
+/// - **Arrow compatibility** uses it to map between Amudai and Arrow type systems
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BasicTypeDescriptor {
-    /// The underlying physical type of the value.
+    /// The underlying physical type that determines storage layout and encoding behavior.
+    ///
+    /// This field specifies the fundamental data type (e.g., `Int32`, `String`, `List`)
+    /// and is the primary factor in determining:
+    /// - How values are stored in memory buffers
+    /// - Which block encoders and decoders to use
+    /// - Whether the type requires offset arrays for variable-length data
+    /// - The maximum number of child types allowed
+    ///
+    /// See [`BasicType`] for the complete list of supported types.
     pub basic_type: BasicType,
-    /// The fixed size of the vector-like type, if applicable.
-    /// This field is relevant only for `FixedSizeBinary` (where it indicates the size of the
-    /// binary value in bytes) and `FixedSizeList` (where it specifies the number of elements
-    /// in each list value).
-    /// For any other basic type, this field is zero.
-    pub fixed_size: usize,
-    /// Indicates whether the type is signed.
-    /// This can be `true` only for `Int8`, `Int16`, `Int32`, and `Int64`.
+
+    /// The fixed size for types that have a predetermined size, measured in the appropriate units.
+    ///
+    /// This field is meaningful only for specific basic types:
+    /// - **`FixedSizeBinary`**: Size in bytes of each binary value (e.g., 16 for UUIDs)
+    /// - **`FixedSizeList`**: Number of elements in each list value
+    /// - **All other types**: Must be 0 (ignored)
+    ///
+    /// # Examples
+    /// - GUID: `basic_type = FixedSizeBinary`, `fixed_size = 16`
+    /// - 3D Point: `basic_type = FixedSizeList`, `fixed_size = 3` (with Float64 child)
+    /// - String: `basic_type = String`, `fixed_size = 0` (variable-length)
+    pub fixed_size: u32,
+
+    /// Indicates whether integer types use signed representation.
+    ///
+    /// This field determines the interpretation of integer values.
+    ///
+    /// # Valid Combinations
+    /// - **`true`**: Only valid for `Int8`, `Int16`, `Int32`, `Int64`
+    /// - **`false`**: Valid for all integer types (treated as unsigned) and required
+    ///   for all non-integer types
+    ///
+    /// # Examples
+    /// - Signed 64-bit integer: `basic_type = Int64`, `signed = true` → Arrow `Int64`
+    /// - Unsigned 32-bit integer: `basic_type = Int32`, `signed = false` → Arrow `UInt32`
+    /// - String: `basic_type = String`, `signed = false` (always false for non-integers)
     pub signed: bool,
+
+    /// Optional semantic extension type that enhances the basic type with additional meaning.
+    ///
+    /// Extension types provide semantic annotations without changing the underlying storage
+    /// format, enabling:
+    /// - **Forward compatibility**: New extension types can be added without breaking existing code
+    /// - **Semantic precision**: Same storage type can represent different logical concepts
+    /// - **Query optimization**: Engines can apply type-specific optimizations
+    /// - **System interoperability**: Bridge between different type systems (e.g., Kusto ↔ Arrow)
+    ///
+    /// # Important Notes
+    /// - This is a **best-effort** compact representation of the extension type
+    /// - Unknown or complex extension types are represented as [`KnownExtendedType::Other`]
+    /// - For `Other` cases, consult the full `DataType` node for complete extension information
+    /// - When `None`, the field uses only its basic type semantics
+    ///
+    /// # Examples
+    /// - Kusto decimal: `basic_type = FixedSizeBinary(16)`, `extended_type = KustoDecimal`
+    /// - Kusto timespan: `basic_type = Int64`, `extended_type = KustoTimeSpan`
+    /// - Regular string: `basic_type = String`, `extended_type = None`
+    pub extended_type: KnownExtendedType,
 }
 
 impl BasicTypeDescriptor {
-    /// Returns the fixed size of the primitive basic type in bytes, or `None`
-    /// if the type is variable-length or composite.
+    /// Returns the fixed size in bytes for primitive types, or `None` for variable-length
+    /// or composite types.
+    ///
+    /// This method is essential for memory layout calculations, buffer allocation, and
+    /// determining whether a type requires offset arrays for indexing.
+    ///
+    /// # Return Values
+    ///
+    /// ## Fixed-Size Primitives
+    /// - **`Int8`**: `Some(1)` - 8-bit integers
+    /// - **`Int16`**: `Some(2)` - 16-bit integers  
+    /// - **`Int32`**: `Some(4)` - 32-bit integers
+    /// - **`Int64`**: `Some(8)` - 64-bit integers and DateTime
+    /// - **`Float32`**: `Some(4)` - 32-bit floating point
+    /// - **`Float64`**: `Some(8)` - 64-bit floating point
+    /// - **`FixedSizeBinary`**: `Some(fixed_size)` - Fixed-length binary data
+    /// - **`Guid`**: `Some(16)` - 128-bit globally unique identifiers
+    /// - **`DateTime`**: `Some(8)` - 64-bit timestamp values
+    ///
+    /// ## Variable-Length and Special Types
+    /// - **`Boolean`**: `None` - Bit-packed, size depends on count
+    /// - **`Binary`**: `None` - Variable-length byte arrays
+    /// - **`String`**: `None` - Variable-length UTF-8 strings
+    ///
+    /// ## Composite Types
+    /// - **`List`**: `None` - Variable-length collections
+    /// - **`FixedSizeList`**: `None` - Fixed-count collections (size depends on element type)
+    /// - **`Struct`**: `None` - Composite records with multiple fields
+    /// - **`Map`**: `None` - Key-value collections
+    /// - **`Union`**: `None` - Discriminated unions
     pub fn primitive_size(&self) -> Option<usize> {
         match self.basic_type {
             BasicType::Unit | BasicType::Boolean => None,
@@ -136,7 +382,7 @@ impl BasicTypeDescriptor {
             BasicType::Float32 => Some(4),
             BasicType::Float64 => Some(8),
             BasicType::Binary => None,
-            BasicType::FixedSizeBinary => Some(self.fixed_size),
+            BasicType::FixedSizeBinary => Some(self.fixed_size as usize),
             BasicType::String => None,
             BasicType::Guid => Some(16),
             BasicType::DateTime => Some(8),
@@ -149,96 +395,26 @@ impl BasicTypeDescriptor {
     }
 }
 
+/// Provides a default `BasicTypeDescriptor` representing a unit type.
+///
+/// The default instance represents a conceptual "unit" or "void" type that carries
+/// no data and is primarily used as a placeholder or in generic contexts where
+/// a type descriptor is required but no actual data is present.
+///
+/// # Default Values
+/// - `basic_type`: [`BasicType::Unit`] - No data storage
+/// - `fixed_size`: `0` - Not applicable for unit type
+/// - `signed`: `false` - Not applicable for unit type  
+/// - `extended_type`: [`KnownExtendedType::None`] - No extension semantics
 impl Default for BasicTypeDescriptor {
     fn default() -> Self {
         Self {
             basic_type: BasicType::Unit,
             fixed_size: 0,
             signed: false,
+            extended_type: KnownExtendedType::None,
         }
     }
-}
-
-impl HashLookup {
-    /// Given `count` items and a hash function `hash_fn` where `hash_fn(i)` returns a hash value
-    /// for item `i`, builds a `HashLookup` structure such that:
-    ///
-    /// - The number of logical buckets is a power of 2, and the length of the buckets array
-    ///   is `num_buckets + 1`.
-    /// - The number of entries is `count`.
-    /// - For a given item `i`, the bucket index `b` is `hash_fn(i) % (buckets.len() - 1)`.
-    /// - The range of relevant entries is `buckets[b]..buckets[b + 1]`.
-    /// - Each of the entries in the range `entries[buckets[b]..buckets[b + 1]]` contains an index
-    ///   of the item (`i`), where the bucket index for the item `i` is `b`.
-    pub fn build(count: usize, hash_fn: impl Fn(usize) -> u64) -> HashLookup {
-        assert!(count < (u32::MAX / 4) as usize);
-        let num_buckets = (count.max(4) / 2).next_power_of_two();
-        let mask = num_buckets as u64 - 1;
-
-        let mut buckets = vec![0u32; num_buckets + 1];
-        let mut counters = vec![0u32; num_buckets];
-
-        for i in 0..count {
-            let bucket_idx = (hash_fn(i) & mask) as usize;
-            counters[bucket_idx] += 1;
-        }
-
-        let mut next_entry = 0;
-        for i in 0..num_buckets {
-            buckets[i] = next_entry;
-            next_entry += counters[i];
-        }
-        assert_eq!(next_entry as usize, count);
-        buckets[num_buckets] = next_entry;
-
-        let mut entries = vec![0u32; count];
-        for i in 0..count {
-            let bucket_idx = (hash_fn(i) & mask) as usize;
-            let entry_idx = buckets[bucket_idx] as usize;
-            entries[entry_idx] = i as u32;
-            buckets[bucket_idx] += 1;
-        }
-        assert_eq!(buckets[num_buckets - 1], count as u32);
-
-        for i in (0..num_buckets).rev() {
-            buckets[i + 1] = buckets[i];
-        }
-        buckets[0] = 0;
-
-        HashLookup { buckets, entries }
-    }
-}
-
-impl HashLookupRef<'_> {
-    pub fn find(
-        &self,
-        hash: u64,
-        verifier_fn: impl Fn(usize) -> Result<bool>,
-    ) -> Result<Option<usize>> {
-        let buckets = self.buckets()?;
-        verify_arg!(buckets, (buckets.len() - 1).is_power_of_two());
-        let entries = self.entries()?;
-
-        let mask = (buckets.len() - 2) as u64;
-        let bucket_idx = (hash & mask) as usize;
-
-        let start = buckets.get(bucket_idx).expect("valid bucket_idx") as usize;
-        let end = buckets.get(bucket_idx + 1).expect("valid bucket_idx") as usize;
-        verify_arg!(start, start <= end);
-        verify_arg!(end, end <= entries.len());
-
-        for entry_idx in start..end {
-            let i = entries.get(entry_idx).expect("valid entry_idx") as usize;
-            if verifier_fn(i)? {
-                return Ok(Some(i));
-            }
-        }
-        Ok(None)
-    }
-}
-
-pub fn hash_field_name(name: &str) -> u64 {
-    xxhash_rust::xxh3::xxh3_64(name.as_bytes())
 }
 
 pub(crate) struct OwnedTableRef<RefType: details::TableRefType>(RefType::T<'static>, Bytes);
@@ -322,9 +498,42 @@ mod details {
 
 #[cfg(test)]
 mod tests {
-    use planus::ReadAsRoot;
+    use super::KnownExtendedType;
+    use crate::defs::schema::BasicType;
+    use std::str::FromStr;
 
-    use crate::defs::schema::{BasicType, HashLookup, HashLookupRef};
+    #[test]
+    fn test_known_extended_type_from_str() {
+        // Test known types
+        assert_eq!(
+            KnownExtendedType::from_str("KustoDecimal").unwrap(),
+            KnownExtendedType::KustoDecimal
+        );
+        assert_eq!(
+            KnownExtendedType::from_str("KustoTimeSpan").unwrap(),
+            KnownExtendedType::KustoTimeSpan
+        );
+        assert_eq!(
+            KnownExtendedType::from_str("KustoDynamic").unwrap(),
+            KnownExtendedType::KustoDynamic
+        );
+
+        // Test empty string -> None
+        assert_eq!(
+            KnownExtendedType::from_str("").unwrap(),
+            KnownExtendedType::None
+        );
+
+        // Test unknown types -> Other
+        assert_eq!(
+            KnownExtendedType::from_str("SomeUnknownType").unwrap(),
+            KnownExtendedType::Other
+        );
+        assert_eq!(
+            KnownExtendedType::from_str("CustomType").unwrap(),
+            KnownExtendedType::Other
+        );
+    }
 
     #[test]
     fn test_is_float() {
@@ -349,30 +558,5 @@ mod tests {
         assert!(!BasicType::Struct.is_float());
         assert!(!BasicType::Map.is_float());
         assert!(!BasicType::Union.is_float());
-    }
-
-    #[test]
-    fn test_hash_lookup() {
-        let numbers = (0..1000u64).map(|i| hash(i * 10)).collect::<Vec<_>>();
-        let lookup = HashLookup::build(numbers.len(), |i| hash(numbers[i]));
-        let lookup_bytes = planus::Builder::new().finish(&lookup, None).to_vec();
-        let lookup = HashLookupRef::read_as_root(&lookup_bytes).unwrap();
-
-        for &n in &numbers {
-            let h = hash(n);
-            let res = lookup.find(h, |i| Ok(numbers[i] == n)).unwrap();
-            assert!(res.is_some());
-            assert_eq!(numbers[res.unwrap()], n);
-        }
-
-        for n in 0..10000 {
-            let h = hash(n);
-            let res = lookup.find(h, |i| Ok(numbers[i] == n)).unwrap();
-            assert!(res.is_none());
-        }
-    }
-
-    fn hash(n: u64) -> u64 {
-        xxhash_rust::xxh3::xxh3_64(&n.to_le_bytes())
     }
 }

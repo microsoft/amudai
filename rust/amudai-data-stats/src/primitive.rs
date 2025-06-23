@@ -429,6 +429,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let stats = stats.finish().unwrap();
         assert_eq!(stats.null_count, 0);
@@ -440,6 +441,7 @@ mod tests {
             basic_type: BasicType::Int8,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Int8Array::from(vec![1, 2, 3, 4, 5]);
         collector.process_array(&array)?;
@@ -456,6 +458,7 @@ mod tests {
             basic_type: BasicType::Int16,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Int16Array::from(vec![10, 20, 30, 40, 50]);
         collector.process_array(&array)?;
@@ -472,6 +475,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Int32Array::from(vec![100, 200, 300, 400, 500]);
         collector.process_array(&array)?;
@@ -488,6 +492,7 @@ mod tests {
             basic_type: BasicType::Int64,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Int64Array::from(vec![1000, 2000, 3000, 4000, 5000]);
         collector.process_array(&array)?;
@@ -504,6 +509,7 @@ mod tests {
             basic_type: BasicType::Int8,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = UInt8Array::from(vec![1, 2, 3, 4, 5]);
         collector.process_array(&array)?;
@@ -520,6 +526,7 @@ mod tests {
             basic_type: BasicType::Int16,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = UInt16Array::from(vec![10, 20, 30, 40, 50]);
         collector.process_array(&array)?;
@@ -536,6 +543,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = UInt32Array::from(vec![100, 200, 300, 400, 500]);
         collector.process_array(&array)?;
@@ -552,6 +560,7 @@ mod tests {
             basic_type: BasicType::Int64,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = UInt64Array::from(vec![1000, 2000, 3000, 4000, 5000]);
         collector.process_array(&array)?;
@@ -568,6 +577,7 @@ mod tests {
             basic_type: BasicType::Int8,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Int8Array::from(vec![Some(1), None, Some(3), Some(4), None]);
         collector.process_array(&array)?;
@@ -585,6 +595,7 @@ mod tests {
             basic_type: BasicType::Int16,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Int16Array::from(vec![Some(10), None, Some(30), Some(40), None]);
         collector.process_array(&array)?;
@@ -602,6 +613,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Int32Array::from(vec![Some(100), None, Some(300), Some(400), None]);
         collector.process_array(&array)?;
@@ -619,6 +631,7 @@ mod tests {
             basic_type: BasicType::Int64,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Int64Array::from(vec![Some(1000), None, Some(3000), Some(4000), None]);
         collector.process_array(&array)?;
@@ -636,6 +649,7 @@ mod tests {
             basic_type: BasicType::Int8,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = UInt8Array::from(vec![Some(1), None, Some(3), Some(4), None]);
         collector.process_array(&array)?;
@@ -653,6 +667,7 @@ mod tests {
             basic_type: BasicType::Int16,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = UInt16Array::from(vec![Some(10), None, Some(30), Some(40), None]);
         collector.process_array(&array)?;
@@ -670,6 +685,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = UInt32Array::from(vec![Some(100), None, Some(300), Some(400), None]);
         collector.process_array(&array)?;
@@ -687,6 +703,7 @@ mod tests {
             basic_type: BasicType::Int64,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = UInt64Array::from(vec![Some(1000), None, Some(3000), Some(4000), None]);
         collector.process_array(&array)?;
@@ -704,6 +721,7 @@ mod tests {
             basic_type: BasicType::Float32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Float32Array::from(vec![Some(1.1), None, Some(3.3), Some(4.4), None]);
         collector.process_array(&array)?;
@@ -727,6 +745,7 @@ mod tests {
             basic_type: BasicType::Float64,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Float64Array::from(vec![
             Some(1.11f64),
@@ -750,6 +769,7 @@ mod tests {
             basic_type: BasicType::Float32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Float32Array::from(vec![
             Some(1.1),
@@ -782,6 +802,7 @@ mod tests {
             basic_type: BasicType::Float64,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Float64Array::from(vec![
             Some(1.11f64),
@@ -807,6 +828,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Int32Array::from(vec![Some(10), None, Some(20)]);
         collector.process_array(&array)?;
@@ -829,6 +851,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
 
         // Only process nulls without any array data
@@ -849,6 +872,7 @@ mod tests {
             basic_type: BasicType::Float32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Float32Array::from(vec![Some(1.5), Some(f32::NAN), None, Some(2.5)]);
         collector.process_array(&array)?;
@@ -877,6 +901,7 @@ mod tests {
             basic_type: BasicType::DateTime,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         // DateTime is stored as UInt64 internally (ticks)
         let array = UInt64Array::from(vec![
@@ -906,6 +931,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Int32Array::from(Vec::<i32>::new());
         collector.process_array(&array)?;
@@ -924,6 +950,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Int32Array::from(vec![None, None, None, None]);
         collector.process_array(&array)?;
@@ -942,6 +969,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Int32Array::from(vec![42]);
         collector.process_array(&array)?;
@@ -962,6 +990,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Int32Array::from(vec![i32::MIN, i32::MAX, 0]);
         collector.process_array(&array)?;
@@ -985,6 +1014,7 @@ mod tests {
             basic_type: BasicType::Int64,
             signed: false,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = UInt64Array::from(vec![u64::MIN, u64::MAX, 1000]);
         collector.process_array(&array)?;
@@ -1006,6 +1036,7 @@ mod tests {
             basic_type: BasicType::Float32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
         let array = Float32Array::from(vec![f32::MIN, f32::MAX, 0.0]);
         collector.process_array(&array)?;
@@ -1030,6 +1061,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
 
         // Process first array
@@ -1059,6 +1091,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
 
         // Start with an array
@@ -1090,6 +1123,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
 
         let array = Int32Array::from(vec![1, 2, 3]);
@@ -1113,6 +1147,7 @@ mod tests {
             basic_type: BasicType::Float32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
 
         let array = Float32Array::from(vec![
@@ -1149,6 +1184,7 @@ mod tests {
             basic_type: BasicType::Float64,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
 
         let array = Float64Array::from(vec![Some(f64::NAN), Some(f64::NAN), None]);
@@ -1172,6 +1208,7 @@ mod tests {
             basic_type: BasicType::Int32,
             signed: true,
             fixed_size: 0,
+            extended_type: Default::default(),
         });
 
         // Try to process a string array with an int32 collector

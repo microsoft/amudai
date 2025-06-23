@@ -198,7 +198,7 @@ impl<K: ArrayBuilder, V: ArrayBuilder> MapBuilder<K, V> {
         if self.inner_pos() < self.next_pos {
             let null_count = self.next_pos - self.inner_pos();
             self.nulls.append_n_nulls(null_count as usize);
-            let off = *self.offsets.last().unwrap() as i32;
+            let off = *self.offsets.last().unwrap();
             self.offsets
                 .resize(self.offsets.len() + null_count as usize, off);
         }

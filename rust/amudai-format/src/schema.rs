@@ -1,9 +1,14 @@
+use std::str::FromStr;
+
 use amudai_bytes::Bytes;
 use amudai_common::{Result, error::Error};
 
 use crate::{
     checksum::validate_message,
-    defs::schema_ext::{OwnedDataTypeRef, OwnedFieldRef, OwnedSchemaRef, hash_field_name},
+    defs::{
+        hash_lookup_ext::hash_field_name,
+        schema_ext::{KnownExtendedType, OwnedDataTypeRef, OwnedFieldRef, OwnedSchemaRef},
+    },
     schema_builder::SchemaBuilder,
 };
 
@@ -233,8 +238,12 @@ impl DataType {
         let this = self.0.get();
         Ok(BasicTypeDescriptor {
             basic_type: this.basic_type()?,
-            fixed_size: this.fixed_size()? as usize,
+            fixed_size: u32::try_from(this.fixed_size()?)
+                .map_err(|_| Error::invalid_format("DataType::fixed_size"))?,
             signed: this.signed()?,
+            extended_type: KnownExtendedType::from_str(
+                self.extension_label()?.unwrap_or_default(),
+            )?,
         })
     }
 

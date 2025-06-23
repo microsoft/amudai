@@ -73,7 +73,7 @@ impl ShardStore {
     }
 
     pub fn create_shard_builder(&self, schema: &Arc<Schema>) -> ShardBuilder {
-        let shard_schema = SchemaBuilder::from_arrow_schema(&schema).unwrap();
+        let shard_schema = SchemaBuilder::from_arrow_schema(schema).unwrap();
         ShardBuilder::new(ShardBuilderParams {
             schema: shard_schema.into(),
             object_store: self.object_store.clone(),
