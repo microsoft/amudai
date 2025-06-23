@@ -1,6 +1,7 @@
 //! Infer schema command implementation
 
 use anyhow::{Context, Result, bail};
+use arrow_csv::reader::Format;
 use arrow_json::reader::infer_json_schema_from_seekable;
 use arrow_schema::Schema;
 use serde_json::Value;
@@ -88,8 +89,24 @@ fn infer_json_schema(file_path: &str) -> Result<Schema> {
     Ok(schema)
 }
 
-fn infer_csv_schema(_file_path: &str) -> Result<Schema> {
-    todo!()
+fn infer_csv_schema(file_path: &str) -> Result<Schema> {
+    let file =
+        File::open(file_path).with_context(|| format!("Failed to open CSV file: {}", file_path))?;
+
+    let mut reader = BufReader::new(file);
+
+    // Create a CSV format for schema inference
+    let format = Format::default()
+        .with_header(true) // Assume headers are present
+        .with_delimiter(b',') // Use comma as delimiter
+        .with_quote(b'"'); // Use double quotes for quoting
+
+    // Use arrow-csv to infer the schema
+    let (schema, _) = format
+        .infer_schema(&mut reader, Some(100)) // Sample first 100 rows for inference
+        .with_context(|| format!("Failed to infer CSV schema from file: {}", file_path))?;
+
+    Ok(schema)
 }
 
 fn combine_schemas(schemas: Vec<Schema>) -> Result<Schema> {

@@ -67,6 +67,7 @@ fsst-rs = "0.5"
 futures = "0.3"
 half = "2"
 itertools = "0.14"
+libc = "0.2"
 log = "0.4"
 lz4 = "1"
 num-traits = "0.2"
@@ -88,6 +89,7 @@ thiserror = "2"
 tinyvec = "1.8"
 tokio = "1"
 url = "2"
+windows-sys = { version = "0.60", features = ["Win32_Storage_FileSystem"] }
 xshell = "0.2"
 xxhash-rust = { version = "0.8", features = ["xxh64", "xxh3"] }
 zstd = { version = "0.13" }
