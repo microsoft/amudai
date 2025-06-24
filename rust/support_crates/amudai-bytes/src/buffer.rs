@@ -15,7 +15,9 @@ pub struct AlignedByteVec {
     /// The underlying byte vector, may include padding at start
     inner: Vec<u8>,
     /// Offset from start of inner vec to maintain alignment
-    start: usize,
+    start: u32,
+    /// Required alignment, specified during vector creation.
+    alignment: u32,
 }
 
 impl AlignedByteVec {
@@ -24,12 +26,18 @@ impl AlignedByteVec {
         AlignedByteVec {
             inner: Vec::new(),
             start: 0,
+            alignment: Self::ALIGNMENT as u32,
         }
     }
 
     /// Creates a new vector with the specified capacity, ensuring alignment requirements are met.
     pub fn with_capacity(capacity: usize) -> AlignedByteVec {
-        Self::make(capacity)
+        Self::with_capacity_and_alignment(capacity, Self::ALIGNMENT)
+    }
+
+    /// Creates a new vector with the specified capacity and alignment.
+    pub fn with_capacity_and_alignment(capacity: usize, alignment: usize) -> AlignedByteVec {
+        Self::make(capacity, alignment)
     }
 
     /// Creates a new vector of specified length, filled with zeros.
@@ -54,7 +62,7 @@ impl AlignedByteVec {
     /// Returns the number of bytes in the vector.
     #[inline]
     pub fn len(&self) -> usize {
-        self.inner.len() - self.start
+        self.inner.len() - self.start_offset()
     }
 
     /// Returns true if the vector contains no elements.
@@ -66,19 +74,22 @@ impl AlignedByteVec {
     /// Returns the number of bytes the vector can hold without reallocating.
     #[inline]
     pub fn capacity(&self) -> usize {
-        round_down(self.inner.capacity() - self.start, Self::BLOCK_SIZE)
+        round_down(
+            self.inner.capacity() - self.start_offset(),
+            Self::BLOCK_SIZE,
+        )
     }
 
     /// Returns a raw pointer to the vector's buffer.
     #[inline]
     pub fn as_ptr(&self) -> *const u8 {
-        unsafe { self.inner.as_ptr().add(self.start) }
+        unsafe { self.inner.as_ptr().add(self.start_offset()) }
     }
 
     /// Returns a mutable raw pointer to the vector's buffer.
     #[inline]
     pub fn as_mut_ptr(&mut self) -> *mut u8 {
-        unsafe { self.inner.as_mut_ptr().add(self.start) }
+        unsafe { self.inner.as_mut_ptr().add(self.start_offset()) }
     }
 
     /// Returns a slice containing the entire vector.
@@ -116,10 +127,10 @@ impl AlignedByteVec {
             self.reserve(new_len - len);
             unsafe {
                 self.as_mut_ptr().add(len).write_bytes(value, new_len - len);
-                self.inner.set_len(self.start + new_len);
+                self.inner.set_len(self.start_offset() + new_len);
             }
         } else {
-            self.inner.truncate(self.start + new_len);
+            self.inner.truncate(self.start_offset() + new_len);
         }
     }
 
@@ -147,13 +158,13 @@ impl AlignedByteVec {
     pub unsafe fn set_len(&mut self, new_len: usize) {
         assert!(new_len <= self.capacity());
         unsafe {
-            self.inner.set_len(self.start + new_len);
+            self.inner.set_len(self.start_offset() + new_len);
         }
     }
 
     /// Truncates the vector to the specified length.
     pub fn truncate(&mut self, new_len: usize) {
-        self.inner.truncate(self.start + new_len);
+        self.inner.truncate(self.start_offset() + new_len);
     }
 
     /// Clears the vector, removing all values.
@@ -195,7 +206,7 @@ impl AlignedByteVec {
     /// Consumes the `AlignedByteVec`, returning both the inner vector and the offset
     /// at which the aligned data starts within the vector.
     pub fn into_vec(self) -> (Vec<u8>, usize) {
-        (self.inner, self.start)
+        (self.inner, self.start as usize)
     }
 }
 
@@ -230,10 +241,10 @@ impl AlignedByteVec {
                 for i in 0..extra_count {
                     std::ptr::write(target.add(i), value);
                 }
-                self.inner.set_len(self.start + new_size);
+                self.inner.set_len(self.start_offset() + new_size);
             }
         } else {
-            self.inner.truncate(self.start + new_size);
+            self.inner.truncate(self.start_offset() + new_size);
         }
     }
 
@@ -296,19 +307,26 @@ impl AlignedByteVec {
     const BLOCK_SIZE: usize = 64;
 
     /// Creates a new vector with the specified capacity, ensuring alignment requirements.
-    fn make(capacity: usize) -> AlignedByteVec {
+    fn make(capacity: usize, alignment: usize) -> AlignedByteVec {
+        let alignment = alignment.max(1);
+        assert!(alignment.is_power_of_two());
+
         if capacity == 0 {
             return AlignedByteVec {
                 inner: Vec::new(),
                 start: 0,
+                alignment: alignment as u32,
             };
         }
+
         let vec_capacity = round_up(capacity, Self::BLOCK_SIZE)
-            .checked_add(Self::ALIGNMENT)
+            .checked_add(alignment)
             .expect("add");
+
         let mut vec = Vec::<u8>::with_capacity(vec_capacity);
+
         let p = vec.as_ptr() as usize;
-        let aligned = round_up(p, Self::ALIGNMENT);
+        let aligned = round_up(p, alignment);
         let start = aligned - p;
         if start != 0 {
             unsafe {
@@ -316,7 +334,12 @@ impl AlignedByteVec {
                 vec.set_len(start);
             }
         }
-        let res = AlignedByteVec { inner: vec, start };
+
+        let res = AlignedByteVec {
+            inner: vec,
+            start: start as u32,
+            alignment: alignment as u32,
+        };
         assert!(res.capacity() >= capacity);
         res
     }
@@ -329,7 +352,8 @@ impl AlignedByteVec {
             Self::BLOCK_SIZE,
         );
         let new_cap = std::cmp::max(self.capacity() * 2, new_cap);
-        let mut v = Self::make(new_cap);
+        let alignment = self.alignment as usize;
+        let mut v = Self::make(new_cap, alignment);
         if !self.is_empty() {
             v.inner.extend_from_slice(self.as_slice());
         }
@@ -345,6 +369,11 @@ impl AlignedByteVec {
     #[inline]
     fn is_aligned_index(&self, index: usize, alignment: usize) -> bool {
         is_aligned(unsafe { self.as_ptr().add(index) }, alignment)
+    }
+
+    #[inline]
+    fn start_offset(&self) -> usize {
+        self.start as usize
     }
 }
 
@@ -1123,6 +1152,21 @@ mod tests {
         assert!(vec.is_aligned_at(2, 2));
         assert!(!vec.is_aligned_at(2, 128));
         assert!(!vec.is_aligned_at(2, 4));
+    }
+
+    #[test]
+    fn test_aligned_vec_custom_alignment() {
+        let mut vec = AlignedByteVec::with_capacity_and_alignment(16 * 1024, 4 * 1024);
+        assert!(vec.is_aligned_at(0, 4 * 1024));
+        assert_eq!(vec.len(), 0);
+        let cap = vec.capacity();
+        assert!(cap >= 16 * 1024);
+        vec.resize(16 * 1024, 17);
+        assert!(vec.is_aligned_at(0, 4 * 1024));
+        assert_eq!(vec.capacity(), cap);
+        vec.resize(50000, 12);
+        assert!(vec.capacity() >= 50000);
+        assert!(vec.is_aligned_at(0, 4 * 1024));
     }
 
     #[test]

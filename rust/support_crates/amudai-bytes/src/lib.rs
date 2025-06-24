@@ -16,7 +16,6 @@ pub struct BytesMut(AlignedByteVec);
 
 impl BytesMut {
     /// Creates a new empty `BytesMut`.
-    #[inline]
     pub fn new() -> BytesMut {
         Self::with_capacity(0)
     }
@@ -24,9 +23,17 @@ impl BytesMut {
     /// Creates a new `BytesMut` with the specified capacity.
     ///
     /// The buffer will be able to hold at least `capacity` bytes without reallocating.
-    #[inline]
     pub fn with_capacity(capacity: usize) -> BytesMut {
         BytesMut(AlignedByteVec::with_capacity(capacity))
+    }
+
+    /// Creates a new `BytesMut` with the specified capacity and alignment.
+    ///
+    /// The buffer will be able to hold at least `capacity` bytes without reallocating.
+    pub fn with_capacity_and_alignment(capacity: usize, alignment: usize) -> BytesMut {
+        BytesMut(AlignedByteVec::with_capacity_and_alignment(
+            capacity, alignment,
+        ))
     }
 
     /// Returns the length of the buffer.
