@@ -95,7 +95,7 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        _params: &EncodingParameters,
+        _params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         _context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -105,6 +105,18 @@ where
         let value = buffer.read_value::<T>(0);
         target.resize_typed(value_count, value);
         Ok(())
+    }
+
+    fn inspect(
+        &self,
+        _buffer: &[u8],
+        _context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![],
+        })
     }
 }
 
@@ -154,13 +166,7 @@ mod tests {
         context
             .numeric_encoders
             .get::<i64>()
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data()) {
             assert_eq!(a, b);
@@ -188,13 +194,7 @@ mod tests {
         context
             .numeric_encoders
             .get::<i64>()
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data()) {
             assert_eq!(a, b);

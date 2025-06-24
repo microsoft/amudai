@@ -54,11 +54,8 @@ where
     ) -> amudai_common::Result<Option<AnalysisOutcome>> {
         let mut encoded_size = 2 + EmptyMetadata::size();
         let mut target = context.buffers.get_buffer();
-        self.encoder.encode(
-            values.as_byte_slice(),
-            &mut target,
-            &EncodingParameters::None,
-        )?;
+        self.encoder
+            .encode(values.as_byte_slice(), &mut target, None)?;
         encoded_size += target.len();
         Ok(Some(AnalysisOutcome {
             encoding: self.kind(),
@@ -82,8 +79,11 @@ where
 
         EmptyMetadata::initialize(target).finalize(target);
 
-        self.encoder
-            .encode(values.as_byte_slice(), &mut *target, &plan.parameters)?;
+        self.encoder.encode(
+            values.as_byte_slice(),
+            &mut *target,
+            plan.parameters.as_ref(),
+        )?;
         Ok(target.len() - initial_size)
     }
 
@@ -91,12 +91,24 @@ where
         &self,
         buffer: &[u8],
         _value_count: usize,
-        _params: &EncodingParameters,
+        _params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         _context: &EncodingContext,
     ) -> amudai_common::Result<()> {
         let (_, buffer) = EmptyMetadata::read_from(buffer)?;
         self.encoder.decode(buffer, target)
+    }
+
+    fn inspect(
+        &self,
+        _buffer: &[u8],
+        _context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![],
+        })
     }
 }
 
@@ -108,7 +120,7 @@ pub trait GenericEncoder: Sync + Send {
         &self,
         bytes: &[u8],
         target: &mut AlignedByteVec,
-        parameters: &EncodingParameters,
+        parameters: Option<&EncodingParameters>,
     ) -> amudai_common::Result<()>;
 
     /// Decodes values from `encoded` buffer and appends them to `target`.
@@ -126,10 +138,10 @@ impl GenericEncoder for ZSTDEncoder {
         &self,
         bytes: &[u8],
         target: &mut AlignedByteVec,
-        parameters: &EncodingParameters,
+        parameters: Option<&EncodingParameters>,
     ) -> amudai_common::Result<()> {
         let level = match parameters {
-            EncodingParameters::Zstd(parameters) => parameters.level,
+            Some(EncodingParameters::Zstd(parameters)) => parameters.level,
             _ => ZstdParameters::default().level,
         };
         let mut zstd = zstd::stream::write::Encoder::new(target, level as i32)
@@ -159,10 +171,10 @@ impl GenericEncoder for LZ4Encoder {
         &self,
         bytes: &[u8],
         target: &mut AlignedByteVec,
-        parameters: &EncodingParameters,
+        parameters: Option<&EncodingParameters>,
     ) -> amudai_common::Result<()> {
         let compression_mode = match parameters {
-            EncodingParameters::Lz4(parameters) => parameters.mode,
+            Some(EncodingParameters::Lz4(parameters)) => parameters.mode,
             _ => Lz4Parameters::default().mode,
         };
         let compression_mode = match compression_mode {
@@ -258,17 +270,19 @@ mod tests {
                 .unwrap();
             assert_eq!(encoded_size1, encoded_size);
 
+            // Validate that inspect() returns the same encoding plan as used for encoding
+            let inspected_plan = context
+                .numeric_encoders
+                .get::<i64>()
+                .inspect(&encoded, &context)
+                .unwrap();
+            assert_eq!(plan, inspected_plan);
+
             let mut decoded = AlignedByteVec::new();
             context
                 .numeric_encoders
                 .get::<i64>()
-                .decode(
-                    &encoded,
-                    data.len(),
-                    &Default::default(),
-                    &mut decoded,
-                    &context,
-                )
+                .decode(&encoded, data.len(), None, &mut decoded, &context)
                 .unwrap();
             for (a, b) in data.iter().zip(decoded.typed_data::<i64>()) {
                 assert_eq!(a, b);

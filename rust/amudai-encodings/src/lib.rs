@@ -44,6 +44,9 @@ pub mod block_encoder;
 /// Internal encoding implementations and strategies.
 mod encodings;
 
+/// Exposed information for inspecting and analyzing encoded data blocks.
+pub use encodings::EncodingPlan;
+
 /// Handles decoding of primitive (fixed-size) data blocks.
 pub mod primitive_block_decoder;
 

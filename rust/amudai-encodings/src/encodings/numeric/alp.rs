@@ -457,7 +457,7 @@ where
                     cascading_outcomes: vec![Some(integers_outcome)],
                     encoded_size,
                     compression_ratio: stats.original_size as f64 / encoded_size as f64,
-                    parameters: EncodingParameters::Alp(alp_params),
+                    parameters: Some(EncodingParameters::Alp(alp_params)),
                 })
             })
             .transpose()
@@ -471,7 +471,7 @@ where
         plan: &EncodingPlan,
         context: &EncodingContext,
     ) -> amudai_common::Result<usize> {
-        let EncodingParameters::Alp(alp_params) = plan.parameters else {
+        let Some(EncodingParameters::Alp(alp_params)) = plan.parameters else {
             return Err(Error::invalid_arg(
                 "plan",
                 "ALP encoding parameters are missing",
@@ -522,7 +522,7 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -571,6 +571,23 @@ where
         );
 
         Ok(())
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (metadata, _) = ALPMetadata::read_from(buffer)?;
+        let integers_plan = context
+            .numeric_encoders
+            .get::<T::ALPIntegerType>()
+            .inspect(&buffer[..metadata.integers_size], context)?;
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Some(EncodingParameters::Alp(metadata.parameters)),
+            cascading_encodings: vec![Some(integers_plan)],
+        })
     }
 }
 
@@ -684,13 +701,7 @@ mod tests {
         context
             .numeric_encoders
             .get::<FloatValue<f64>>()
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
 
         for (a, b) in data.iter().zip(decoded.typed_data()) {

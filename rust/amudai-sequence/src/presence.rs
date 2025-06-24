@@ -432,9 +432,9 @@ mod tests {
         let presence = builder.build();
 
         assert_eq!(presence.len(), 6);
-        assert_eq!(presence.is_trivial_non_null(), true);
-        assert_eq!(presence.is_trivial_all_null(), false);
-        assert_eq!(presence.is_null(0), false);
+        assert!(presence.is_trivial_non_null());
+        assert!(!presence.is_trivial_all_null());
+        assert!(!presence.is_null(0));
     }
 
     #[test]
@@ -445,11 +445,11 @@ mod tests {
         let presence = builder.build();
 
         assert_eq!(presence.len(), 6);
-        assert_eq!(presence.is_trivial_non_null(), false);
+        assert!(!presence.is_trivial_non_null());
         assert_eq!(presence.count_non_nulls(), 0);
         assert_eq!(presence.count_nulls(), 6);
-        assert_eq!(presence.is_trivial_all_null(), true);
-        assert_eq!(presence.is_null(0), true);
+        assert!(presence.is_trivial_all_null());
+        assert!(presence.is_null(0));
     }
 
     #[test]
@@ -462,22 +462,22 @@ mod tests {
         let presence = builder.build();
 
         assert_eq!(presence.len(), 7);
-        assert_eq!(presence.is_trivial_non_null(), false);
-        assert_eq!(presence.is_trivial_all_null(), false);
-        assert_eq!(presence.is_null(0), false);
-        assert_eq!(presence.is_null(1), true);
-        assert_eq!(presence.is_null(2), true);
-        assert_eq!(presence.is_null(3), true);
-        assert_eq!(presence.is_null(4), true);
-        assert_eq!(presence.is_null(5), false);
-        assert_eq!(presence.is_null(6), false);
+        assert!(!presence.is_trivial_non_null());
+        assert!(!presence.is_trivial_all_null());
+        assert!(!presence.is_null(0));
+        assert!(presence.is_null(1));
+        assert!(presence.is_null(2));
+        assert!(presence.is_null(3));
+        assert!(presence.is_null(4));
+        assert!(!presence.is_null(5));
+        assert!(!presence.is_null(6));
     }
 
     #[test]
     fn test_presence_empty() {
         let presence = Presence::default();
         assert_eq!(presence.len(), 0);
-        assert_eq!(presence.is_empty(), true);
+        assert!(presence.is_empty());
         assert_eq!(presence.count_nulls(), 0);
         assert_eq!(presence.count_non_nulls(), 0);
     }
@@ -489,14 +489,14 @@ mod tests {
         let cloned = presence.clone_range(2, 5);
         assert_eq!(cloned, Presence::Trivial(5));
         assert_eq!(cloned.len(), 5);
-        assert_eq!(cloned.is_trivial_non_null(), true);
+        assert!(cloned.is_trivial_non_null());
 
         // Clone range from nulls
         let presence = Presence::Nulls(10);
         let cloned = presence.clone_range(2, 5);
         assert_eq!(cloned, Presence::Nulls(5));
         assert_eq!(cloned.len(), 5);
-        assert_eq!(cloned.is_trivial_all_null(), true);
+        assert!(cloned.is_trivial_all_null());
 
         // Clone range from bytes
         let mut builder = PresenceBuilder::new();
@@ -509,10 +509,10 @@ mod tests {
 
         let cloned = presence.clone_range(1, 4);
         assert_eq!(cloned.len(), 4);
-        assert_eq!(cloned.is_null(0), true); // index 1 in original
-        assert_eq!(cloned.is_null(1), false); // index 2 in original
-        assert_eq!(cloned.is_null(2), true); // index 3 in original
-        assert_eq!(cloned.is_null(3), true); // index 4 in original
+        assert!(cloned.is_null(0)); // index 1 in original
+        assert!(!cloned.is_null(1)); // index 2 in original
+        assert!(cloned.is_null(2)); // index 3 in original
+        assert!(cloned.is_null(3)); // index 4 in original
         assert_eq!(cloned.count_non_nulls(), 1);
         assert_eq!(cloned.count_nulls(), 3);
     }
@@ -531,35 +531,35 @@ mod tests {
         presence.extend_with_nulls(3);
         assert_eq!(presence, Presence::Nulls(3));
         assert_eq!(presence.len(), 3);
-        assert_eq!(presence.is_trivial_all_null(), true);
+        assert!(presence.is_trivial_all_null());
 
         // Extend trivial presence
         let mut presence = Presence::Trivial(2);
         presence.extend_with_nulls(3);
         assert_eq!(presence.len(), 5);
-        assert_eq!(presence.is_trivial_non_null(), false);
-        assert_eq!(presence.is_trivial_all_null(), false);
-        assert_eq!(presence.is_null(0), false);
-        assert_eq!(presence.is_null(1), false);
-        assert_eq!(presence.is_null(2), true);
-        assert_eq!(presence.is_null(4), true);
+        assert!(!presence.is_trivial_non_null());
+        assert!(!presence.is_trivial_all_null());
+        assert!(!presence.is_null(0));
+        assert!(!presence.is_null(1));
+        assert!(presence.is_null(2));
+        assert!(presence.is_null(4));
 
         // Extend nulls presence
         let mut presence = Presence::Nulls(2);
         presence.extend_with_nulls(3);
         assert_eq!(presence, Presence::Nulls(5));
         assert_eq!(presence.len(), 5);
-        assert_eq!(presence.is_trivial_all_null(), true);
+        assert!(presence.is_trivial_all_null());
 
         // Extend bytes presence
         let mut presence = Presence::Bytes(AlignedByteVec::copy_from_slice(&[1, 0, 1]));
         presence.extend_with_nulls(2);
         assert_eq!(presence.len(), 5);
-        assert_eq!(presence.is_null(0), false);
-        assert_eq!(presence.is_null(1), true);
-        assert_eq!(presence.is_null(2), false);
-        assert_eq!(presence.is_null(3), true);
-        assert_eq!(presence.is_null(4), true);
+        assert!(!presence.is_null(0));
+        assert!(presence.is_null(1));
+        assert!(!presence.is_null(2));
+        assert!(presence.is_null(3));
+        assert!(presence.is_null(4));
 
         // Extend with zero nulls (no-op)
         let mut presence = Presence::Trivial(2);
@@ -575,35 +575,35 @@ mod tests {
         presence.extend_with_non_nulls(3);
         assert_eq!(presence, Presence::Trivial(3));
         assert_eq!(presence.len(), 3);
-        assert_eq!(presence.is_trivial_non_null(), true);
+        assert!(presence.is_trivial_non_null());
 
         // Extend trivial presence
         let mut presence = Presence::Trivial(2);
         presence.extend_with_non_nulls(3);
         assert_eq!(presence, Presence::Trivial(5));
         assert_eq!(presence.len(), 5);
-        assert_eq!(presence.is_trivial_non_null(), true);
+        assert!(presence.is_trivial_non_null());
 
         // Extend nulls presence
         let mut presence = Presence::Nulls(2);
         presence.extend_with_non_nulls(3);
         assert_eq!(presence.len(), 5);
-        assert_eq!(presence.is_trivial_non_null(), false);
-        assert_eq!(presence.is_trivial_all_null(), false);
-        assert_eq!(presence.is_null(0), true);
-        assert_eq!(presence.is_null(1), true);
-        assert_eq!(presence.is_null(2), false);
-        assert_eq!(presence.is_null(4), false);
+        assert!(!presence.is_trivial_non_null());
+        assert!(!presence.is_trivial_all_null());
+        assert!(presence.is_null(0));
+        assert!(presence.is_null(1));
+        assert!(!presence.is_null(2));
+        assert!(!presence.is_null(4));
 
         // Extend bytes presence
         let mut presence = Presence::Bytes(AlignedByteVec::copy_from_slice(&[1, 0, 1]));
         presence.extend_with_non_nulls(2);
         assert_eq!(presence.len(), 5);
-        assert_eq!(presence.is_null(0), false);
-        assert_eq!(presence.is_null(1), true);
-        assert_eq!(presence.is_null(2), false);
-        assert_eq!(presence.is_null(3), false);
-        assert_eq!(presence.is_null(4), false);
+        assert!(!presence.is_null(0));
+        assert!(presence.is_null(1));
+        assert!(!presence.is_null(2));
+        assert!(!presence.is_null(3));
+        assert!(!presence.is_null(4));
 
         // Extend with zero non-nulls (no-op)
         let mut presence = Presence::Trivial(2);
@@ -628,9 +628,9 @@ mod tests {
         let mut presence = Presence::default();
         presence.extend_with_bytes(&[1, 0, 1]);
         assert_eq!(presence.len(), 3);
-        assert_eq!(presence.is_null(0), false);
-        assert_eq!(presence.is_null(1), true);
-        assert_eq!(presence.is_null(2), false);
+        assert!(!presence.is_null(0));
+        assert!(presence.is_null(1));
+        assert!(!presence.is_null(2));
 
         // Extend trivial with all non-nulls
         let mut presence = Presence::Trivial(2);
@@ -641,11 +641,11 @@ mod tests {
         let mut presence = Presence::Trivial(2);
         presence.extend_with_bytes(&[1, 0, 1]);
         assert_eq!(presence.len(), 5);
-        assert_eq!(presence.is_null(0), false);
-        assert_eq!(presence.is_null(1), false);
-        assert_eq!(presence.is_null(2), false);
-        assert_eq!(presence.is_null(3), true);
-        assert_eq!(presence.is_null(4), false);
+        assert!(!presence.is_null(0));
+        assert!(!presence.is_null(1));
+        assert!(!presence.is_null(2));
+        assert!(presence.is_null(3));
+        assert!(!presence.is_null(4));
 
         // Extend nulls with all nulls
         let mut presence = Presence::Nulls(2);
@@ -656,22 +656,22 @@ mod tests {
         let mut presence = Presence::Nulls(2);
         presence.extend_with_bytes(&[1, 0, 1]);
         assert_eq!(presence.len(), 5);
-        assert_eq!(presence.is_null(0), true);
-        assert_eq!(presence.is_null(1), true);
-        assert_eq!(presence.is_null(2), false);
-        assert_eq!(presence.is_null(3), true);
-        assert_eq!(presence.is_null(4), false);
+        assert!(presence.is_null(0));
+        assert!(presence.is_null(1));
+        assert!(!presence.is_null(2));
+        assert!(presence.is_null(3));
+        assert!(!presence.is_null(4));
 
         // Extend bytes with mixed bytes
         let mut presence = Presence::Bytes(AlignedByteVec::copy_from_slice(&[1, 0, 1]));
         presence.extend_with_bytes(&[0, 1, 0]);
         assert_eq!(presence.len(), 6);
-        assert_eq!(presence.is_null(0), false);
-        assert_eq!(presence.is_null(1), true);
-        assert_eq!(presence.is_null(2), false);
-        assert_eq!(presence.is_null(3), true);
-        assert_eq!(presence.is_null(4), false);
-        assert_eq!(presence.is_null(5), true);
+        assert!(!presence.is_null(0));
+        assert!(presence.is_null(1));
+        assert!(!presence.is_null(2));
+        assert!(presence.is_null(3));
+        assert!(!presence.is_null(4));
+        assert!(presence.is_null(5));
 
         // Extend with empty bytes (no-op)
         let mut presence = Presence::Trivial(2);
@@ -699,9 +699,9 @@ mod tests {
         let source = Presence::Bytes(AlignedByteVec::copy_from_slice(&[1, 0, 1, 0, 1]));
         presence.extend_from_presence_range(&source, 1, 3);
         assert_eq!(presence.len(), 3);
-        assert_eq!(presence.is_null(0), true);
-        assert_eq!(presence.is_null(1), false);
-        assert_eq!(presence.is_null(2), true);
+        assert!(presence.is_null(0));
+        assert!(!presence.is_null(1));
+        assert!(presence.is_null(2));
 
         // Extend trivial from trivial
         let mut presence = Presence::Trivial(2);
@@ -714,22 +714,22 @@ mod tests {
         let source = Presence::Nulls(5);
         presence.extend_from_presence_range(&source, 1, 3);
         assert_eq!(presence.len(), 5);
-        assert_eq!(presence.is_null(0), false);
-        assert_eq!(presence.is_null(1), false);
-        assert_eq!(presence.is_null(2), true);
-        assert_eq!(presence.is_null(3), true);
-        assert_eq!(presence.is_null(4), true);
+        assert!(!presence.is_null(0));
+        assert!(!presence.is_null(1));
+        assert!(presence.is_null(2));
+        assert!(presence.is_null(3));
+        assert!(presence.is_null(4));
 
         // Extend nulls from trivial
         let mut presence = Presence::Nulls(2);
         let source = Presence::Trivial(5);
         presence.extend_from_presence_range(&source, 1, 3);
         assert_eq!(presence.len(), 5);
-        assert_eq!(presence.is_null(0), true);
-        assert_eq!(presence.is_null(1), true);
-        assert_eq!(presence.is_null(2), false);
-        assert_eq!(presence.is_null(3), false);
-        assert_eq!(presence.is_null(4), false);
+        assert!(presence.is_null(0));
+        assert!(presence.is_null(1));
+        assert!(!presence.is_null(2));
+        assert!(!presence.is_null(3));
+        assert!(!presence.is_null(4));
 
         // Extend with zero length (no-op)
         let mut presence = Presence::Trivial(2);
@@ -836,12 +836,12 @@ mod tests {
         let presence = builder.build();
 
         assert_eq!(presence.len(), 7);
-        assert_eq!(presence.is_null(0), false);
-        assert_eq!(presence.is_null(1), false);
-        assert_eq!(presence.is_null(2), false);
-        assert_eq!(presence.is_null(3), true);
-        assert_eq!(presence.is_null(4), true);
-        assert_eq!(presence.is_null(5), true);
-        assert_eq!(presence.is_null(6), false);
+        assert!(!presence.is_null(0));
+        assert!(!presence.is_null(1));
+        assert!(!presence.is_null(2));
+        assert!(presence.is_null(3));
+        assert!(presence.is_null(4));
+        assert!(presence.is_null(5));
+        assert!(!presence.is_null(6));
     }
 }

@@ -130,10 +130,27 @@ pub trait NumericEncoding<T>: Send + Sync {
         &self,
         buffer: &[u8],
         value_count: usize,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         context: &EncodingContext,
     ) -> amudai_common::Result<()>;
+
+    /// Inspects the encoded data in the buffer and returns an encoding plan that describes
+    /// the encoding schema used for the data.
+    ///
+    /// # Parameters
+    ///
+    /// - `buffer`: The encoded byte buffer containing the data to inspect.
+    /// - `context`: The encoding context that provides an access to shared resources.
+    ///
+    /// # Returns
+    ///
+    /// The method returns an `EncodingPlan` that describes the encoding schema used for the data.
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan>;
 }
 
 /// A collection of encodings suitable for encoding a sequence
@@ -271,11 +288,11 @@ where
     ///
     /// # Parameters
     ///
-    /// - `buffer`: The encoded byte buffer containing the data to decode.
-    /// - `value_count`: The number of values to decode.
-    /// - `params`: Encoding specific parameters.
-    /// - `target`: The target byte buffer to write the decoded data into.
-    /// - `context`: The encoding context that provides an access to shared resources.
+    /// - `buffer` -     The encoded byte buffer containing the data to decode.
+    /// - `value_count`- The number of values to decode.
+    /// - `params` -     Encoding specific parameters.
+    /// - `target` -     The target byte buffer to write the decoded data into.
+    /// - `context` -    The encoding context that provides an access to shared resources.
     ///
     /// # Returns
     ///
@@ -284,14 +301,49 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         context: &EncodingContext,
     ) -> amudai_common::Result<()> {
+        let (encoding, buffer) = self.read_encoding(buffer)?;
+        encoding.decode(buffer, value_count, params, target, context)
+    }
+
+    /// Inspects the encoded data in the buffer and returns an encoding plan that describes
+    /// the encoding schema used for the data.
+    ///
+    /// # Parameters
+    ///
+    /// - `buffer`: The encoded byte buffer containing the data to inspect.
+    /// - `context`: The encoding context that provides an access to shared resources.
+    ///
+    /// # Returns
+    ///
+    /// The method returns an `EncodingPlan` that describes the encoding schema used for the data.
+    pub fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (encoding, buffer) = self.read_encoding(buffer)?;
+        encoding.inspect(buffer, context)
+    }
+
+    /// Reads the encoding code from the buffer and returns the corresponding encoding
+    /// along with the remaining buffer.
+    fn read_encoding<'a, 'b>(
+        &'a self,
+        buffer: &'b [u8],
+    ) -> amudai_common::Result<(&'a Arc<dyn NumericEncoding<T>>, &'b [u8])> {
+        if buffer.len() < 2 {
+            return Err(amudai_common::error::Error::invalid_format(
+                "Buffer is too small".to_string(),
+            ));
+        }
         let encoding_code = buffer.read_value::<u16>(0);
         if let Ok(encoding_kind) = EncodingKind::try_from(encoding_code) {
             if let Some(encoding) = self.encodings_by_name.get(&encoding_kind) {
-                encoding.decode(&buffer[2..], value_count, params, target, context)
+                Ok((encoding, &buffer[2..]))
             } else {
                 Err(amudai_common::error::Error::invalid_format(format!(
                     "Unsupported encoding: {encoding_kind:?}"
@@ -519,13 +571,7 @@ mod tests {
 
         let mut decoded = AlignedByteVec::new();
         encodings
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data::<i64>()) {
             assert_eq!(a, b);
@@ -567,13 +613,7 @@ mod tests {
 
         let mut decoded = AlignedByteVec::new();
         encodings
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data::<i64>()) {
             assert_eq!(a, b);

@@ -193,9 +193,9 @@ impl BlockEncoder for BinaryBlockEncoder {
                     },
                     BlockEncodingProfile::MinimalCompression => EncodingPlan {
                         encoding: EncodingKind::Lz4,
-                        parameters: EncodingParameters::Lz4(Lz4Parameters {
+                        parameters: Some(EncodingParameters::Lz4(Lz4Parameters {
                             mode: Lz4CompressionMode::Fast,
-                        }),
+                        })),
                         cascading_encodings: vec![Some(EncodingPlan {
                             encoding: EncodingKind::FusedFrameOfReference,
                             parameters: Default::default(),
@@ -204,9 +204,9 @@ impl BlockEncoder for BinaryBlockEncoder {
                     },
                     BlockEncodingProfile::Balanced => EncodingPlan {
                         encoding: EncodingKind::Lz4,
-                        parameters: EncodingParameters::Lz4(Lz4Parameters {
+                        parameters: Some(EncodingParameters::Lz4(Lz4Parameters {
                             mode: Lz4CompressionMode::HighCompression,
-                        }),
+                        })),
                         cascading_encodings: vec![Some(EncodingPlan {
                             encoding: EncodingKind::FusedFrameOfReference,
                             parameters: Default::default(),
@@ -215,9 +215,9 @@ impl BlockEncoder for BinaryBlockEncoder {
                     },
                     BlockEncodingProfile::HighCompression => EncodingPlan {
                         encoding: EncodingKind::Zstd,
-                        parameters: EncodingParameters::Zstd(ZstdParameters {
+                        parameters: Some(EncodingParameters::Zstd(ZstdParameters {
                             level: ZstdCompressionLevel::Default,
-                        }),
+                        })),
                         cascading_encodings: vec![Some(EncodingPlan {
                             encoding: EncodingKind::FusedFrameOfReference,
                             parameters: Default::default(),
@@ -226,9 +226,9 @@ impl BlockEncoder for BinaryBlockEncoder {
                     },
                     BlockEncodingProfile::MinimalSize => EncodingPlan {
                         encoding: EncodingKind::Zstd,
-                        parameters: EncodingParameters::Zstd(ZstdParameters {
+                        parameters: Some(EncodingParameters::Zstd(ZstdParameters {
                             level: ZstdCompressionLevel::MaximalSlowest,
-                        }),
+                        })),
                         cascading_encodings: vec![Some(EncodingPlan {
                             encoding: EncodingKind::FusedFrameOfReference,
                             parameters: Default::default(),

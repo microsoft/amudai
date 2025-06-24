@@ -65,6 +65,7 @@ impl PrimitiveBlockDecoder {
         }
     }
 
+    /// Dispatches the decoding of values based on the type descriptor.
     fn decode_values(
         encoded: &[u8],
         presence: Presence,
@@ -79,7 +80,7 @@ impl PrimitiveBlockDecoder {
                     context.numeric_encoders.get::<i8>().decode(
                         encoded,
                         value_count,
-                        &Default::default(),
+                        None,
                         &mut values,
                         context,
                     )?;
@@ -87,7 +88,7 @@ impl PrimitiveBlockDecoder {
                     context.numeric_encoders.get::<u8>().decode(
                         encoded,
                         value_count,
-                        &Default::default(),
+                        None,
                         &mut values,
                         context,
                     )?;
@@ -98,7 +99,7 @@ impl PrimitiveBlockDecoder {
                     context.numeric_encoders.get::<i16>().decode(
                         encoded,
                         value_count,
-                        &Default::default(),
+                        None,
                         &mut values,
                         context,
                     )?;
@@ -106,7 +107,7 @@ impl PrimitiveBlockDecoder {
                     context.numeric_encoders.get::<u16>().decode(
                         encoded,
                         value_count,
-                        &Default::default(),
+                        None,
                         &mut values,
                         context,
                     )?;
@@ -117,7 +118,7 @@ impl PrimitiveBlockDecoder {
                     context.numeric_encoders.get::<i32>().decode(
                         encoded,
                         value_count,
-                        &Default::default(),
+                        None,
                         &mut values,
                         context,
                     )?;
@@ -125,7 +126,7 @@ impl PrimitiveBlockDecoder {
                     context.numeric_encoders.get::<u32>().decode(
                         encoded,
                         value_count,
-                        &Default::default(),
+                        None,
                         &mut values,
                         context,
                     )?;
@@ -136,7 +137,7 @@ impl PrimitiveBlockDecoder {
                     context.numeric_encoders.get::<i64>().decode(
                         encoded,
                         value_count,
-                        &Default::default(),
+                        None,
                         &mut values,
                         context,
                     )?;
@@ -144,7 +145,7 @@ impl PrimitiveBlockDecoder {
                     context.numeric_encoders.get::<u64>().decode(
                         encoded,
                         value_count,
-                        &Default::default(),
+                        None,
                         &mut values,
                         context,
                     )?;
@@ -154,7 +155,7 @@ impl PrimitiveBlockDecoder {
                 context.numeric_encoders.get::<FloatValue<f32>>().decode(
                     encoded,
                     value_count,
-                    &Default::default(),
+                    None,
                     &mut values,
                     context,
                 )?;
@@ -163,7 +164,7 @@ impl PrimitiveBlockDecoder {
                 context.numeric_encoders.get::<FloatValue<f64>>().decode(
                     encoded,
                     value_count,
-                    &Default::default(),
+                    None,
                     &mut values,
                     context,
                 )?;
@@ -172,7 +173,7 @@ impl PrimitiveBlockDecoder {
                 context.numeric_encoders.get::<u64>().decode(
                     encoded,
                     value_count,
-                    &Default::default(),
+                    None,
                     &mut values,
                     context,
                 )?;
@@ -186,6 +187,80 @@ impl PrimitiveBlockDecoder {
             presence,
             type_desc,
         })
+    }
+
+    fn inspect_values(
+        buffer: &[u8],
+        type_desc: BasicTypeDescriptor,
+        context: &EncodingContext,
+    ) -> amudai_common::Result<encodings::EncodingPlan> {
+        match type_desc.basic_type {
+            amudai_format::schema::BasicType::Int8 => {
+                if type_desc.signed {
+                    context
+                        .numeric_encoders
+                        .get::<i8>()
+                        .inspect(buffer, context)
+                } else {
+                    context
+                        .numeric_encoders
+                        .get::<u8>()
+                        .inspect(buffer, context)
+                }
+            }
+            amudai_format::schema::BasicType::Int16 => {
+                if type_desc.signed {
+                    context
+                        .numeric_encoders
+                        .get::<i16>()
+                        .inspect(buffer, context)
+                } else {
+                    context
+                        .numeric_encoders
+                        .get::<u16>()
+                        .inspect(buffer, context)
+                }
+            }
+            amudai_format::schema::BasicType::Int32 => {
+                if type_desc.signed {
+                    context
+                        .numeric_encoders
+                        .get::<i32>()
+                        .inspect(buffer, context)
+                } else {
+                    context
+                        .numeric_encoders
+                        .get::<u32>()
+                        .inspect(buffer, context)
+                }
+            }
+            amudai_format::schema::BasicType::Int64 => {
+                if type_desc.signed {
+                    context
+                        .numeric_encoders
+                        .get::<i64>()
+                        .inspect(buffer, context)
+                } else {
+                    context
+                        .numeric_encoders
+                        .get::<u64>()
+                        .inspect(buffer, context)
+                }
+            }
+            amudai_format::schema::BasicType::Float32 => context
+                .numeric_encoders
+                .get::<FloatValue<f32>>()
+                .inspect(buffer, context),
+            amudai_format::schema::BasicType::Float64 => context
+                .numeric_encoders
+                .get::<FloatValue<f64>>()
+                .inspect(buffer, context),
+            amudai_format::schema::BasicType::DateTime => context
+                .numeric_encoders
+                .get::<u64>()
+                .inspect(buffer, context),
+            _ => panic!("unexpected type: {:?}", type_desc.basic_type),
+        }
     }
 }
 
@@ -203,7 +278,6 @@ impl BlockDecoder for PrimitiveBlockDecoder {
         }
 
         let encoded = &encoded[PrimitiveBlockEncoderMetadata::size()..];
-
         let encoded_presence = &encoded[..metadata.presence_size];
         let presence = encodings::presence::decode_presence(encoded_presence, value_count)?;
 
@@ -216,6 +290,14 @@ impl BlockDecoder for PrimitiveBlockDecoder {
             value_count,
             &self.context,
         )
+    }
+
+    fn inspect(&self, encoded: &[u8]) -> amudai_common::Result<encodings::EncodingPlan> {
+        let metadata = PrimitiveBlockEncoderMetadata::read_from(encoded)?;
+        let values_pos = PrimitiveBlockEncoderMetadata::size()
+            + metadata.presence_size.next_multiple_of(ALIGNMENT_BYTES);
+        let encoded = &encoded[values_pos..values_pos + metadata.values_size];
+        Self::inspect_values(encoded, self.basic_type, &self.context)
     }
 }
 

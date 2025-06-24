@@ -6,6 +6,7 @@ use super::{
 use crate::encodings::{
     ALIGNMENT_BYTES, AlignedEncMetadata, EncodingConfig, EncodingContext, EncodingParameters,
     EncodingPlan, NullMask,
+    binary::offsets::inspect_offsets,
     numeric::{
         generic::GenericEncoder,
         value::{ValueReader, ValueWriter},
@@ -54,8 +55,7 @@ where
         let mut encoded_size = 2 + GenericMetadata::size();
 
         let mut target = context.buffers.get_buffer();
-        self.encoder
-            .encode(values.values(), &mut target, &EncodingParameters::None)?;
+        self.encoder.encode(values.values(), &mut target, None)?;
         encoded_size += target.len();
         encoded_size = encoded_size.next_multiple_of(ALIGNMENT_BYTES);
 
@@ -86,7 +86,7 @@ where
 
         let prev_pos = target.len();
         self.encoder
-            .encode(values.values(), &mut *target, &plan.parameters)?;
+            .encode(values.values(), &mut *target, plan.parameters.as_ref())?;
         metadata.values_size = target.len() - prev_pos;
 
         let alignment = target.len().next_multiple_of(ALIGNMENT_BYTES);
@@ -111,7 +111,7 @@ where
         buffer: &[u8],
         presence: Presence,
         type_desc: BasicTypeDescriptor,
-        _params: &EncodingParameters,
+        _params: Option<&EncodingParameters>,
         context: &EncodingContext,
     ) -> amudai_common::Result<ValueSequence> {
         let (metadata, buffer) = GenericMetadata::read_from(buffer)?;
@@ -131,6 +131,26 @@ where
             metadata.offsets_cascading,
             context,
         )
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (metadata, buffer) = GenericMetadata::read_from(buffer)?;
+        let offsets_pos = metadata.values_size.next_multiple_of(ALIGNMENT_BYTES);
+        let offsets_plan = inspect_offsets(
+            &buffer[offsets_pos..],
+            metadata.offset_width,
+            metadata.offsets_cascading,
+            context,
+        )?;
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: None,
+            cascading_encodings: vec![offsets_plan],
+        })
     }
 }
 
@@ -188,7 +208,7 @@ impl AlignedEncMetadata for GenericMetadata {
 #[cfg(test)]
 mod tests {
     use crate::encodings::{
-        EncodingConfig, EncodingContext, EncodingKind, EncodingParameters, EncodingPlan, NullMask,
+        EncodingConfig, EncodingContext, EncodingKind, EncodingPlan, NullMask,
         binary::BinaryValuesSequence,
     };
     use amudai_bytes::buffer::AlignedByteVec;
@@ -218,7 +238,7 @@ mod tests {
             assert_eq!(
                 EncodingPlan {
                     encoding,
-                    parameters: EncodingParameters::None,
+                    parameters: None,
                     cascading_encodings: vec![Some(EncodingPlan {
                         encoding: EncodingKind::Delta,
                         parameters: Default::default(),
@@ -239,13 +259,17 @@ mod tests {
                 .unwrap();
             assert_eq!(encoded_size1, encoded_size);
 
+            // Validate that inspect() returns the same encoding plan as used for encoding
+            let inspect_plan = context.binary_encoders.inspect(&encoded, &context).unwrap();
+            assert_eq!(plan, inspect_plan);
+
             let decoded = context
                 .binary_encoders
                 .decode(
                     &encoded,
                     Presence::Trivial(values.len()),
                     Default::default(),
-                    &Default::default(),
+                    None,
                     &context,
                 )
                 .unwrap();
@@ -303,6 +327,10 @@ mod tests {
                 .unwrap();
             assert_eq!(encoded_size1, encoded_size);
 
+            // Validate that inspect() returns the same encoding plan as used for encoding
+            let inspect_plan = context.binary_encoders.inspect(&encoded, &context).unwrap();
+            assert_eq!(plan, inspect_plan);
+
             let decoded = context
                 .binary_encoders
                 .decode(
@@ -314,7 +342,7 @@ mod tests {
                         fixed_size: 16,
                         extended_type: Default::default(),
                     },
-                    &Default::default(),
+                    None,
                     &context,
                 )
                 .unwrap();

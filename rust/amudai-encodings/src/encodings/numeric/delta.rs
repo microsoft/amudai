@@ -121,7 +121,7 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        _params: &EncodingParameters,
+        _params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -131,7 +131,7 @@ where
         context.numeric_encoders.get::<T>().decode(
             buffer,
             value_count - 1,
-            &Default::default(),
+            None,
             &mut diffs,
             context,
         )?;
@@ -145,6 +145,23 @@ where
         }
 
         Ok(())
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (_, buffer) = DeltaMetadata::<T>::read_from(buffer)?;
+        let diffs_plan = context
+            .numeric_encoders
+            .get::<T>()
+            .inspect(buffer, context)?;
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![Some(diffs_plan)],
+        })
     }
 }
 
@@ -217,17 +234,19 @@ mod tests {
             .unwrap();
         assert_eq!(encoded_size1, encoded_size2);
 
+        // Validate that inspect() returns the same encoding plan as used for encoding
+        let inspected_plan = context
+            .numeric_encoders
+            .get::<i64>()
+            .inspect(&encoded, &context)
+            .unwrap();
+        assert_eq!(plan, inspected_plan);
+
         let mut decoded = AlignedByteVec::new();
         context
             .numeric_encoders
             .get::<i64>()
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data()) {
             assert_eq!(a, b);

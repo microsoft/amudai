@@ -96,7 +96,7 @@ impl StringEncoding for SingleValueEncoding {
         buffer: &[u8],
         presence: Presence,
         type_desc: BasicTypeDescriptor,
-        _params: &EncodingParameters,
+        _params: Option<&EncodingParameters>,
         _context: &EncodingContext,
     ) -> amudai_common::Result<ValueSequence> {
         let value_len = buffer.len();
@@ -115,6 +115,18 @@ impl StringEncoding for SingleValueEncoding {
             offsets: Some(offsets),
             presence,
             type_desc,
+        })
+    }
+
+    fn inspect(
+        &self,
+        _buffer: &[u8],
+        _context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![],
         })
     }
 }
@@ -160,7 +172,7 @@ mod tests {
                 &encoded,
                 Presence::Trivial(values.len()),
                 Default::default(),
-                &Default::default(),
+                None,
                 &context,
             )
             .unwrap();
@@ -196,7 +208,7 @@ mod tests {
                 &encoded,
                 Presence::Trivial(values.len()),
                 Default::default(),
-                &Default::default(),
+                None,
                 &context,
             )
             .unwrap();

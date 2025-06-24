@@ -2,6 +2,7 @@ use crate::buffers_pool::BuffersPool;
 use amudai_bytes::buffer::AlignedByteVec;
 use binary::BinaryEncodings;
 use numeric::NumericEncodingsPool;
+use serde::Serialize;
 use std::{borrow::Cow, collections::HashSet};
 use tinyvec::ArrayVec;
 
@@ -9,7 +10,7 @@ pub mod binary;
 pub mod numeric;
 pub mod presence;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[repr(u16)]
 pub enum EncodingKind {
     Plain = 1,
@@ -84,7 +85,7 @@ pub struct AnalysisOutcome {
     pub compression_ratio: f64,
 
     /// Encoding specific parameters that were used to encode the data.
-    pub parameters: EncodingParameters,
+    pub parameters: Option<EncodingParameters>,
 }
 
 impl AnalysisOutcome {
@@ -218,23 +219,23 @@ impl Default for EncodingConfig {
 ///
 /// The plan disables collecting statistics and choosing the best
 /// encoding scheme depending on compression efficiency.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, Serialize)]
 pub struct EncodingPlan {
     /// Encoding kind to apply on the top level stream of values.
     pub encoding: EncodingKind,
 
     /// Encoding specific parameters to use.
-    pub parameters: EncodingParameters,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<EncodingParameters>,
 
     /// Encodings to apply on nested streams of values.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub cascading_encodings: Vec<Option<EncodingPlan>>,
 }
 
 /// Encoding specific parameters to be reused when encoding sequence of values.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub enum EncodingParameters {
-    #[default]
-    None,
     Alp(AlpParameters),
     AlpRd(AlpRdParameters),
     Dictionary(DictionaryParameters),
@@ -244,22 +245,23 @@ pub enum EncodingParameters {
 
 /// ALP encoding parameters to be reused when encoding block of values
 /// that have the same origin and, potentially, have the same distribution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct AlpParameters {
     pub exponent_e: u8,
     pub factor_f: u8,
 }
 
 /// Reusable parameters for the ALP-RD encoding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct AlpRdParameters {
     /// The bit width of the right part of the floating-point value.
     pub right_bit_width: u8,
     /// The dictionary of the left parts.
+    #[serde(skip_serializing)]
     pub left_parts_dict: ArrayVec<[u16; numeric::alprd::MAX_DICT_SIZE]>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct DictionaryParameters {
     /// Shared binary values dictionary containing values sorted by popularity.
     /// The dictionary is a list of strings with their popularity count.
@@ -267,7 +269,7 @@ pub struct DictionaryParameters {
     pub shared_dict: Vec<(Vec<u8>, u32)>,
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[repr(i32)]
 pub enum ZstdCompressionLevel {
     #[default]
@@ -276,19 +278,19 @@ pub enum ZstdCompressionLevel {
     MaximalSlowest = 22,
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct ZstdParameters {
     pub level: ZstdCompressionLevel,
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub enum Lz4CompressionMode {
     #[default]
     Fast,
     HighCompression,
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct Lz4Parameters {
     pub mode: Lz4CompressionMode,
 }
@@ -381,7 +383,7 @@ pub const ALIGNMENT_BYTES: usize = 8;
 
 /// The trait for encoding metadata that ensures alignment of the metadata section.
 pub trait AlignedEncMetadata {
-    /// Returns the size of the metadata section.
+    /// Returns the size of the metadata section in bytes.
     fn own_size() -> usize;
 
     /// Returns the size of the metadata section including the alignment padding.

@@ -412,7 +412,7 @@ where
                     cascading_outcomes: cascading_encodings,
                     encoded_size,
                     compression_ratio: stats.original_size as f64 / encoded_size as f64,
-                    parameters: EncodingParameters::AlpRd(alprd_params),
+                    parameters: Some(EncodingParameters::AlpRd(alprd_params)),
                 })
             })
             .transpose()
@@ -426,7 +426,7 @@ where
         plan: &EncodingPlan,
         context: &EncodingContext,
     ) -> amudai_common::Result<usize> {
-        let EncodingParameters::AlpRd(alprd_params) = plan.parameters else {
+        let Some(EncodingParameters::AlpRd(alprd_params)) = plan.parameters else {
             return Err(Error::invalid_arg(
                 "plan",
                 "ALPRD encoding parameters are missing",
@@ -497,7 +497,7 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -569,6 +569,33 @@ where
             context,
             target,
         )
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (metadata, buffer) = ALPRDMetadata::read_from(buffer)?;
+
+        let dict_size = metadata.dictionary_len * std::mem::size_of::<u16>();
+        let buffer = &buffer[dict_size..];
+        let left_parts_plan = context
+            .numeric_encoders
+            .get::<u16>()
+            .inspect(&buffer[..metadata.left_parts_size], context)?;
+
+        let buffer = &buffer[metadata.left_parts_size..];
+        let right_parts_plan = context
+            .numeric_encoders
+            .get::<T::UnsignedIntType>()
+            .inspect(&buffer[..metadata.right_parts_size], context)?;
+
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![Some(left_parts_plan), Some(right_parts_plan)],
+        })
     }
 }
 
@@ -692,17 +719,20 @@ mod tests {
             .unwrap();
         assert_eq!(encoded_size1, encoded_size2);
 
+        // Validate that inspect() returns the same encoding plan as used for encoding
+        let mut inspected_plan = context
+            .numeric_encoders
+            .get::<FloatValue<f64>>()
+            .inspect(&encoded, &context)
+            .unwrap();
+        inspected_plan.parameters = plan.parameters.clone();
+        assert_eq!(plan, inspected_plan);
+
         let mut decoded = AlignedByteVec::new();
         context
             .numeric_encoders
             .get::<FloatValue<f64>>()
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
 
         for (a, b) in data.iter().zip(decoded.typed_data()) {

@@ -24,6 +24,8 @@ num-traits = { workspace = true }
 ordered-float = { workspace = true }
 paste = { workspace = true }
 roaring = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 seq-macro = { workspace = true }
 tinyvec = { workspace = true }
 zstd = { workspace = true }

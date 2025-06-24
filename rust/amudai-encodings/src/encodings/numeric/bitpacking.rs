@@ -141,7 +141,7 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        _params: &EncodingParameters,
+        _params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         _context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -171,6 +171,18 @@ where
         target.truncate(value_count * T::SIZE);
 
         Ok(())
+    }
+
+    fn inspect(
+        &self,
+        _buffer: &[u8],
+        _context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![],
+        })
     }
 }
 
@@ -255,17 +267,19 @@ mod tests {
                 .unwrap();
             assert_eq!(encoded_size1, encoded_size2);
 
+            // Validate that inspect() returns the same encoding plan as used for encoding
+            let inspect_plan = context
+                .numeric_encoders
+                .get::<u32>()
+                .inspect(&encoded, &context)
+                .unwrap();
+            assert_eq!(plan, inspect_plan);
+
             let mut decoded = AlignedByteVec::new();
             context
                 .numeric_encoders
                 .get::<u32>()
-                .decode(
-                    &encoded,
-                    data.len(),
-                    &Default::default(),
-                    &mut decoded,
-                    &context,
-                )
+                .decode(&encoded, data.len(), None, &mut decoded, &context)
                 .unwrap();
             for (a, b) in data.iter().zip(decoded.typed_data()) {
                 assert_eq!(a, b);

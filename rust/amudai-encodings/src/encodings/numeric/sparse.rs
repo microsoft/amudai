@@ -157,7 +157,7 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        _params: &EncodingParameters,
+        _params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -173,7 +173,7 @@ where
             context.numeric_encoders.get::<u32>().decode(
                 encoded_positions,
                 metadata.positions_count,
-                &Default::default(),
+                None,
                 &mut positions,
                 context,
             )?;
@@ -191,7 +191,7 @@ where
             context.numeric_encoders.get::<T>().decode(
                 values_buffer,
                 metadata.positions_count,
-                &Default::default(),
+                None,
                 &mut valid_values,
                 context,
             )?;
@@ -212,6 +212,40 @@ where
         }
 
         Ok(())
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (metadata, buffer) = SparseMetadata::read_from(buffer)?;
+        let positions_plan = if metadata.positions_cascading {
+            Some(
+                context
+                    .numeric_encoders
+                    .get::<u32>()
+                    .inspect(&buffer[..metadata.positions_size], context)?,
+            )
+        } else {
+            None
+        };
+        let values_buffer = &buffer[metadata.positions_size..];
+        let values_plan = if metadata.values_cascading {
+            Some(
+                context
+                    .numeric_encoders
+                    .get::<T>()
+                    .inspect(values_buffer, context)?,
+            )
+        } else {
+            None
+        };
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![positions_plan, values_plan],
+        })
     }
 }
 
@@ -272,9 +306,7 @@ impl AlignedEncMetadata for SparseMetadata {
 
 #[cfg(test)]
 mod tests {
-    use crate::encodings::{
-        EncodingConfig, EncodingContext, EncodingKind, EncodingParameters, EncodingPlan, NullMask,
-    };
+    use crate::encodings::{EncodingConfig, EncodingContext, EncodingKind, EncodingPlan, NullMask};
     use amudai_bytes::buffer::AlignedByteVec;
 
     #[test]
@@ -282,7 +314,7 @@ mod tests {
         let config = EncodingConfig::default().with_allowed_encodings(&[EncodingKind::Sparse]);
         let context = EncodingContext::new();
 
-        let mut valid_positions = vec![
+        let mut valid_positions = [
             (0..65436).map(|_| false).collect::<Vec<_>>(),
             (0..100).map(|_| true).collect::<Vec<_>>(),
         ]
@@ -318,7 +350,7 @@ mod tests {
                     None,
                     Some(EncodingPlan {
                         encoding: EncodingKind::TruncateU16,
-                        parameters: EncodingParameters::None,
+                        parameters: None,
                         cascading_encodings: vec![None]
                     })
                 ]
@@ -334,17 +366,19 @@ mod tests {
             .unwrap();
         assert_eq!(encoded_size1, encoded_size2);
 
+        // Test that inspect() returns the same encoding plan
+        let inspected_plan = context
+            .numeric_encoders
+            .get::<i64>()
+            .inspect(&encoded, &context)
+            .unwrap();
+        assert_eq!(plan, inspected_plan);
+
         let mut decoded = AlignedByteVec::new();
         context
             .numeric_encoders
             .get::<i64>()
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data()) {
             assert_eq!(a, b);

@@ -83,7 +83,7 @@ impl StringEncoding for PlainEncoding {
         buffer: &[u8],
         presence: Presence,
         type_desc: BasicTypeDescriptor,
-        _params: &EncodingParameters,
+        _params: Option<&EncodingParameters>,
         _context: &EncodingContext,
     ) -> amudai_common::Result<ValueSequence> {
         let offset_width = buffer.read_value::<u8>(0) as usize;
@@ -121,6 +121,18 @@ impl StringEncoding for PlainEncoding {
         };
 
         Ok(decoded)
+    }
+
+    fn inspect(
+        &self,
+        _buffer: &[u8],
+        _context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: None,
+            cascading_encodings: vec![],
+        })
     }
 }
 
@@ -161,7 +173,7 @@ mod tests {
                 &encoded,
                 Presence::Trivial(values.len()),
                 Default::default(),
-                &Default::default(),
+                None,
                 &context,
             )
             .unwrap();
@@ -211,7 +223,7 @@ mod tests {
                     fixed_size: 16,
                     extended_type: Default::default(),
                 },
-                &Default::default(),
+                None,
                 &context,
             )
             .unwrap();

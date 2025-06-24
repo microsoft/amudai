@@ -144,7 +144,7 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -165,6 +165,29 @@ where
         }
 
         Ok(())
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (metadata, buffer) = ZigZagMetadata::read_from(buffer)?;
+        let cascading_plan = if metadata.cascading {
+            Some(
+                context
+                    .numeric_encoders
+                    .get::<T::UnsignedType>()
+                    .inspect(buffer, context)?,
+            )
+        } else {
+            None
+        };
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![cascading_plan],
+        })
     }
 }
 
@@ -207,9 +230,7 @@ impl AlignedEncMetadata for ZigZagMetadata {
 
 #[cfg(test)]
 mod tests {
-    use crate::encodings::{
-        EncodingConfig, EncodingContext, EncodingKind, EncodingParameters, EncodingPlan, NullMask,
-    };
+    use crate::encodings::{EncodingConfig, EncodingContext, EncodingKind, EncodingPlan, NullMask};
     use amudai_bytes::buffer::AlignedByteVec;
 
     #[test]
@@ -233,20 +254,20 @@ mod tests {
                 parameters: Default::default(),
                 cascading_encodings: vec![Some(EncodingPlan {
                     encoding: EncodingKind::RunLength,
-                    parameters: EncodingParameters::None,
+                    parameters: None,
                     cascading_encodings: vec![
                         Some(EncodingPlan {
                             encoding: EncodingKind::Delta,
-                            parameters: EncodingParameters::None,
+                            parameters: None,
                             cascading_encodings: vec![Some(EncodingPlan {
                                 encoding: EncodingKind::RunLength,
-                                parameters: EncodingParameters::None,
+                                parameters: None,
                                 cascading_encodings: vec![None, None]
                             })]
                         }),
                         Some(EncodingPlan {
                             encoding: EncodingKind::SingleValue,
-                            parameters: EncodingParameters::None,
+                            parameters: None,
                             cascading_encodings: vec![]
                         })
                     ]
@@ -263,17 +284,19 @@ mod tests {
             .unwrap();
         assert_eq!(encoded_size1, encoded_size2);
 
+        // Validate that inspect() returns the same encoding plan as used for encoding
+        let inspected_plan = context
+            .numeric_encoders
+            .get::<i32>()
+            .inspect(&encoded, &context)
+            .unwrap();
+        assert_eq!(plan, inspected_plan);
+
         let mut decoded = AlignedByteVec::new();
         context
             .numeric_encoders
             .get::<i32>()
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data()) {
             assert_eq!(a, b);

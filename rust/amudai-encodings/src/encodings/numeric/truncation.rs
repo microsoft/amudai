@@ -165,7 +165,7 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -189,6 +189,29 @@ where
         }
 
         Ok(())
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (metadata, buffer) = TruncationMetadata::read_from(buffer)?;
+        let cascading_plan = if metadata.cascading {
+            Some(
+                context
+                    .numeric_encoders
+                    .get::<u8>()
+                    .inspect(buffer, context)?,
+            )
+        } else {
+            None
+        };
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![cascading_plan],
+        })
     }
 }
 
@@ -274,7 +297,7 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -300,6 +323,29 @@ where
         }
 
         Ok(())
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (metadata, buffer) = TruncationMetadata::read_from(buffer)?;
+        let cascading_plan = if metadata.cascading {
+            Some(
+                context
+                    .numeric_encoders
+                    .get::<u16>()
+                    .inspect(buffer, context)?,
+            )
+        } else {
+            None
+        };
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![cascading_plan],
+        })
     }
 }
 
@@ -385,7 +431,7 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -411,6 +457,29 @@ where
         }
 
         Ok(())
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (metadata, buffer) = TruncationMetadata::read_from(buffer)?;
+        let cascading_plan = if metadata.cascading {
+            Some(
+                context
+                    .numeric_encoders
+                    .get::<u32>()
+                    .inspect(buffer, context)?,
+            )
+        } else {
+            None
+        };
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![cascading_plan],
+        })
     }
 }
 
@@ -496,7 +565,7 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -522,6 +591,29 @@ where
         }
 
         Ok(())
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (metadata, buffer) = TruncationMetadata::read_from(buffer)?;
+        let cascading_plan = if metadata.cascading {
+            Some(
+                context
+                    .numeric_encoders
+                    .get::<u64>()
+                    .inspect(buffer, context)?,
+            )
+        } else {
+            None
+        };
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![cascading_plan],
+        })
     }
 }
 
@@ -687,17 +779,19 @@ mod tests {
             .unwrap();
         assert_eq!(encoded_size1, encoded_size2);
 
+        // Validate that inspect() returns the same encoding plan as used for encoding
+        let inspect_plan = context
+            .numeric_encoders
+            .get::<i128>()
+            .inspect(&encoded, &context)
+            .unwrap();
+        assert_eq!(plan, inspect_plan);
+
         let mut decoded = AlignedByteVec::new();
         context
             .numeric_encoders
             .get::<i128>()
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data()) {
             assert_eq!(a, b);
@@ -754,17 +848,19 @@ mod tests {
             .unwrap();
         assert_eq!(encoded_size1, encoded_size2);
 
+        // Validate that inspect() returns the same encoding plan as used for encoding
+        let inspect_plan = context
+            .numeric_encoders
+            .get::<i128>()
+            .inspect(&encoded, &context)
+            .unwrap();
+        assert_eq!(plan, inspect_plan);
+
         let mut decoded = AlignedByteVec::new();
         context
             .numeric_encoders
             .get::<i128>()
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data()) {
             assert_eq!(a, b);
@@ -821,17 +917,19 @@ mod tests {
             .unwrap();
         assert_eq!(encoded_size1, encoded_size2);
 
+        // Validate that inspect() returns the same encoding plan as used for encoding
+        let inspect_plan = context
+            .numeric_encoders
+            .get::<i128>()
+            .inspect(&encoded, &context)
+            .unwrap();
+        assert_eq!(plan, inspect_plan);
+
         let mut decoded = AlignedByteVec::new();
         context
             .numeric_encoders
             .get::<i128>()
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data()) {
             assert_eq!(a, b);
@@ -888,17 +986,19 @@ mod tests {
             .unwrap();
         assert_eq!(encoded_size1, encoded_size2);
 
+        // Validate that inspect() returns the same encoding plan as used for encoding
+        let inspect_plan = context
+            .numeric_encoders
+            .get::<i128>()
+            .inspect(&encoded, &context)
+            .unwrap();
+        assert_eq!(plan, inspect_plan);
+
         let mut decoded = AlignedByteVec::new();
         context
             .numeric_encoders
             .get::<i128>()
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data()) {
             assert_eq!(a, b);

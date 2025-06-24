@@ -180,7 +180,7 @@ where
         &self,
         buffer: &[u8],
         _value_count: usize,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -232,6 +232,41 @@ where
         }
 
         Ok(())
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (metadata, buffer) = RunLengthMetadata::read_from(buffer)?;
+        let values_plan = if metadata.values_cascading {
+            Some(
+                context
+                    .numeric_encoders
+                    .get::<T>()
+                    .inspect(&buffer[..metadata.values_size], context)?,
+            )
+        } else {
+            None
+        };
+        let lengths_offset = metadata.values_size.next_multiple_of(ALIGNMENT_BYTES);
+        let encoded_lengths = &buffer[lengths_offset..];
+        let lengths_plan = if metadata.lengths_cascading {
+            Some(
+                context
+                    .numeric_encoders
+                    .get::<u32>()
+                    .inspect(encoded_lengths, context)?,
+            )
+        } else {
+            None
+        };
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![values_plan, lengths_plan],
+        })
     }
 }
 
@@ -352,17 +387,19 @@ mod tests {
             .unwrap();
         assert_eq!(encoded_size1, encoded_size2);
 
+        // Test that inspect() returns the same encoding plan
+        let inspected_plan = context
+            .numeric_encoders
+            .get::<i64>()
+            .inspect(&encoded, &context)
+            .unwrap();
+        assert_eq!(plan, inspected_plan);
+
         let mut decoded = AlignedByteVec::new();
         context
             .numeric_encoders
             .get::<i64>()
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data()) {
             assert_eq!(a, b);

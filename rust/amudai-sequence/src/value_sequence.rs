@@ -574,7 +574,7 @@ mod tests {
             extended_type: Default::default(),
         };
 
-        let mut source_builder = BinarySequenceBuilder::new(type_desc.clone());
+        let mut source_builder = BinarySequenceBuilder::new(type_desc);
         source_builder.add_value(b"first");
         source_builder.add_value(b"second");
         source_builder.add_value(b"third");

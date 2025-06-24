@@ -135,7 +135,7 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -153,6 +153,23 @@ where
             target.push_typed::<T>(metadata.reference + delta);
         }
         Ok(())
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (_, buffer) = FORMetadata::<T>::read_from(buffer)?;
+        let deltas_plan = context
+            .numeric_encoders
+            .get::<T::UnsignedType>()
+            .inspect(buffer, context)?;
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![Some(deltas_plan)],
+        })
     }
 }
 
@@ -351,7 +368,7 @@ where
         &self,
         buffer: &[u8],
         value_count: usize,
-        _params: &EncodingParameters,
+        _params: Option<&EncodingParameters>,
         target: &mut AlignedByteVec,
         _context: &EncodingContext,
     ) -> amudai_common::Result<()> {
@@ -388,6 +405,18 @@ where
         target.truncate(value_count * T::SIZE);
 
         Ok(())
+    }
+
+    fn inspect(
+        &self,
+        _buffer: &[u8],
+        _context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![],
+        })
     }
 }
 
@@ -481,17 +510,19 @@ mod tests {
             .unwrap();
         assert_eq!(encoded_size1, encoded_size2);
 
+        // Validate that inspect() returns the same encoding plan as used for encoding
+        let inspected_plan = context
+            .numeric_encoders
+            .get::<i64>()
+            .inspect(&encoded, &context)
+            .unwrap();
+        assert_eq!(plan, inspected_plan);
+
         let mut decoded = AlignedByteVec::new();
         context
             .numeric_encoders
             .get::<i64>()
-            .decode(
-                &encoded,
-                data.len(),
-                &Default::default(),
-                &mut decoded,
-                &context,
-            )
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data()) {
             assert_eq!(a, b);
@@ -531,17 +562,19 @@ mod tests {
                 .unwrap();
             assert_eq!(encoded_size1, encoded_size2);
 
+            // Test that inspect() returns the same encoding plan
+            let inspected_plan = context
+                .numeric_encoders
+                .get::<i64>()
+                .inspect(&encoded, &context)
+                .unwrap();
+            assert_eq!(plan, inspected_plan);
+
             let mut decoded = AlignedByteVec::new();
             context
                 .numeric_encoders
                 .get::<i64>()
-                .decode(
-                    &encoded,
-                    data.len(),
-                    &Default::default(),
-                    &mut decoded,
-                    &context,
-                )
+                .decode(&encoded, data.len(), None, &mut decoded, &context)
                 .unwrap();
             for (a, b) in data.iter().zip(decoded.typed_data()) {
                 assert_eq!(a, b);

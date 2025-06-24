@@ -79,7 +79,6 @@ impl BlockDecoder for BinaryBlockDecoder {
         }
 
         let encoded = &encoded[BinaryBlockEncoderMetadata::size()..];
-
         let encoded_presence = &encoded[..metadata.presence_size];
         let presence = encodings::presence::decode_presence(encoded_presence, value_count)?;
 
@@ -89,9 +88,19 @@ impl BlockDecoder for BinaryBlockDecoder {
             encoded_data,
             presence,
             self.basic_type,
-            &Default::default(),
+            None,
             &self.context,
         )
+    }
+
+    fn inspect(&self, encoded: &[u8]) -> amudai_common::Result<encodings::EncodingPlan> {
+        let metadata = BinaryBlockEncoderMetadata::read_from(encoded)?;
+        let values_pos = BinaryBlockEncoderMetadata::size()
+            + metadata.presence_size.next_multiple_of(ALIGNMENT_BYTES);
+        let encoded_data = &encoded[values_pos..values_pos + metadata.values_size];
+        self.context
+            .binary_encoders
+            .inspect(encoded_data, &self.context)
     }
 }
 

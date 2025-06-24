@@ -107,9 +107,26 @@ pub trait StringEncoding: Send + Sync {
         buffer: &[u8],
         presence: Presence,
         type_desc: BasicTypeDescriptor,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         context: &EncodingContext,
     ) -> amudai_common::Result<ValueSequence>;
+
+    /// Inspects the provided encoding buffer and returns the encoding plan
+    /// that was used when encoding the data.
+    ///
+    /// # Parameters
+    ///
+    /// - `buffer` - The byte buffer containing the encoded data.
+    /// - `context` - The encoding context that provides an access to shared resources.
+    ///
+    /// # Returns
+    ///
+    /// Returns the encoding plan that was used to encode the data.
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan>;
 }
 
 /// A collection of encodings suitable for encoding a sequence
@@ -123,7 +140,7 @@ impl BinaryEncodings {
     pub fn new() -> Self {
         let encodings = vec![
             Box::new(DictionaryEncoding::new()) as Box<dyn StringEncoding>,
-            Box::new(SharedDictionaryEncoding::new()),
+            Box::new(SharedDictionaryEncoding::new()) as Box<dyn StringEncoding>,
             Box::new(FSSTEncoding::new()),
             Box::new(SingleValueEncoding::new()),
             Box::new(PlainEncoding::new()),
@@ -241,11 +258,11 @@ impl BinaryEncodings {
     ///
     /// # Parameters
     ///
-    /// - `buffer` - The byte buffer containing the encoded data.
-    /// - `presence` - The presence information indicating which values are present.
+    /// - `buffer` -    The byte buffer containing the encoded data.
+    /// - `presence` -  The presence information indicating which values are present.
     /// - `type_desc` - The type descriptor for the data being decoded.
-    /// - `params`: Encoding specific parameters.
-    /// - `context` - The encoding context that provides an access to shared resources.
+    /// - `params` -    Encoding specific parameters.
+    /// - `context` -   The encoding context that provides an access to shared resources.
     ///
     /// # Returns
     ///
@@ -255,13 +272,48 @@ impl BinaryEncodings {
         buffer: &[u8],
         presence: Presence,
         type_desc: BasicTypeDescriptor,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         context: &EncodingContext,
     ) -> amudai_common::Result<ValueSequence> {
+        let (encoding, buffer) = self.read_encoding(buffer)?;
+        encoding.decode(buffer, presence, type_desc, params, context)
+    }
+
+    /// Inspects the provided encoding buffer and returns the encoding plan
+    /// that was used when encoding the data.
+    ///
+    /// # Parameters
+    ///
+    /// - `buffer` - The byte buffer containing the encoded data.
+    /// - `context` - The encoding context that provides an access to shared resources.
+    ///
+    /// # Returns
+    ///
+    /// Returns the encoding plan that was used to encode the data.
+    pub fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (encoding, buffer) = self.read_encoding(buffer)?;
+        encoding.inspect(buffer, context)
+    }
+
+    /// Reads the encoding code from the buffer and returns the corresponding encoding
+    /// along with the remaining buffer.
+    fn read_encoding<'a, 'b>(
+        &'a self,
+        buffer: &'b [u8],
+    ) -> amudai_common::Result<(&'a Box<dyn StringEncoding>, &'b [u8])> {
+        if buffer.len() < 2 {
+            return Err(amudai_common::error::Error::invalid_format(
+                "Buffer is too small".to_string(),
+            ));
+        }
         let encoding_code = buffer.read_value::<u16>(0);
         if let Ok(encoding_kind) = EncodingKind::try_from(encoding_code) {
             if let Some(encoding) = self.encodings_by_name.get(&encoding_kind) {
-                encoding.decode(&buffer[2..], presence, type_desc, params, context)
+                Ok((encoding, &buffer[2..]))
             } else {
                 Err(amudai_common::error::Error::invalid_format(format!(
                     "Unsupported encoding: {encoding_kind:?}"
@@ -505,7 +557,7 @@ mod tests {
                 &encoded,
                 Presence::Trivial(values.len()),
                 Default::default(),
-                &Default::default(),
+                None,
                 &context,
             )
             .unwrap();

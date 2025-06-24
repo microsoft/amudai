@@ -96,7 +96,7 @@ pub(crate) fn decode_offsets_and_make_sequence(
             context.numeric_encoders.get::<u64>().decode(
                 buffer,
                 presence.len() + 1,
-                &Default::default(),
+                None,
                 &mut offsets,
                 context,
             )?;
@@ -117,4 +117,30 @@ pub(crate) fn decode_offsets_and_make_sequence(
         presence,
         type_desc,
     })
+}
+
+/// Inspects the offsets in the encoded buffer and returns an encoding plan
+/// that was used to encode them.
+pub(crate) fn inspect_offsets(
+    buffer: &[u8],
+    offset_width: u8,
+    offsets_cascading: bool,
+    context: &EncodingContext,
+) -> amudai_common::Result<Option<EncodingPlan>> {
+    if offset_width == 0 {
+        Ok(None)
+    } else if offset_width == 8 {
+        if offsets_cascading {
+            Ok(Some(
+                context
+                    .numeric_encoders
+                    .get::<u64>()
+                    .inspect(buffer, context)?,
+            ))
+        } else {
+            Ok(None)
+        }
+    } else {
+        Err(Error::invalid_format("Invalid offset width"))
+    }
 }

@@ -3,8 +3,8 @@ use super::{
     stats::{BinaryStats, BinaryStatsCollectorFlags},
 };
 use crate::encodings::{
-    AlignedEncMetadata, AnalysisOutcome, EmptyMetadata, EncodingConfig, EncodingContext,
-    EncodingKind, EncodingParameters, EncodingPlan, NullMask,
+    ALIGNMENT_BYTES, AlignedEncMetadata, AnalysisOutcome, EmptyMetadata, EncodingConfig,
+    EncodingContext, EncodingKind, EncodingParameters, EncodingPlan, NullMask,
     numeric::value::{ValueReader, ValueWriter},
 };
 use amudai_bytes::buffer::AlignedByteVec;
@@ -91,6 +91,8 @@ impl StringEncoding for DictionaryEncoding {
             }
         }
 
+        encoded_size = encoded_size.next_multiple_of(ALIGNMENT_BYTES);
+
         let mut total_size = 0;
         {
             let mut lengths = context.buffers.get_buffer();
@@ -163,6 +165,9 @@ impl StringEncoding for DictionaryEncoding {
             )?;
         }
 
+        let alignment = target.len().next_multiple_of(ALIGNMENT_BYTES);
+        target.resize(alignment, 0);
+
         {
             let mut lengths = context.buffers.get_buffer();
             lengths.reserve(values_by_popularity.len() * std::mem::size_of::<u32>());
@@ -200,7 +205,7 @@ impl StringEncoding for DictionaryEncoding {
         buffer: &[u8],
         presence: Presence,
         type_desc: BasicTypeDescriptor,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         context: &EncodingContext,
     ) -> amudai_common::Result<ValueSequence> {
         let (metadata, buffer) = DictionaryMetadata::read_from(buffer)?;
@@ -209,12 +214,16 @@ impl StringEncoding for DictionaryEncoding {
         context.numeric_encoders.get::<u32>().decode(
             &buffer[..metadata.codes_encoded_size],
             presence.len(),
-            &Default::default(),
+            None,
             &mut codes,
             context,
         )?;
         let codes = codes.typed_data::<u32>();
-        let buffer = &buffer[metadata.codes_encoded_size..];
+
+        let lengths_pos = metadata
+            .codes_encoded_size
+            .next_multiple_of(ALIGNMENT_BYTES);
+        let buffer = &buffer[lengths_pos..];
 
         let mut lengths = context.buffers.get_buffer();
         if metadata.lengths_cascading {
@@ -252,6 +261,42 @@ impl StringEncoding for DictionaryEncoding {
             }
         }
         Ok(seq_builder.build())
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (metadata, buffer) = DictionaryMetadata::read_from(buffer)?;
+        let codes_plan = Some(
+            context
+                .numeric_encoders
+                .get::<u32>()
+                .inspect(&buffer[..metadata.codes_encoded_size], context)?,
+        );
+
+        let lengths_pos = metadata
+            .codes_encoded_size
+            .next_multiple_of(ALIGNMENT_BYTES);
+        let buffer = &buffer[lengths_pos..];
+
+        let lenghts_plan = if metadata.lengths_cascading {
+            Some(
+                context
+                    .numeric_encoders
+                    .get::<u32>()
+                    .inspect(&buffer[..metadata.lengths_encoded_size], context)?,
+            )
+        } else {
+            None
+        };
+
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![codes_plan, lenghts_plan],
+        })
     }
 }
 
@@ -355,7 +400,7 @@ impl StringEncoding for SharedDictionaryEncoding {
         plan: &EncodingPlan,
         context: &EncodingContext,
     ) -> amudai_common::Result<usize> {
-        let EncodingParameters::Dictionary(dict_params) = &plan.parameters else {
+        let Some(EncodingParameters::Dictionary(dict_params)) = &plan.parameters else {
             return Err(Error::invalid_arg(
                 "plan",
                 "Dictionary parameters must be provided",
@@ -389,10 +434,10 @@ impl StringEncoding for SharedDictionaryEncoding {
         buffer: &[u8],
         presence: Presence,
         type_desc: BasicTypeDescriptor,
-        params: &EncodingParameters,
+        params: Option<&EncodingParameters>,
         context: &EncodingContext,
     ) -> amudai_common::Result<ValueSequence> {
-        let EncodingParameters::Dictionary(dict_params) = &params else {
+        let Some(EncodingParameters::Dictionary(dict_params)) = &params else {
             return Err(Error::invalid_arg(
                 "config",
                 "Dictionary parameters must be provided",
@@ -404,7 +449,7 @@ impl StringEncoding for SharedDictionaryEncoding {
         context.numeric_encoders.get::<u32>().decode(
             buffer,
             presence.len(),
-            &Default::default(),
+            None,
             &mut codes,
             context,
         )?;
@@ -421,6 +466,25 @@ impl StringEncoding for SharedDictionaryEncoding {
             }
         }
         Ok(seq_builder.build())
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (_, buffer) = EmptyMetadata::read_from(buffer)?;
+        let codes_plan = Some(
+            context
+                .numeric_encoders
+                .get::<u32>()
+                .inspect(buffer, context)?,
+        );
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: Default::default(),
+            cascading_encodings: vec![codes_plan],
+        })
     }
 }
 
@@ -505,13 +569,17 @@ mod tests {
             .unwrap();
         assert_eq!(encoded_size1, encoded_size2);
 
+        // Validate that inspect() returns the same encoding plan as used for encoding
+        let inspect_plan = context.binary_encoders.inspect(&encoded, &context).unwrap();
+        assert_eq!(plan, inspect_plan);
+
         let decoded = context
             .binary_encoders
             .decode(
                 &encoded,
                 Presence::Trivial(values.len()),
                 Default::default(),
-                &Default::default(),
+                None,
                 &context,
             )
             .unwrap();
@@ -550,17 +618,14 @@ mod tests {
         let sequence = BinaryValuesSequence::ArrowLargeBinaryArray(Cow::Owned(array));
         let plan = EncodingPlan {
             encoding: EncodingKind::SharedDictionary,
-            parameters: EncodingParameters::Dictionary(DictionaryParameters {
+            parameters: Some(EncodingParameters::Dictionary(DictionaryParameters {
                 shared_dict: unique_values_by_popularity.clone(),
-            }),
-            cascading_encodings: vec![
-                Some(EncodingPlan {
-                    encoding: EncodingKind::FLBitPack,
-                    parameters: Default::default(),
-                    cascading_encodings: vec![],
-                }),
-                None,
-            ],
+            })),
+            cascading_encodings: vec![Some(EncodingPlan {
+                encoding: EncodingKind::FLBitPack,
+                parameters: Default::default(),
+                cascading_encodings: vec![],
+            })],
         };
 
         let mut encoded = AlignedByteVec::new();
@@ -573,9 +638,9 @@ mod tests {
                 &encoded,
                 Presence::Trivial(values.len()),
                 Default::default(),
-                &EncodingParameters::Dictionary(DictionaryParameters {
+                Some(&EncodingParameters::Dictionary(DictionaryParameters {
                     shared_dict: unique_values_by_popularity,
-                }),
+                })),
                 &context,
             )
             .unwrap();

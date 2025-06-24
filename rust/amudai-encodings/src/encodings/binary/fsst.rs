@@ -6,6 +6,7 @@ use super::{
 use crate::encodings::{
     ALIGNMENT_BYTES, AlignedEncMetadata, AnalysisOutcome, EncodingConfig, EncodingContext,
     EncodingKind, EncodingParameters, EncodingPlan, NullMask,
+    binary::offsets::inspect_offsets,
     numeric::value::{ValueReader, ValueWriter},
 };
 use amudai_bytes::buffer::AlignedByteVec;
@@ -124,7 +125,7 @@ impl StringEncoding for FSSTEncoding {
         buffer: &[u8],
         presence: Presence,
         type_desc: BasicTypeDescriptor,
-        _params: &EncodingParameters,
+        _params: Option<&EncodingParameters>,
         context: &EncodingContext,
     ) -> amudai_common::Result<ValueSequence> {
         let (metadata, buffer) = FSSTMetadata::read_from(buffer)?;
@@ -170,6 +171,28 @@ impl StringEncoding for FSSTEncoding {
             metadata.offsets_cascading,
             context,
         )
+    }
+
+    fn inspect(
+        &self,
+        buffer: &[u8],
+        context: &EncodingContext,
+    ) -> amudai_common::Result<EncodingPlan> {
+        let (metadata, buffer) = FSSTMetadata::read_from(buffer)?;
+        let symbols_size = metadata.symbols_count * std::mem::size_of::<u64>();
+        let offsets_pos = (symbols_size + metadata.symbols_count + metadata.values_size)
+            .next_multiple_of(ALIGNMENT_BYTES);
+        let offsets_plan = inspect_offsets(
+            &buffer[offsets_pos..],
+            metadata.offset_width,
+            metadata.offsets_cascading,
+            context,
+        )?;
+        Ok(EncodingPlan {
+            encoding: self.kind(),
+            parameters: None,
+            cascading_encodings: vec![offsets_plan],
+        })
     }
 }
 
@@ -292,13 +315,17 @@ mod tests {
             .unwrap();
         assert_eq!(encoded_size1, encoded_size2);
 
+        // Validate that inspect() returns the same encoding plan as used for encoding
+        let inspected_plan = context.binary_encoders.inspect(&encoded, &context).unwrap();
+        assert_eq!(plan, inspected_plan);
+
         let decoded = context
             .binary_encoders
             .decode(
                 &encoded,
                 Presence::Trivial(values.len()),
                 Default::default(),
-                &Default::default(),
+                None,
                 &context,
             )
             .unwrap();

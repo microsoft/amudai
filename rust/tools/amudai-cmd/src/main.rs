@@ -37,7 +37,7 @@ enum Commands {
 
     /// Inspect a shard and display summary information
     Inspect {
-        /// Increase verbosity (-v for verbose, -vv for very verbose)
+        /// Increase verbosity (-v for verbose, -vv more verbose, -vvv for very verbose)
         #[arg(short, long, action = clap::ArgAction::Count)]
         verbose: u8,
 

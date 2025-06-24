@@ -1,3 +1,4 @@
+use crate::encodings::EncodingPlan;
 use amudai_sequence::sequence::ValueSequence;
 
 /// Trait for decoding encoded data blocks back into sequences of values.
@@ -29,4 +30,16 @@ pub trait BlockDecoder: Send + Sync + 'static {
     ///
     /// A sequence of values, potentially accompanied by a validity (presence) bitmap.
     fn decode(&self, encoded: &[u8], value_count: usize) -> amudai_common::Result<ValueSequence>;
+
+    /// Inspects the encoded block and returns the encoding plan used to encode it.
+    ///
+    /// # Arguments
+    ///
+    /// - `encoded` - A byte slice containing the encoded block, including the header
+    ///  and the payload.
+    ///
+    /// # Returns
+    ///
+    /// The encoding plan used for the encoded block, or an error if the inspection fails.
+    fn inspect(&self, encoded: &[u8]) -> amudai_common::Result<EncodingPlan>;
 }
