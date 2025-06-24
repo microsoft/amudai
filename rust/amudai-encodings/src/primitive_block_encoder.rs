@@ -5,7 +5,8 @@ use crate::{
     },
     encodings::{
         self, ALIGNMENT_BYTES, AnalysisOutcome, EncodingConfig, EncodingContext, EncodingKind,
-        EncodingParameters, EncodingPlan, NullMask, ZstdCompressionLevel, ZstdParameters,
+        EncodingParameters, EncodingPlan, Lz4CompressionMode, Lz4Parameters, NullMask,
+        ZstdCompressionLevel, ZstdParameters,
         numeric::value::{FloatValue, ValueReader, ValueWriter},
     },
 };
@@ -438,40 +439,33 @@ impl BlockEncoder for PrimitiveBlockEncoder {
                     cascading_encodings: vec![],
                 },
                 BlockEncodingProfile::MinimalCompression => EncodingPlan {
-                    encoding: EncodingKind::Zstd,
-                    parameters: Some(EncodingParameters::Zstd(ZstdParameters {
-                        level: ZstdCompressionLevel::MinimalFastest,
+                    encoding: EncodingKind::Lz4,
+                    parameters: Some(EncodingParameters::Lz4(Lz4Parameters {
+                        mode: Lz4CompressionMode::Fast,
                     })),
-                    cascading_encodings: vec![Some(EncodingPlan {
-                        encoding: EncodingKind::FusedFrameOfReference,
-                        parameters: Default::default(),
-                        cascading_encodings: vec![],
-                    })],
+                    cascading_encodings: vec![],
                 },
                 BlockEncodingProfile::Balanced => EncodingPlan {
+                    encoding: EncodingKind::Lz4,
+                    parameters: Some(EncodingParameters::Lz4(Lz4Parameters {
+                        mode: Lz4CompressionMode::HighCompression,
+                    })),
+                    cascading_encodings: vec![],
+                },
+                BlockEncodingProfile::HighCompression => EncodingPlan {
                     encoding: EncodingKind::Zstd,
                     parameters: Some(EncodingParameters::Zstd(ZstdParameters {
                         level: ZstdCompressionLevel::Default,
                     })),
-                    cascading_encodings: vec![Some(EncodingPlan {
-                        encoding: EncodingKind::FusedFrameOfReference,
-                        parameters: Default::default(),
-                        cascading_encodings: vec![],
-                    })],
+                    cascading_encodings: vec![],
                 },
-                BlockEncodingProfile::HighCompression | BlockEncodingProfile::MinimalSize => {
-                    EncodingPlan {
-                        encoding: EncodingKind::Zstd,
-                        parameters: Some(EncodingParameters::Zstd(ZstdParameters {
-                            level: ZstdCompressionLevel::MaximalSlowest,
-                        })),
-                        cascading_encodings: vec![Some(EncodingPlan {
-                            encoding: EncodingKind::FusedFrameOfReference,
-                            parameters: Default::default(),
-                            cascading_encodings: vec![],
-                        })],
-                    }
-                }
+                BlockEncodingProfile::MinimalSize => EncodingPlan {
+                    encoding: EncodingKind::Zstd,
+                    parameters: Some(EncodingParameters::Zstd(ZstdParameters {
+                        level: ZstdCompressionLevel::MaximalSlowest,
+                    })),
+                    cascading_encodings: vec![],
+                },
             };
             block_value_count = Self::GENERIC_ENC_BLOCK_VALUE_COUNT;
         }

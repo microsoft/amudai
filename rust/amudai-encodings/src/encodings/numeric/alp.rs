@@ -427,9 +427,7 @@ where
             &mut patch_values,
         );
 
-        if (patch_values.len() as f64 / values.len() as f64) > 0.05
-            || patch_values.len() > u16::MAX as usize
-        {
+        if patch_values.len() > u16::MAX as usize {
             // If there are too many exceptions, the encoding compression ratio won't be good enough.
             return Ok(None);
         }
