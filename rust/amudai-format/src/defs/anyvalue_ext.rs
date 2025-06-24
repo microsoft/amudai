@@ -61,6 +61,10 @@ impl AnyValueExt for AnyValue {
             (Some(Kind::U64Value(l)), Some(Kind::U64Value(r))) => Ok(l.cmp(r) as i32),
             (Some(Kind::StringValue(l)), Some(Kind::StringValue(r))) => Ok(l.cmp(r) as i32),
             (Some(Kind::BoolValue(l)), Some(Kind::BoolValue(r))) => Ok(l.cmp(r) as i32),
+            (Some(Kind::DecimalValue(l)), Some(Kind::DecimalValue(r))) => {
+                // Compare decimal values using their binary representation
+                compare_decimal_bytes(l, r)
+            }
             // Add more type comparisons as needed
             _ => {
                 // For now, if we can't compare the types, consider them equal
@@ -68,6 +72,57 @@ impl AnyValueExt for AnyValue {
                 Ok(0)
             }
         }
+    }
+}
+
+/// Helper function to compare two decimal byte arrays by reconstructing d128 values.
+///
+/// This function converts the byte arrays back to d128 values and compares them numerically,
+/// ensuring proper decimal comparison rather than lexicographic byte comparison.
+///
+/// # Arguments
+/// * `left_bytes` - The byte array representing the left decimal value
+/// * `right_bytes` - The byte array representing the right decimal value
+///
+/// # Returns
+/// * `-1` if left < right
+/// * `0` if left == right  
+/// * `1` if left > right
+/// * An error if the byte arrays are invalid
+fn compare_decimal_bytes(left_bytes: &[u8], right_bytes: &[u8]) -> Result<i32> {
+    use decimal::d128;
+
+    // Validate byte array lengths
+    if left_bytes.len() != 16 {
+        return Err(amudai_common::error::Error::invalid_operation(format!(
+            "Invalid decimal byte length: expected 16, got {}",
+            left_bytes.len()
+        )));
+    }
+    if right_bytes.len() != 16 {
+        return Err(amudai_common::error::Error::invalid_operation(format!(
+            "Invalid decimal byte length: expected 16, got {}",
+            right_bytes.len()
+        )));
+    }
+
+    // Convert byte arrays to fixed-size arrays
+    let mut left_array = [0u8; 16];
+    let mut right_array = [0u8; 16];
+    left_array.copy_from_slice(left_bytes);
+    right_array.copy_from_slice(right_bytes);
+
+    // Reconstruct d128 values from raw bytes
+    let left_decimal = unsafe { d128::from_raw_bytes(left_array) };
+    let right_decimal = unsafe { d128::from_raw_bytes(right_array) };
+
+    // Compare the d128 values numerically
+    if left_decimal < right_decimal {
+        Ok(-1)
+    } else if left_decimal > right_decimal {
+        Ok(1)
+    } else {
+        Ok(0)
     }
 }
 
@@ -239,5 +294,44 @@ mod tests {
         assert_eq!(compare_any_values(&left, &right).unwrap(), -1);
         assert_eq!(compare_any_values(&right, &left).unwrap(), 1);
         assert_eq!(compare_any_values(&left, &left).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_compare_decimal_values() {
+        use decimal::d128;
+        use std::str::FromStr;
+
+        // Create decimal AnyValues with binary representation
+        let decimal1 = d128::from_str("123.45").unwrap();
+        let decimal2 = d128::from_str("678.90").unwrap();
+        let decimal3 = d128::from_str("123.45").unwrap(); // Same as decimal1
+
+        let value1 = AnyValue {
+            kind: Some(Kind::DecimalValue(decimal1.to_raw_bytes().to_vec())),
+            annotation: None,
+        };
+        let value2 = AnyValue {
+            kind: Some(Kind::DecimalValue(decimal2.to_raw_bytes().to_vec())),
+            annotation: None,
+        };
+        let value3 = AnyValue {
+            kind: Some(Kind::DecimalValue(decimal3.to_raw_bytes().to_vec())),
+            annotation: None,
+        };
+
+        // Test comparisons
+        assert_eq!(value1.compare(&value2).unwrap(), -1); // 123.45 < 678.90
+        assert_eq!(value2.compare(&value1).unwrap(), 1); // 678.90 > 123.45
+        assert_eq!(value1.compare(&value3).unwrap(), 0); // 123.45 == 123.45
+
+        // Test with negative numbers
+        let negative_decimal = d128::from_str("-50.25").unwrap();
+        let negative_value = AnyValue {
+            kind: Some(Kind::DecimalValue(negative_decimal.to_raw_bytes().to_vec())),
+            annotation: None,
+        };
+
+        assert_eq!(negative_value.compare(&value1).unwrap(), -1); // -50.25 < 123.45
+        assert_eq!(value1.compare(&negative_value).unwrap(), 1); // 123.45 > -50.25
     }
 }

@@ -13,6 +13,7 @@ planus = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true }
 xxhash-rust = { workspace = true }
+decimal = { workspace = true }
 
 amudai-bytes = { workspace = true }
 amudai-common = { workspace = true }

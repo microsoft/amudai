@@ -71,7 +71,7 @@ pub struct AnyValue {
     pub annotation: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(
         oneof = "any_value::Kind",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 20, 21, 22"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 21, 22"
     )]
     pub kind: ::core::option::Option<any_value::Kind>,
 }
@@ -97,6 +97,9 @@ pub mod any_value {
         StringValue(::prost::alloc::string::String),
         #[prost(bytes, tag = "9")]
         BytesValue(::prost::alloc::vec::Vec<u8>),
+        /// 16-byte d128 decimal representation
+        #[prost(bytes, tag = "10")]
+        DecimalValue(::prost::alloc::vec::Vec<u8>),
         #[prost(message, tag = "20")]
         ListValue(super::ListValue),
         #[prost(message, tag = "21")]

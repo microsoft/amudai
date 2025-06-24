@@ -12,6 +12,7 @@ use amudai_encodings::{
         PresenceEncoding,
     },
 };
+use amudai_format::defs::schema_ext::KnownExtendedType;
 use amudai_format::{defs::schema_ext::BasicTypeDescriptor, schema::BasicType};
 use arrow_array::Array;
 
@@ -32,7 +33,7 @@ impl BytesStatsCollector {
     pub fn new(basic_type: BasicType) -> Self {
         match basic_type {
             BasicType::String => Self::String(StringStatsCollector::new()),
-            BasicType::Binary | BasicType::FixedSizeBinary | BasicType::Guid => {
+            BasicType::Binary | BasicType::Guid | BasicType::FixedSizeBinary => {
                 Self::Binary(BinaryStatsCollector::new())
             }
             _ => Self::None,
@@ -58,7 +59,6 @@ impl BytesStatsCollector {
         }
         Ok(())
     }
-
     /// Finish statistics collection and return the appropriate statistics.
     pub fn finish(self) -> Result<Option<EncodedFieldStatistics>> {
         match self {
@@ -101,6 +101,14 @@ impl BytesFieldEncoder {
             params.basic_type.basic_type,
             BasicType::Binary | BasicType::FixedSizeBinary | BasicType::String | BasicType::Guid
         ));
+
+        // BytesFieldEncoder should not handle decimal fields - those go to DecimalFieldEncoder
+        assert!(
+            params.basic_type.basic_type != BasicType::FixedSizeBinary
+                || params.basic_type.extended_type != KnownExtendedType::KustoDecimal,
+            "Decimal fields should be handled by DecimalFieldEncoder, not BytesFieldEncoder"
+        );
+
         let normalized_arrow_type = Self::get_normalized_arrow_type(params.basic_type);
 
         Ok(Box::new(BytesFieldEncoder {
@@ -265,14 +273,12 @@ mod tests {
     #[test]
     fn test_binary_field_encoder_with_statistics() -> amudai_common::Result<()> {
         // Create a temporary store for testing
-        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
-
-        // Create a binary field encoder
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap(); // Create a binary field encoder
         let basic_type = BasicTypeDescriptor {
             basic_type: BasicType::Binary,
             fixed_size: 0,
             signed: false,
-            extended_type: Default::default(),
+            extended_type: KnownExtendedType::None,
         };
 
         let mut encoder = BytesFieldEncoder::create(&FieldEncoderParams {
@@ -334,12 +340,11 @@ mod tests {
     #[test]
     fn test_fixed_size_binary_field_encoder_with_statistics() -> amudai_common::Result<()> {
         let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
-
         let basic_type = BasicTypeDescriptor {
             basic_type: BasicType::FixedSizeBinary,
             fixed_size: 4,
             signed: false,
-            extended_type: Default::default(),
+            extended_type: KnownExtendedType::None,
         };
 
         let mut encoder = BytesFieldEncoder::create(&FieldEncoderParams {
@@ -373,12 +378,11 @@ mod tests {
     #[test]
     fn test_guid_field_encoder_with_statistics() -> amudai_common::Result<()> {
         let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
-
         let basic_type = BasicTypeDescriptor {
             basic_type: BasicType::Guid,
             fixed_size: 16,
             signed: false,
-            extended_type: Default::default(),
+            extended_type: KnownExtendedType::None,
         };
 
         let mut encoder = BytesFieldEncoder::create(&FieldEncoderParams {
@@ -414,12 +418,11 @@ mod tests {
     #[test]
     fn test_string_field_encoder_still_works() -> amudai_common::Result<()> {
         let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
-
         let basic_type = BasicTypeDescriptor {
             basic_type: BasicType::String,
             fixed_size: 0,
             signed: false,
-            extended_type: Default::default(),
+            extended_type: KnownExtendedType::None,
         };
 
         let mut encoder = BytesFieldEncoder::create(&FieldEncoderParams {
@@ -475,5 +478,26 @@ mod tests {
         assert!(none_collector.finish()?.is_none());
 
         Ok(())
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Decimal fields should be handled by DecimalFieldEncoder, not BytesFieldEncoder"
+    )]
+    fn test_bytes_field_encoder_rejects_decimal_fields() {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::FixedSizeBinary,
+            fixed_size: 16,
+            signed: false,
+            extended_type: KnownExtendedType::KustoDecimal,
+        };
+
+        // This should panic because BytesFieldEncoder should not handle decimal fields
+        let _encoder = BytesFieldEncoder::create(&FieldEncoderParams {
+            basic_type,
+            temp_store,
+            encoding_profile: Default::default(),
+        });
     }
 }

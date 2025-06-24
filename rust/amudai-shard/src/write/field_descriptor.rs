@@ -53,6 +53,9 @@ pub fn populate_statistics(descriptor: &mut shard::FieldDescriptor, encoded_fiel
             EncodedFieldStatistics::Binary(binary_stats) => {
                 populate_binary_statistics(descriptor, binary_stats);
             }
+            EncodedFieldStatistics::Decimal(decimal_stats) => {
+                populate_decimal_statistics(descriptor, decimal_stats);
+            }
         }
     }
 }
@@ -275,6 +278,56 @@ fn populate_binary_statistics(
     ));
 }
 
+/// Populates a field descriptor with decimal statistics.
+///
+/// Maps decimal-specific statistics from the data stats collector to the shard
+/// field descriptor format. For decimals, we set the null count and use range
+/// statistics to track minimum and maximum decimal values using the new
+/// DecimalValue variant with 16-byte binary representation.
+///
+/// # Arguments
+///
+/// * `descriptor` - The field descriptor to populate
+/// * `decimal_stats` - The decimal statistics to copy from
+fn populate_decimal_statistics(
+    descriptor: &mut shard::FieldDescriptor,
+    decimal_stats: &amudai_data_stats::decimal::DecimalStats,
+) {
+    use amudai_format::defs::common::{AnyValue, any_value::Kind};
+
+    // Map null count
+    descriptor.null_count = Some(decimal_stats.null_count);
+
+    // Convert d128 values to binary representation for storage using DecimalValue
+    let min_value = decimal_stats.min_value.as_ref().map(|d| AnyValue {
+        annotation: None,
+        kind: Some(Kind::DecimalValue(d.to_raw_bytes().to_vec())),
+    });
+
+    let max_value = decimal_stats.max_value.as_ref().map(|d| AnyValue {
+        annotation: None,
+        kind: Some(Kind::DecimalValue(d.to_raw_bytes().to_vec())),
+    });
+
+    // Map range statistics (min/max decimal values)
+    descriptor.range_stats = Some(shard::RangeStats {
+        min_value,
+        min_inclusive: true, // Decimal ranges are typically inclusive
+        max_value,
+        max_inclusive: true, // Decimal ranges are typically inclusive
+    });
+
+    // Populate type-specific decimal statistics
+    descriptor.type_specific = Some(shard::field_descriptor::TypeSpecific::DecimalStats(
+        shard::DecimalStats {
+            zero_count: decimal_stats.zero_count,
+            positive_count: decimal_stats.positive_count,
+            negative_count: decimal_stats.negative_count,
+            nan_count: decimal_stats.nan_count,
+        },
+    ));
+}
+
 /// Merges range statistics by updating min and max values appropriately.
 ///
 /// This function compares minimum and maximum values from field descriptor statistics
@@ -420,6 +473,16 @@ fn merge_type_specific_stats(
                 // If accumulated has value but current doesn't, or both are None, keep accumulated value
                 _ => {}
             }
+        }
+        (
+            TypeSpecific::DecimalStats(accumulated_stats),
+            TypeSpecific::DecimalStats(current_stats),
+        ) => {
+            // Merge decimal statistics by summing counts
+            accumulated_stats.zero_count += current_stats.zero_count;
+            accumulated_stats.positive_count += current_stats.positive_count;
+            accumulated_stats.negative_count += current_stats.negative_count;
+            accumulated_stats.nan_count += current_stats.nan_count;
         }
         _ => {
             // Mismatched types - this shouldn't happen in a well-formed shard
@@ -2040,6 +2103,7 @@ mod tests {
     fn test_merge_boolean_statistics() {
         let mut shard_field = shard::FieldDescriptor {
             position_count: 100,
+
             null_count: Some(5),
             type_specific: Some(shard::field_descriptor::TypeSpecific::BooleanStats(
                 shard::BooleanStats {
@@ -2200,5 +2264,200 @@ mod tests {
         // For consistency, boolean statistics should either:
         // 1. Follow the sticky None pattern (require protobuf changes), OR
         // 2. All statistics should be primitive and always mergeable (major architectural change)
+    }
+    #[test]
+    fn test_populate_decimal_statistics() {
+        use decimal::d128;
+        use std::str::FromStr; // Create test decimal statistics
+        let decimal_stats = amudai_data_stats::decimal::DecimalStats {
+            min_value: Some(d128::from_str("123.45").unwrap()),
+            max_value: Some(d128::from_str("987.65").unwrap()),
+            null_count: 5,
+            total_count: 100,
+            zero_count: 10,
+            positive_count: 80,
+            negative_count: 5,
+            nan_count: 0,
+        };
+
+        // Create an encoded field with decimal statistics
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: Some(EncodedFieldStatistics::Decimal(decimal_stats)),
+        };
+
+        // Create a field descriptor and populate it
+        let mut descriptor = amudai_format::defs::shard::FieldDescriptor::default();
+        populate_statistics(&mut descriptor, &encoded_field);
+
+        // Verify the statistics were populated correctly
+        assert_eq!(descriptor.null_count, Some(5));
+
+        // Verify range statistics
+        assert!(descriptor.range_stats.is_some());
+        let range_stats = descriptor.range_stats.unwrap();
+        assert!(range_stats.min_value.is_some());
+        assert!(range_stats.max_value.is_some());
+        assert!(range_stats.min_inclusive);
+        assert!(range_stats.max_inclusive);
+    }
+
+    #[test]
+    fn test_decimal_statistics_merging_with_binary_representation() -> Result<()> {
+        use amudai_format::defs::common::{AnyValue, any_value::Kind};
+        use decimal::d128;
+        use std::str::FromStr;
+
+        // Create two field descriptors with decimal range statistics
+        let mut descriptor1 = shard::FieldDescriptor {
+            position_count: 100,
+            null_count: Some(10),
+            range_stats: Some(RangeStats {
+                min_value: Some(AnyValue {
+                    kind: Some(Kind::DecimalValue(
+                        d128::from_str("100.50").unwrap().to_raw_bytes().to_vec(),
+                    )),
+                    annotation: None,
+                }),
+                min_inclusive: true,
+                max_value: Some(AnyValue {
+                    kind: Some(Kind::DecimalValue(
+                        d128::from_str("500.75").unwrap().to_raw_bytes().to_vec(),
+                    )),
+                    annotation: None,
+                }),
+                max_inclusive: true,
+            }),
+            ..Default::default()
+        };
+
+        let descriptor2 = shard::FieldDescriptor {
+            position_count: 200,
+            null_count: Some(15),
+            range_stats: Some(RangeStats {
+                min_value: Some(AnyValue {
+                    kind: Some(Kind::DecimalValue(
+                        d128::from_str("25.25").unwrap().to_raw_bytes().to_vec(), // Lower than descriptor1 min
+                    )),
+                    annotation: None,
+                }),
+                min_inclusive: true,
+                max_value: Some(AnyValue {
+                    kind: Some(Kind::DecimalValue(
+                        d128::from_str("750.99").unwrap().to_raw_bytes().to_vec(), // Higher than descriptor1 max
+                    )),
+                    annotation: None,
+                }),
+                max_inclusive: true,
+            }),
+            ..Default::default()
+        };
+
+        // Merge descriptor2 into descriptor1
+        merge(&mut descriptor1, &descriptor2)?;
+
+        // Verify the merged results
+        assert_eq!(descriptor1.position_count, 300); // 100 + 200
+        assert_eq!(descriptor1.null_count, Some(25)); // 10 + 15
+
+        // Verify that the min value is the lower one (25.25)
+        let range_stats = descriptor1.range_stats.unwrap();
+        assert!(range_stats.min_value.is_some());
+        assert!(range_stats.max_value.is_some());
+
+        // Extract and verify the min value
+        if let Some(Kind::DecimalValue(min_bytes)) = &range_stats.min_value.unwrap().kind {
+            let mut array = [0u8; 16];
+            array.copy_from_slice(min_bytes);
+            let min_decimal = unsafe { d128::from_raw_bytes(array) };
+            assert_eq!(min_decimal, d128::from_str("25.25").unwrap());
+        } else {
+            panic!("Expected DecimalValue for min");
+        }
+
+        // Extract and verify the max value
+        if let Some(Kind::DecimalValue(max_bytes)) = &range_stats.max_value.unwrap().kind {
+            let mut array = [0u8; 16];
+            array.copy_from_slice(max_bytes);
+            let max_decimal = unsafe { d128::from_raw_bytes(array) };
+            assert_eq!(max_decimal, d128::from_str("750.99").unwrap());
+        } else {
+            panic!("Expected DecimalValue for max");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_comparison_string_vs_binary() {
+        use amudai_format::defs::anyvalue_ext::AnyValueExt;
+        use amudai_format::defs::common::{AnyValue, any_value::Kind};
+        use decimal::d128;
+        use std::str::FromStr;
+
+        // Test case: "9.99" vs "10.0"
+        // String comparison: "9.99" > "10.0" (incorrect lexicographic)
+        // Numeric comparison: 9.99 < 10.0 (correct)
+
+        let decimal1 = d128::from_str("9.99").unwrap();
+        let decimal2 = d128::from_str("10.0").unwrap();
+
+        // Old approach: String-based comparison (incorrect)
+        let string_value1 = AnyValue {
+            kind: Some(Kind::StringValue("9.99".to_string())),
+            annotation: None,
+        };
+        let string_value2 = AnyValue {
+            kind: Some(Kind::StringValue("10.0".to_string())),
+            annotation: None,
+        };
+
+        // New approach: Binary-based comparison (correct)
+        let binary_value1 = AnyValue {
+            kind: Some(Kind::DecimalValue(decimal1.to_raw_bytes().to_vec())),
+            annotation: None,
+        };
+        let binary_value2 = AnyValue {
+            kind: Some(Kind::DecimalValue(decimal2.to_raw_bytes().to_vec())),
+            annotation: None,
+        };
+
+        // String comparison gives wrong result (9.99 > 10.0 lexicographically)
+        let string_comparison = string_value1.compare(&string_value2).unwrap();
+        assert_eq!(string_comparison, 1); // "9.99" > "10.0" - WRONG!
+
+        // Binary comparison gives correct result (9.99 < 10.0 numerically)
+        let binary_comparison = binary_value1.compare(&binary_value2).unwrap();
+        assert_eq!(binary_comparison, -1); // 9.99 < 10.0 - CORRECT!
+
+        // Test another case: "2.0" vs "10.0"
+        let decimal3 = d128::from_str("2.0").unwrap();
+        let decimal4 = d128::from_str("10.0").unwrap();
+
+        let string_value3 = AnyValue {
+            kind: Some(Kind::StringValue("2.0".to_string())),
+            annotation: None,
+        };
+        let string_value4 = AnyValue {
+            kind: Some(Kind::StringValue("10.0".to_string())),
+            annotation: None,
+        };
+
+        let binary_value3 = AnyValue {
+            kind: Some(Kind::DecimalValue(decimal3.to_raw_bytes().to_vec())),
+            annotation: None,
+        };
+        let binary_value4 = AnyValue {
+            kind: Some(Kind::DecimalValue(decimal4.to_raw_bytes().to_vec())),
+            annotation: None,
+        };
+
+        // String comparison: "2.0" > "10.0" (wrong again!)
+        let string_comparison2 = string_value3.compare(&string_value4).unwrap();
+        assert_eq!(string_comparison2, 1); // "2.0" > "10.0" - WRONG!
+
+        // Binary comparison: 2.0 < 10.0 (correct)
+        let binary_comparison2 = binary_value3.compare(&binary_value4).unwrap();
+        assert_eq!(binary_comparison2, -1); // 2.0 < 10.0 - CORRECT!
     }
 }

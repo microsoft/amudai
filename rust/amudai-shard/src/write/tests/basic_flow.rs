@@ -4,8 +4,9 @@ use amudai_arrow_compat::arrow_to_amudai_schema::FromArrowSchema;
 use amudai_format::{schema::BasicType, schema_builder::SchemaBuilder};
 use amudai_io_impl::temp_file_store;
 use amudai_objectstore::null_store::NullObjectStore;
-use arrow_array::{RecordBatchIterator, builder::Int8Builder};
+use arrow_array::{Array, RecordBatchIterator, builder::Int8Builder};
 use arrow_schema::{DataType, Schema};
+use decimal::d128;
 
 use crate::{
     tests::{
@@ -14,6 +15,16 @@ use crate::{
     },
     write::shard_builder::{ShardBuilder, ShardBuilderParams},
 };
+
+/// Helper function to convert 16-byte slice to d128 using the correct raw bytes approach
+fn bytes_to_d128_safe(bytes: &[u8]) -> Result<d128, String> {
+    if bytes.len() != 16 {
+        return Err(format!("Expected 16 bytes for d128, got {}", bytes.len()));
+    }
+    let mut array = [0u8; 16];
+    array.copy_from_slice(bytes);
+    Ok(unsafe { d128::from_raw_bytes(array) })
+}
 
 #[test]
 fn test_basic_shard_builder_flow() {
@@ -175,6 +186,235 @@ fn test_struct_encoding() {
     assert_eq!(nested_seq.presence.count_non_nulls(), 5);
     assert_eq!(nested_seq.values.bytes_len(), 0);
     assert!(nested_seq.offsets.is_none());
+}
+
+#[test]
+fn test_decimal_encoding() {
+    use crate::tests::data_generator::create_decimal_test_schema;
+    use arrow_array::FixedSizeBinaryArray;
+
+    let shard_store = ShardStore::new();
+
+    // Generate decimal test data with a controlled batch size for easier validation
+    let schema = create_decimal_test_schema();
+    // Create a single batch with known size for easier validation
+    let test_batch = data_generator::generate_batch(schema.clone(), 100);
+
+    // Store original decimal arrays for comparison (clone to avoid borrow issues)
+    let original_amount = test_batch.column(1).clone();
+    let original_price = test_batch.column(2).clone();
+
+    let original_amount = original_amount
+        .as_any()
+        .downcast_ref::<FixedSizeBinaryArray>()
+        .expect("amount field should be FixedSizeBinaryArray");
+    let original_price = original_price
+        .as_any()
+        .downcast_ref::<FixedSizeBinaryArray>()
+        .expect("price field should be FixedSizeBinaryArray");
+
+    // Log some sample decimal values to show actual data content
+    println!("Sample original decimal values:");
+    for i in 0..std::cmp::min(5, 100) {
+        if !original_amount.is_null(i) {
+            if let Ok(decimal_val) = bytes_to_d128_safe(original_amount.value(i)) {
+                println!("  amount[{}] = {}", i, decimal_val);
+            }
+        }
+        if !original_price.is_null(i) {
+            if let Ok(decimal_val) = bytes_to_d128_safe(original_price.value(i)) {
+                println!("  price[{}] = {}", i, decimal_val);
+            }
+        }
+    }
+
+    let shard_ref = shard_store.ingest_shard_from_record_batches(RecordBatchIterator::new(
+        std::iter::once(Ok(test_batch)),
+        schema.clone(),
+    ));
+
+    // Verify the shard was created successfully
+    let shard = shard_store.open_shard(&shard_ref.url);
+    let stripe = shard.open_stripe(0).unwrap();
+    let stripe_schema = stripe.fetch_schema().unwrap();
+
+    // Verify decimal fields are present and correctly typed
+    let amount_field = stripe_schema.find_field("amount").unwrap();
+    assert!(amount_field.is_some());
+
+    let price_field = stripe_schema.find_field("price").unwrap();
+    assert!(price_field.is_some());
+
+    // Test amount field (nullable)
+    let (_, amount_field_desc) = amount_field.unwrap();
+    let amount_field_reader = stripe
+        .open_field(amount_field_desc.data_type().unwrap())
+        .unwrap();
+    assert!(amount_field_reader.descriptor().field.is_some());
+    assert_eq!(amount_field_reader.position_count(), 100);
+
+    // Read back the amount data and validate
+    let mut amount_decoder = amount_field_reader
+        .create_decoder()
+        .unwrap()
+        .create_reader(std::iter::empty())
+        .unwrap();
+
+    let amount_seq = amount_decoder.read(0..100).unwrap();
+
+    // Count original nulls in amount field
+    let original_amount_nulls = (0..100).filter(|&i| original_amount.is_null(i)).count();
+    let decoded_amount_nulls = 100 - amount_seq.presence.count_non_nulls() as usize;
+
+    assert_eq!(
+        decoded_amount_nulls, original_amount_nulls,
+        "Amount field null count mismatch"
+    );
+
+    // Validate non-null amount values
+    let decoded_amount_bytes = amount_seq.values.as_slice::<u8>();
+    let mut decoded_idx = 0;
+
+    for i in 0..100 {
+        if !original_amount.is_null(i) {
+            let start = decoded_idx * 16;
+            let end = start + 16;
+            let decoded_slice = &decoded_amount_bytes[start..end];
+            let original_slice = original_amount.value(i);
+
+            // Validate binary representation matches
+            assert_eq!(
+                decoded_slice, original_slice,
+                "Amount decimal value mismatch at position {}",
+                i
+            );
+
+            // Also validate we can parse both as decimal values and they match
+            if let (Ok(decoded_decimal), Ok(original_decimal)) = (
+                bytes_to_d128_safe(decoded_slice),
+                bytes_to_d128_safe(original_slice),
+            ) {
+                assert_eq!(
+                    decoded_decimal, original_decimal,
+                    "Parsed decimal value mismatch at position {}: decoded={}, original={}",
+                    i, decoded_decimal, original_decimal
+                );
+            }
+
+            decoded_idx += 1;
+        }
+    }
+
+    // Test price field (non-nullable in schema but can have nulls in data)
+    let (_, price_field_desc) = price_field.unwrap();
+    let price_field_reader = stripe
+        .open_field(price_field_desc.data_type().unwrap())
+        .unwrap();
+    assert!(price_field_reader.descriptor().field.is_some());
+    assert_eq!(price_field_reader.position_count(), 100);
+
+    // Read back the price data and validate
+    let mut price_decoder = price_field_reader
+        .create_decoder()
+        .unwrap()
+        .create_reader(std::iter::empty())
+        .unwrap();
+
+    let price_seq = price_decoder.read(0..100).unwrap();
+
+    // Count original nulls in price field
+    let original_price_nulls = (0..100).filter(|&i| original_price.is_null(i)).count();
+    let decoded_price_nulls = 100 - price_seq.presence.count_non_nulls() as usize;
+
+    assert_eq!(
+        decoded_price_nulls, original_price_nulls,
+        "Price field null count mismatch"
+    );
+
+    // Validate non-null price values
+    let decoded_price_bytes = price_seq.values.as_slice::<u8>();
+    let mut decoded_idx = 0;
+
+    for i in 0..100 {
+        if !original_price.is_null(i) {
+            let start = decoded_idx * 16;
+            let end = start + 16;
+            let decoded_slice = &decoded_price_bytes[start..end];
+            let original_slice = original_price.value(i);
+
+            // Validate binary representation matches
+            assert_eq!(
+                decoded_slice, original_slice,
+                "Price decimal value mismatch at position {}",
+                i
+            );
+
+            // Also validate we can parse both as decimal values and they match
+            if let (Ok(decoded_decimal), Ok(original_decimal)) = (
+                bytes_to_d128_safe(decoded_slice),
+                bytes_to_d128_safe(original_slice),
+            ) {
+                assert_eq!(
+                    decoded_decimal, original_decimal,
+                    "Parsed price decimal value mismatch at position {}: decoded={}, original={}",
+                    i, decoded_decimal, original_decimal
+                );
+            }
+
+            decoded_idx += 1;
+        }
+    }
+
+    // Verify field statistics if available
+    if let Some(field_desc) = amount_field_reader.descriptor().field.as_ref() {
+        println!(
+            "Amount field stats - position_count: {}, null_count: {}",
+            field_desc.position_count, decoded_amount_nulls
+        );
+
+        // Check if decimal-specific statistics are available
+        if let Some(type_specific) = &field_desc.type_specific {
+            match type_specific {
+                amudai_format::defs::shard::field_descriptor::TypeSpecific::DecimalStats(stats) => {
+                    println!(
+                        "Amount decimal stats: zero_count={}, positive_count={}, negative_count={}",
+                        stats.zero_count, stats.positive_count, stats.negative_count
+                    );
+                    // Verify statistics make sense
+                    let non_null_count = amount_seq.presence.count_non_nulls();
+                    assert_eq!(
+                        stats.zero_count + stats.positive_count + stats.negative_count,
+                        non_null_count as u64,
+                        "Sum of decimal categories should equal non-null count"
+                    );
+                }
+                _ => {
+                    println!("Amount field has type-specific stats but not decimal stats");
+                }
+            }
+        } else {
+            println!("Amount field has no type-specific statistics");
+        }
+    }
+
+    if let Some(field_desc) = price_field_reader.descriptor().field.as_ref() {
+        println!(
+            "Price field stats - position_count: {}, null_count: {}",
+            field_desc.position_count, decoded_price_nulls
+        );
+    }
+
+    println!("✓ Decimal encoding test passed with comprehensive data validation!");
+    println!(
+        "  - Validated {} amount values ({} non-null)",
+        100,
+        amount_seq.presence.count_non_nulls()
+    );
+    println!(
+        "  - Validated {} price values ({} non-null)",
+        100,
+        price_seq.presence.count_non_nulls()
+    );
 }
 
 fn generate_list_data(count: usize) -> arrow_array::RecordBatch {

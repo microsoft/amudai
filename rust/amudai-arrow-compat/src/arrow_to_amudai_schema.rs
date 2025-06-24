@@ -206,7 +206,6 @@ impl FromArrowField for amudai_format::schema_builder::DataTypeBuilder {
 
         let arrow_data_type = field.data_type();
         let amudai_data_type: DataTypeBuilder;
-
         let metadata_map = field.metadata();
         if let Some(extension_name) = metadata_map.get("ARROW:extension:name") {
             match (extension_name.as_str(), arrow_data_type) {
@@ -218,6 +217,9 @@ impl FromArrowField for amudai_format::schema_builder::DataTypeBuilder {
                 }
                 ("arrow.uuid", ArrowDataType::FixedSizeBinary(16)) => {
                     amudai_data_type = DataTypeBuilder::new_guid();
+                }
+                ("KustoDecimal", ArrowDataType::FixedSizeBinary(16)) => {
+                    amudai_data_type = DataTypeBuilder::new_decimal();
                 }
                 _ => {
                     amudai_data_type = DataTypeBuilder::from_arrow_data_type(arrow_data_type)?;

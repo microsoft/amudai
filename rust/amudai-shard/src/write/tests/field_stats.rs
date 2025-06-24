@@ -1,12 +1,13 @@
 use crate::write::stripe_builder::{StripeBuilder, StripeBuilderParams};
 use amudai_common::{Result, error::Error};
 use amudai_encodings::block_encoder::BlockEncodingProfile;
+use amudai_format::defs::shard;
 use amudai_format::schema::BasicType;
 use amudai_format::schema_builder::{FieldBuilder, SchemaBuilder};
 use amudai_io_impl::temp_file_store;
 use arrow_array::{
-    BinaryArray, BooleanArray, Float32Array, Float64Array, Int32Array, Int64Array, RecordBatch,
-    TimestampNanosecondArray,
+    Array, BinaryArray, BooleanArray, Float32Array, Float64Array, Int32Array, Int64Array,
+    RecordBatch, TimestampNanosecondArray,
 };
 use arrow_schema::{
     DataType as ArrowDataType, Field as ArrowField, Schema as ArrowSchema, TimeUnit,
@@ -1442,5 +1443,368 @@ fn test_empty_batch_statistics() -> Result<()> {
     }
 
     println!("✓ Empty batch statistics test passed!");
+    Ok(())
+}
+
+/// Creates a decimal array for testing decimal statistics.
+fn create_decimal_array_from_d128_values(values: &[Option<decimal::d128>]) -> Arc<dyn Array> {
+    use arrow_array::FixedSizeBinaryArray;
+
+    let mut binary_values = Vec::new();
+    let mut null_buffer = Vec::new();
+
+    for value in values {
+        match value {
+            Some(d) => {
+                let bytes = d.to_raw_bytes();
+                binary_values.extend_from_slice(&bytes);
+                null_buffer.push(true);
+            }
+            None => {
+                binary_values.extend_from_slice(&[0u8; 16]);
+                null_buffer.push(false);
+            }
+        }
+    }
+
+    let buffer = arrow_buffer::Buffer::from_vec(binary_values);
+    let null_buffer = if null_buffer.iter().all(|&x| x) {
+        None
+    } else {
+        Some(arrow_buffer::NullBuffer::from(null_buffer))
+    };
+
+    Arc::new(FixedSizeBinaryArray::new(16, buffer, null_buffer))
+}
+
+/// Creates a RecordBatch with a single decimal field for testing.
+fn create_decimal_batch_from_d128_values(values: &[Option<decimal::d128>]) -> RecordBatch {
+    create_decimal_batch_from_d128_values_with_name(values, "test_decimal")
+}
+
+/// Creates a RecordBatch with a single decimal field for testing with a custom field name.
+fn create_decimal_batch_from_d128_values_with_name(
+    values: &[Option<decimal::d128>],
+    field_name: &str,
+) -> RecordBatch {
+    use arrow_schema::Schema;
+
+    // Convert to Arrow schema for the RecordBatch
+    let arrow_field = arrow_schema::Field::new(
+        field_name,
+        arrow_schema::DataType::FixedSizeBinary(16),
+        true,
+    );
+    let arrow_schema = Arc::new(Schema::new(vec![arrow_field]));
+
+    let array = create_decimal_array_from_d128_values(values);
+
+    RecordBatch::try_new(arrow_schema, vec![array]).expect("Failed to create RecordBatch")
+}
+
+#[test]
+fn test_decimal_statistics_integration() -> Result<()> {
+    use amudai_format::schema_builder::{DataTypeBuilder, FieldBuilder, SchemaBuilder};
+    use decimal::d128;
+    use std::str::FromStr;
+
+    // Create test decimal values with various characteristics
+    let decimals = [
+        Some(d128::from_str("123.45").unwrap()), // Positive
+        Some(d128::from_str("-67.89").unwrap()), // Negative
+        Some(d128::from_str("0.00").unwrap()),   // Zero
+        Some(d128::from_str("999.99").unwrap()), // Large positive
+    ];
+
+    let batch = create_decimal_batch_from_d128_values(&decimals);
+
+    // Create amudai schema with decimal field using DataTypeBuilder::new_decimal()
+    let decimal_data_type = DataTypeBuilder::new_decimal().with_field_name("test_decimal");
+    let field = FieldBuilder::from(decimal_data_type);
+    let schema_builder = SchemaBuilder::new(vec![field]);
+    let schema_message = schema_builder.finish_and_seal();
+    let schema = schema_message.schema()?;
+
+    // Create stripe builder with proper parameters
+    let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+    let stripe_params = StripeBuilderParams {
+        schema: schema.clone(),
+        temp_store: temp_store.clone(),
+        encoding_profile: BlockEncodingProfile::default(),
+    };
+
+    let mut builder = StripeBuilder::new(stripe_params)?;
+    builder.push_batch(&batch)?;
+    let stripe = builder.finish()?;
+
+    // Get field descriptor using schema ID
+    let field_data_type = schema.find_field("test_decimal")?.unwrap().1.data_type()?;
+    let schema_id = field_data_type.schema_id()?;
+    let field_descriptor = &stripe.fields.get(schema_id).unwrap().descriptor;
+
+    // Verify basic stats
+    assert_eq!(field_descriptor.position_count, 4);
+    assert_eq!(field_descriptor.null_count, Some(0)); // No nulls    // Verify decimal-specific statistics are present
+    if let Some(shard::field_descriptor::TypeSpecific::DecimalStats(decimal_stats)) =
+        &field_descriptor.type_specific
+    {
+        // Check the actual values (no longer optional)
+        let zero_count = decimal_stats.zero_count;
+        let positive_count = decimal_stats.positive_count;
+        let negative_count = decimal_stats.negative_count;
+        // The total non-null values should equal 4
+        assert_eq!(zero_count + positive_count + negative_count, 4);
+
+        // We should have at least some positive and negative values
+        assert!(positive_count > 0);
+        assert!(negative_count > 0);
+    } else {
+        panic!("Expected DecimalStats in type_specific field");
+    }
+
+    println!("✓ Decimal statistics integration test passed!");
+    Ok(())
+}
+
+#[test]
+fn test_decimal_statistics_all_null() -> Result<()> {
+    use amudai_format::schema_builder::{DataTypeBuilder, FieldBuilder, SchemaBuilder};
+
+    // Test edge case: all values are null
+    let decimals = [None, None, None];
+
+    let batch = create_decimal_batch_from_d128_values(&decimals);
+
+    let decimal_data_type = DataTypeBuilder::new_decimal().with_field_name("test_decimal");
+    let field = FieldBuilder::from(decimal_data_type);
+    let schema_builder = SchemaBuilder::new(vec![field]);
+    let schema_message = schema_builder.finish_and_seal();
+    let schema = schema_message.schema()?;
+
+    let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+    let stripe_params = StripeBuilderParams {
+        schema: schema.clone(),
+        temp_store: temp_store.clone(),
+        encoding_profile: BlockEncodingProfile::default(),
+    };
+
+    let mut builder = StripeBuilder::new(stripe_params)?;
+    builder.push_batch(&batch)?;
+    let stripe = builder.finish()?;
+
+    let field_data_type = schema.find_field("test_decimal")?.unwrap().1.data_type()?;
+    let schema_id = field_data_type.schema_id()?;
+    let field_descriptor = &stripe.fields.get(schema_id).unwrap().descriptor;
+
+    assert_eq!(field_descriptor.position_count, 3);
+    assert_eq!(field_descriptor.null_count, Some(3)); // All nulls
+
+    // Should still have type-specific stats but with zero counts
+    if let Some(shard::field_descriptor::TypeSpecific::DecimalStats(decimal_stats)) =
+        &field_descriptor.type_specific
+    {
+        assert_eq!(decimal_stats.zero_count, 0);
+        assert_eq!(decimal_stats.positive_count, 0);
+        assert_eq!(decimal_stats.negative_count, 0);
+    } else {
+        panic!("Expected DecimalStats in type_specific field");
+    }
+
+    println!("✓ Decimal statistics all-null test passed!");
+    Ok(())
+}
+
+#[test]
+fn test_decimal_statistics_single_value() -> Result<()> {
+    use amudai_format::schema_builder::{DataTypeBuilder, FieldBuilder, SchemaBuilder};
+    use decimal::d128;
+    use std::str::FromStr;
+
+    // Test edge case: single value
+    let decimals = [Some(d128::from_str("42.42").unwrap())];
+
+    let batch = create_decimal_batch_from_d128_values(&decimals);
+
+    let decimal_data_type = DataTypeBuilder::new_decimal().with_field_name("test_decimal");
+    let field = FieldBuilder::from(decimal_data_type);
+    let schema_builder = SchemaBuilder::new(vec![field]);
+    let schema_message = schema_builder.finish_and_seal();
+    let schema = schema_message.schema()?;
+
+    let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+    let stripe_params = StripeBuilderParams {
+        schema: schema.clone(),
+        temp_store: temp_store.clone(),
+        encoding_profile: BlockEncodingProfile::default(),
+    };
+
+    let mut builder = StripeBuilder::new(stripe_params)?;
+    builder.push_batch(&batch)?;
+    let stripe = builder.finish()?;
+
+    let field_data_type = schema.find_field("test_decimal")?.unwrap().1.data_type()?;
+    let schema_id = field_data_type.schema_id()?;
+    let field_descriptor = &stripe.fields.get(schema_id).unwrap().descriptor;
+
+    assert_eq!(field_descriptor.position_count, 1);
+    assert_eq!(field_descriptor.null_count, Some(0));
+
+    if let Some(shard::field_descriptor::TypeSpecific::DecimalStats(decimal_stats)) =
+        &field_descriptor.type_specific
+    {
+        assert_eq!(decimal_stats.zero_count, 0);
+        assert_eq!(decimal_stats.positive_count, 1); // Single positive value
+        assert_eq!(decimal_stats.negative_count, 0);
+    } else {
+        panic!("Expected DecimalStats in type_specific field");
+    }
+
+    println!("✓ Decimal statistics single-value test passed!");
+    Ok(())
+}
+
+#[test]
+fn test_decimal_statistics_mixed_nulls() -> Result<()> {
+    use amudai_format::schema_builder::{DataTypeBuilder, FieldBuilder, SchemaBuilder};
+    use decimal::d128;
+    use std::str::FromStr;
+
+    // Test mixed null and non-null values
+    let decimals = [
+        Some(d128::from_str("100.00").unwrap()),
+        None,
+        Some(d128::from_str("-50.25").unwrap()),
+        None,
+        Some(d128::from_str("0.00").unwrap()),
+    ];
+
+    let batch = create_decimal_batch_from_d128_values(&decimals);
+
+    let decimal_data_type = DataTypeBuilder::new_decimal().with_field_name("test_decimal");
+    let field = FieldBuilder::from(decimal_data_type);
+    let schema_builder = SchemaBuilder::new(vec![field]);
+    let schema_message = schema_builder.finish_and_seal();
+    let schema = schema_message.schema()?;
+
+    let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+    let stripe_params = StripeBuilderParams {
+        schema: schema.clone(),
+        temp_store: temp_store.clone(),
+        encoding_profile: BlockEncodingProfile::default(),
+    };
+
+    let mut builder = StripeBuilder::new(stripe_params)?;
+    builder.push_batch(&batch)?;
+    let stripe = builder.finish()?;
+
+    let field_data_type = schema.find_field("test_decimal")?.unwrap().1.data_type()?;
+    let schema_id = field_data_type.schema_id()?;
+    let field_descriptor = &stripe.fields.get(schema_id).unwrap().descriptor;
+
+    assert_eq!(field_descriptor.position_count, 5);
+    assert_eq!(field_descriptor.null_count, Some(2)); // Two nulls
+    if let Some(shard::field_descriptor::TypeSpecific::DecimalStats(decimal_stats)) =
+        &field_descriptor.type_specific
+    {
+        // Check for presence first
+        let zero_count = decimal_stats.zero_count;
+        let positive_count = decimal_stats.positive_count;
+        let negative_count = decimal_stats.negative_count;
+
+        // We should have total 3 non-null values
+        assert_eq!(zero_count + positive_count + negative_count, 3);
+
+        // We should have at least some positive and negative values
+        assert!(positive_count > 0);
+        assert!(negative_count > 0);
+    } else {
+        panic!("Expected DecimalStats in type_specific field");
+    }
+
+    println!("✓ Decimal statistics mixed-null test passed!");
+    Ok(())
+}
+
+#[test]
+fn test_decimal_statistics_aggregation() -> Result<()> {
+    use amudai_format::schema_builder::{DataTypeBuilder, FieldBuilder, SchemaBuilder};
+    use decimal::d128;
+    use std::str::FromStr;
+
+    // Create test schema
+    let decimal_data_type = DataTypeBuilder::new_decimal().with_field_name("test_decimals");
+    let field = FieldBuilder::from(decimal_data_type);
+    let schema_builder = SchemaBuilder::new(vec![field]);
+    let schema_message = schema_builder.finish_and_seal();
+    let schema = schema_message.schema()?;
+
+    // Create test data for multiple stripes
+    let stripe_data = vec![
+        vec![
+            Some(d128::from_str("10.5").unwrap()),
+            Some(d128::from_str("-20.3").unwrap()),
+        ],
+        vec![
+            Some(d128::from_str("0.0").unwrap()),
+            None,
+            Some(d128::from_str("30.7").unwrap()),
+        ],
+        vec![
+            Some(d128::from_str("-100.0").unwrap()),
+            Some(d128::from_str("50.0").unwrap()),
+        ],
+    ];
+
+    let mut field_descriptors = Vec::new(); // Process each stripe
+    for (i, decimals) in stripe_data.iter().enumerate() {
+        let batch = create_decimal_batch_from_d128_values_with_name(decimals, "test_decimals");
+
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+        let stripe_params = StripeBuilderParams {
+            schema: schema.clone(),
+            temp_store: temp_store.clone(),
+            encoding_profile: BlockEncodingProfile::default(),
+        };
+
+        let mut builder = StripeBuilder::new(stripe_params)?;
+        builder.push_batch(&batch)?;
+        let stripe = builder.finish()?;
+
+        let field_data_type = schema.find_field("test_decimals")?.unwrap().1.data_type()?;
+        let schema_id = field_data_type.schema_id()?;
+        let field_descriptor = stripe.fields.get(schema_id).unwrap().descriptor.clone();
+
+        field_descriptors.push(field_descriptor);
+        println!("Stripe {}: processed {} decimals", i + 1, decimals.len());
+    }
+
+    // Simulate shard-level aggregation
+    let field_descriptors_optional: Vec<Option<_>> =
+        field_descriptors.into_iter().map(Some).collect();
+    let shard_field_desc =
+        crate::write::field_descriptor::merge_field_descriptors(field_descriptors_optional)?
+            .expect("Should have merged field descriptors successfully");
+
+    // Verify aggregated stats
+    assert_eq!(shard_field_desc.position_count, 7); // 2 + 3 + 2 = 7
+    assert_eq!(shard_field_desc.null_count, Some(1)); // 0 + 1 + 0 = 1 null    // Verify aggregated decimal statistics
+    if let Some(shard::field_descriptor::TypeSpecific::DecimalStats(decimal_stats)) =
+        &shard_field_desc.type_specific
+    {
+        // Check for presence first
+        let zero_count = decimal_stats.zero_count;
+        let positive_count = decimal_stats.positive_count;
+        let negative_count = decimal_stats.negative_count;
+
+        // Total non-null values should be 6 (7 total - 1 null)
+        assert_eq!(zero_count + positive_count + negative_count, 6);
+        // We should have both positive and negative values
+        assert!(positive_count > 0);
+        assert!(negative_count > 0);
+    } else {
+        panic!("Expected DecimalStats in type_specific field");
+    }
+
+    println!("✓ Decimal statistics aggregation test passed!");
     Ok(())
 }

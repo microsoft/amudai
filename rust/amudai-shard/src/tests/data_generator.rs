@@ -6,7 +6,7 @@ use std::{
 };
 
 use arrow_array::{
-    Array, ArrayRef, ListArray, RecordBatch, StructArray,
+    Array, ArrayRef, FixedSizeBinaryArray, ListArray, RecordBatch, StructArray,
     builder::{
         BinaryBuilder, BooleanBuilder, Float32Builder, Float64Builder, Int32Builder, Int64Builder,
         StringBuilder,
@@ -185,6 +185,10 @@ pub fn generate_field(field: &arrow_schema::Field, len: usize) -> Arc<dyn Array>
             generate_string_field(field, len)
         }
         DataType::Binary | DataType::LargeBinary => generate_binary_field(field, len),
+        DataType::FixedSizeBinary(16) if is_decimal_field(field) => {
+            generate_decimal_field(field, len)
+        }
+        DataType::FixedSizeBinary(_) => generate_fixed_size_binary_field(field, len),
         DataType::Int32 => generate_int32_field(field, len),
         DataType::Int64 => generate_int64_field(field, len),
         DataType::Float32 => generate_float32_field(field, len),
@@ -588,6 +592,147 @@ impl FromStr for FieldKind {
             _ => Err(()),
         }
     }
+}
+
+/// Checks if a field represents a decimal type based on its extension metadata
+fn is_decimal_field(field: &arrow_schema::Field) -> bool {
+    field.metadata().get("ARROW:extension:name") == Some(&"KustoDecimal".to_string())
+}
+
+/// Generates a FixedSizeBinary field for decimal values (16 bytes for 128-bit decimals)
+fn generate_decimal_field(field: &arrow_schema::Field, len: usize) -> Arc<dyn Array> {
+    let props = FieldProperties::from_metadata(field.metadata());
+
+    // Use Vec<[u8; 16]> to ensure all data has the same size
+    let mut values: Vec<[u8; 16]> = Vec::with_capacity(len);
+    let mut validity = Vec::with_capacity(len);
+
+    for _ in 0..len {
+        if props.nulls_fraction > 0.0 && fastrand::f64() < props.nulls_fraction {
+            validity.push(false);
+            values.push([0u8; 16]); // Placeholder for null
+        } else {
+            validity.push(true);
+            // Generate a decimal value
+            let raw_value = fastrand::i64(-100000000..=100000000);
+            values.push(decimal_i64_to_bytes(raw_value));
+        }
+    }
+
+    // Convert to the format expected by FixedSizeBinaryArray
+    let data: Vec<Option<&[u8]>> = values
+        .iter()
+        .enumerate()
+        .map(|(i, bytes)| {
+            if validity[i] {
+                Some(bytes.as_slice())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Arc::new(FixedSizeBinaryArray::from(data))
+}
+
+/// Generates a regular FixedSizeBinary field (non-decimal)
+fn generate_fixed_size_binary_field(field: &arrow_schema::Field, len: usize) -> Arc<dyn Array> {
+    let props = FieldProperties::from_metadata(field.metadata());
+    let size = if let DataType::FixedSizeBinary(s) = field.data_type() {
+        *s as usize
+    } else {
+        16 // default size
+    };
+
+    let mut values: Vec<Vec<u8>> = Vec::with_capacity(len);
+    let mut validity = Vec::with_capacity(len);
+
+    for _ in 0..len {
+        if props.nulls_fraction > 0.0 && fastrand::f64() < props.nulls_fraction {
+            validity.push(false);
+            values.push(vec![0u8; size]); // Placeholder for null
+        } else {
+            validity.push(true);
+            // Generate random bytes
+            let mut bytes = vec![0u8; size];
+            for byte in &mut bytes {
+                *byte = fastrand::u8(..);
+            }
+            values.push(bytes);
+        }
+    }
+
+    // Convert to the format expected by FixedSizeBinaryArray
+    let data: Vec<Option<&[u8]>> = values
+        .iter()
+        .enumerate()
+        .map(|(i, bytes)| {
+            if validity[i] {
+                Some(bytes.as_slice())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Arc::new(FixedSizeBinaryArray::from(data))
+}
+
+/// Converts an i64 representing a decimal with 2 decimal places to 16-byte representation
+/// This is a simplified implementation for testing purposes
+fn decimal_i64_to_bytes(value: i64) -> [u8; 16] {
+    // For simplicity, we'll store the i64 value in the first 8 bytes of a 16-byte array
+    // In a real implementation, this would use proper decimal encoding
+    let mut bytes = [0u8; 16];
+    let value_bytes = value.to_le_bytes();
+    bytes[0..8].copy_from_slice(&value_bytes);
+    bytes
+}
+
+/// Creates a test schema with decimal fields for testing
+pub fn create_decimal_test_schema() -> Arc<Schema> {
+    Arc::new(Schema::new(vec![
+        make_field("id", DataType::Int32, FieldProperties::default()),
+        Field::new("amount", DataType::FixedSizeBinary(16), true).with_metadata(
+            [(
+                "ARROW:extension:name".to_string(),
+                "KustoDecimal".to_string(),
+            )]
+            .into(),
+        ),
+        Field::new("price", DataType::FixedSizeBinary(16), false).with_metadata(
+            [(
+                "ARROW:extension:name".to_string(),
+                "KustoDecimal".to_string(),
+            )]
+            .into(),
+        ),
+        make_field("description", DataType::Utf8, FieldProperties::default()),
+    ]))
+}
+
+/// Creates a mixed schema with decimals and other types for comprehensive testing
+pub fn create_mixed_schema_with_decimals() -> Arc<Schema> {
+    Arc::new(Schema::new(vec![
+        make_field("id", DataType::Int64, FieldProperties::default()),
+        make_field("name", DataType::Utf8, FieldProperties::default()),
+        Field::new("balance", DataType::FixedSizeBinary(16), true).with_metadata(
+            [(
+                "ARROW:extension:name".to_string(),
+                "KustoDecimal".to_string(),
+            )]
+            .into(),
+        ),
+        make_field("active", DataType::Boolean, FieldProperties::default()),
+        Field::new("score", DataType::FixedSizeBinary(16), false).with_metadata(
+            [(
+                "ARROW:extension:name".to_string(),
+                "KustoDecimal".to_string(),
+            )]
+            .into(),
+        ),
+        make_field("metadata", DataType::Binary, FieldProperties::default()),
+    ]))
 }
 
 #[test]

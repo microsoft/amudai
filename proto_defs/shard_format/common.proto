@@ -69,6 +69,7 @@ message AnyValue {
         TimeSpan timespan_value = 7; 
         string string_value = 8;
         bytes bytes_value = 9;
+        bytes decimal_value = 10;  // 16-byte d128 decimal representation
         ListValue list_value = 20;
         StructValue struct_value = 21;
         DataRef data_ref = 22;

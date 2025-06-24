@@ -121,7 +121,7 @@ message FieldDescriptor {
     // Additional properties associated with the field.
     repeated amudai.common.NameValuePair properties = 10;
     
-        oneof type_specific {
+    oneof type_specific {
         // Applicable only for the string type. All sizes are measured in bytes, not code points.
         StringStats string_stats = 20;
         // Relevant for variable-length List, Map, and binary types (where binary is treated
@@ -129,6 +129,8 @@ message FieldDescriptor {
         ContainerStats container_stats = 21;
         // Statistics specific to boolean fields.
         BooleanStats boolean_stats = 22;
+        // Statistics specific to decimal fields (128-bit precision).
+        DecimalStats decimal_stats = 23;
     }
     
     repeated amudai.common.NameValuePair custom_properties = 40;
@@ -182,6 +184,18 @@ message ContainerStats {
     optional fixed64 min_non_empty_length = 2;
     // Maximum length of the container (`List`, `Map` or `Binary`).
     fixed64 max_length = 3;
+}
+
+// Statistics specific to decimal fields (128-bit precision).
+message DecimalStats {
+    // Number of decimal values that are zero.
+    fixed64 zero_count = 1;
+    // Number of decimal values that are positive (greater than zero).
+    fixed64 positive_count = 2;
+    // Number of decimal values that are negative (less than zero).
+    fixed64 negative_count = 3;
+    // Number of decimal values that are NaN (Not a Number).
+    fixed64 nan_count = 4;
 }
 
 message CardinalityInfo {

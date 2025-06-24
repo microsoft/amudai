@@ -211,6 +211,7 @@ mod tests {
     use super::*;
     use amudai_blockstream::read::block_stream::BlockReaderPrefetch;
     use amudai_blockstream::read::primitive_buffer::PrimitiveBufferDecoder;
+    use amudai_format::defs::schema_ext::KnownExtendedType;
     use amudai_format::schema::BasicType;
     use amudai_io_impl::temp_file_store;
     use arrow_array::builder::{TimestampMillisecondBuilder, TimestampNanosecondBuilder};
@@ -227,7 +228,6 @@ mod tests {
             signed: false,
             extended_type: Default::default(),
         };
-
         let now = SystemTime::now();
         let mut encoder = PrimitiveFieldEncoder::create(
             &FieldEncoderParams {
@@ -285,7 +285,7 @@ mod tests {
             basic_type: BasicType::Int32,
             fixed_size: 0,
             signed: true,
-            extended_type: Default::default(),
+            extended_type: KnownExtendedType::None,
         };
         let mut encoder = PrimitiveFieldEncoder::create(
             &FieldEncoderParams {
@@ -343,7 +343,7 @@ mod tests {
             basic_type: BasicType::Float32,
             fixed_size: 0,
             signed: true,
-            extended_type: Default::default(),
+            extended_type: KnownExtendedType::None,
         };
         let mut encoder = PrimitiveFieldEncoder::create(
             &FieldEncoderParams {
@@ -399,7 +399,7 @@ mod tests {
             basic_type: BasicType::Int32,
             fixed_size: 0,
             signed: true,
-            extended_type: Default::default(),
+            extended_type: KnownExtendedType::None,
         };
 
         let mut encoder = PrimitiveFieldEncoder::create(
@@ -437,7 +437,7 @@ mod tests {
             basic_type: BasicType::Int32,
             fixed_size: 0,
             signed: true,
-            extended_type: Default::default(),
+            extended_type: KnownExtendedType::None,
         };
 
         let mut encoder = PrimitiveFieldEncoder::create(

@@ -3,6 +3,7 @@
 
 mod boolean;
 mod bytes;
+mod decimal;
 mod empty;
 mod list_container;
 mod primitive;
@@ -10,13 +11,15 @@ mod unit_container;
 
 use std::sync::Arc;
 
+use arrow_array::Array;
+
 use amudai_blockstream::write::PreparedEncodedBuffer;
 use amudai_common::Result;
 use amudai_encodings::block_encoder::BlockEncodingProfile;
+use amudai_format::defs::schema_ext::{BasicTypeDescriptor, KnownExtendedType};
 use amudai_format::defs::shard;
-use amudai_format::{defs::schema_ext::BasicTypeDescriptor, schema::BasicType};
+use amudai_format::schema::BasicType;
 use amudai_io::temp_file_store::TemporaryFileStore;
-use arrow_array::Array;
 
 use super::artifact_writer::ArtifactWriter;
 
@@ -121,10 +124,17 @@ impl FieldEncoder {
             BasicType::DateTime => {
                 primitive::PrimitiveFieldEncoder::create(params, arrow_schema::DataType::UInt64)
             }
-            BasicType::Binary
-            | BasicType::FixedSizeBinary
-            | BasicType::String
-            | BasicType::Guid => bytes::BytesFieldEncoder::create(params),
+            BasicType::Binary | BasicType::String | BasicType::Guid => {
+                bytes::BytesFieldEncoder::create(params)
+            }
+            BasicType::FixedSizeBinary => {
+                // Check if this is a decimal type
+                if basic_type.extended_type == KnownExtendedType::KustoDecimal {
+                    decimal::DecimalFieldEncoder::create(params)
+                } else {
+                    bytes::BytesFieldEncoder::create(params)
+                }
+            }
             BasicType::List | BasicType::Map => {
                 list_container::ListContainerFieldEncoder::create(params)
             }
@@ -176,6 +186,8 @@ pub enum EncodedFieldStatistics {
     Boolean(amudai_data_stats::boolean::BooleanStats),
     /// Statistics for binary types
     Binary(amudai_data_stats::binary::BinaryStats),
+    /// Statistics for decimal types
+    Decimal(amudai_data_stats::decimal::DecimalStats),
 }
 
 impl EncodedField {

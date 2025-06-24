@@ -41,7 +41,7 @@ impl FieldBuilder {
     /// Creates a new `FieldBuilder`.
     ///
     /// # Arguments
-    ///
+    ///    
     /// * `params` - Parameters for the field builder, including the data type and object store.
     ///
     /// # Returns

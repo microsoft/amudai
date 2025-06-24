@@ -111,7 +111,7 @@ pub struct FieldDescriptor {
     /// in this field's stored sequence.
     #[prost(fixed64, tag = "1")]
     pub position_count: u64,
-    /// If present, this specifies the number of logical value slots containing `null` values.    
+    /// If present, this specifies the number of logical value slots containing `null` values.
     #[prost(fixed64, optional, tag = "2")]
     pub null_count: ::core::option::Option<u64>,
     /// If present, this indicates that all value slots contain the same value,
@@ -153,7 +153,7 @@ pub struct FieldDescriptor {
     pub stored_index_size: ::core::option::Option<u64>,
     #[prost(fixed64, optional, tag = "43")]
     pub plain_data_size: ::core::option::Option<u64>,
-    #[prost(oneof = "field_descriptor::TypeSpecific", tags = "20, 21, 22")]
+    #[prost(oneof = "field_descriptor::TypeSpecific", tags = "20, 21, 22, 23")]
     pub type_specific: ::core::option::Option<field_descriptor::TypeSpecific>,
 }
 /// Nested message and enum types in `FieldDescriptor`.
@@ -170,6 +170,9 @@ pub mod field_descriptor {
         /// Statistics specific to boolean fields.
         #[prost(message, tag = "22")]
         BooleanStats(super::BooleanStats),
+        /// Statistics specific to decimal fields (128-bit precision).
+        #[prost(message, tag = "23")]
+        DecimalStats(super::DecimalStats),
     }
 }
 /// Provides the minimum and maximum values for the stored sequence.
@@ -229,6 +232,22 @@ pub struct ContainerStats {
     /// Maximum length of the container (`List`, `Map` or `Binary`).
     #[prost(fixed64, tag = "3")]
     pub max_length: u64,
+}
+/// Statistics specific to decimal fields (128-bit precision).
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct DecimalStats {
+    /// Number of decimal values that are zero.
+    #[prost(fixed64, tag = "1")]
+    pub zero_count: u64,
+    /// Number of decimal values that are positive (greater than zero).
+    #[prost(fixed64, tag = "2")]
+    pub positive_count: u64,
+    /// Number of decimal values that are negative (less than zero).
+    #[prost(fixed64, tag = "3")]
+    pub negative_count: u64,
+    /// Number of decimal values that are NaN (Not a Number).
+    #[prost(fixed64, tag = "4")]
+    pub nan_count: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CardinalityInfo {

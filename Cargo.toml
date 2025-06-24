@@ -62,6 +62,7 @@ byteorder = "1.5"
 bytes = "1"
 clap = { version = "4", features = ["derive"] }
 const_for = "0.1"
+decimal = "2.1"
 fastrand = "2"
 fsst-rs = "0.5"
 futures = "0.3"
