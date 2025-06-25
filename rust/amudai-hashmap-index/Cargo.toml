@@ -12,6 +12,7 @@ arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 rayon = { workspace = true }
 
+amudai-arrow = { workspace = true }
 amudai-arrow-compat = { workspace = true }
 amudai-collections = { workspace = true }
 amudai-common = { workspace = true }
@@ -23,5 +24,4 @@ amudai-shard = { workspace = true }
 [dev-dependencies]
 fastrand = { workspace = true }
 
-amudai-arrow = { workspace = true }
 amudai-io-impl = { workspace = true }

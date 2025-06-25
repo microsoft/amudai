@@ -1,4 +1,13 @@
-use crate::write::aggregator::EntriesAggregator;
+use arrow_array::{
+    RecordBatch,
+    builder::{ArrayBuilder, GenericListBuilder, LargeListBuilder, StructBuilder, UInt64Builder},
+};
+use arrow_schema::{
+    DataType as ArrowDataType, Field as ArrowField, Fields as ArrowFields, Schema as ArrowSchema,
+};
+use rayon::prelude::*;
+use std::sync::{Arc, Mutex};
+
 use amudai_common::Result;
 use amudai_format::{
     defs::shard::IndexDescriptor,
@@ -11,15 +20,8 @@ use amudai_shard::write::{
     shard_builder::{PreparedShard, SealedShard, ShardBuilder, ShardBuilderParams},
     stripe_builder::StripeBuilder,
 };
-use arrow_array::{
-    RecordBatch,
-    builder::{ArrayBuilder, GenericListBuilder, LargeListBuilder, StructBuilder, UInt64Builder},
-};
-use arrow_schema::{
-    DataType as ArrowDataType, Field as ArrowField, Fields as ArrowFields, Schema as ArrowSchema,
-};
-use rayon::prelude::*;
-use std::sync::{Arc, Mutex};
+
+use crate::{read::hashmap_index::HASHMAP_INDEX_TYPE, write::aggregator::EntriesAggregator};
 
 /// A single index entry that maps a key hash to a payload location.
 ///
@@ -577,7 +579,7 @@ impl SealedHashmapIndex {
             .map(|partition| partition.shard.directory_blob.clone())
             .collect::<Vec<_>>();
         IndexDescriptor {
-            index_type: "hashmap-index".to_owned(),
+            index_type: HASHMAP_INDEX_TYPE.to_owned(),
             artifacts,
             ..Default::default()
         }
@@ -686,14 +688,10 @@ fn get_buckets_count(entries_count: usize) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use amudai_arrow::builder::ArrowReaderBuilder;
-    use amudai_collections::range_list::RangeList;
     use amudai_io_impl::temp_file_store;
     use amudai_objectstore::null_store::NullObjectStore;
-    use amudai_shard::tests::shard_store::ShardStore;
-    use arrow_array::{LargeListArray, StructArray, UInt64Array};
 
     #[test]
     fn test_hashmap_index_build() {
@@ -731,87 +729,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_hashmap_index_lookup() {
-        let shard_store = ShardStore::new();
-        let params = HashmapIndexBuilderParams {
-            partitions_count: 8,
-            max_memory_usage: Some(32 * 1024 * 1024),
-            object_store: Arc::clone(&shard_store.object_store),
-            temp_store: temp_file_store::create_in_memory(32 * 1024 * 1024).unwrap(),
-        };
-        let mut builder = HashmapIndexBuilder::new(params.clone()).unwrap();
-
-        let entries = create_sample_stream(200000, 100000);
-        let test_hash = entries[0].hash;
-        let mut test_positions = entries
-            .iter()
-            .filter(|e| e.hash == test_hash)
-            .map(|e| e.position)
-            .collect::<Vec<_>>();
-        test_positions.sort_unstable();
-        entries
-            .chunks(10000)
-            .for_each(|c| builder.push_entries(c).unwrap());
-
-        let prepared_index = builder.finish().unwrap();
-        let sealed_index = prepared_index
-            .seal("null:///tmp/test_hashmap_index")
-            .unwrap();
-
-        // Verify lookup for a specific hash
-        let partition_bits = sealed_index.partitions.len().trailing_zeros() as u8;
-        let partition_index = get_entry_partition_index(test_hash, partition_bits);
-        let partition = &sealed_index.partitions[partition_index];
-        let bucket_index = get_entry_bucket_index(
-            test_hash,
-            partition.shard.directory.total_record_count as usize,
-        ) as u64;
-
-        let reader_builder = ArrowReaderBuilder::try_new(&partition.shard.directory_blob.url)
-            .unwrap()
-            .with_object_store(shard_store.object_store.clone())
-            .with_batch_size(1)
-            .with_position_ranges(RangeList::from(vec![bucket_index..bucket_index + 1]));
-        let mut reader = reader_builder.build().unwrap();
-        let batch = reader.next().unwrap().unwrap();
-
-        let mut found = false;
-        let bucket = batch
-            .column(0)
-            .as_any()
-            .downcast_ref::<LargeListArray>()
-            .unwrap();
-        for i in 0..bucket.values().len() {
-            let entry = bucket.value(i);
-            let entry = entry.as_any().downcast_ref::<StructArray>().unwrap();
-            let hash_col = entry
-                .column(0)
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .unwrap();
-            let positions_col = entry
-                .column(1)
-                .as_any()
-                .downcast_ref::<LargeListArray>()
-                .unwrap();
-            if hash_col.value(i) == test_hash {
-                let mut positions = positions_col
-                    .value(i)
-                    .as_any()
-                    .downcast_ref::<UInt64Array>()
-                    .unwrap()
-                    .values()
-                    .to_vec();
-                positions.sort_unstable();
-                assert_eq!(test_positions, positions);
-                found = true;
-            }
-        }
-        assert!(found);
-    }
-
-    fn create_sample_stream(pos_count: u64, key_count: u64) -> Vec<IndexedEntry> {
+    pub fn create_sample_stream(pos_count: u64, key_count: u64) -> Vec<IndexedEntry> {
         let mut v = Vec::new();
         fastrand::seed(2985745485);
         let keys: Vec<_> = (0..key_count).map(|_| fastrand::u64(..)).collect();
