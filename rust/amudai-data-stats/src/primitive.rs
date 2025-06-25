@@ -5,8 +5,7 @@ use arrow_array::{
     Array, ArrowNativeTypeOp, ArrowPrimitiveType,
     cast::AsArray,
     types::{
-        Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type, UInt16Type,
-        UInt32Type, UInt64Type,
+        Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
     },
 };
 
@@ -55,12 +54,6 @@ impl PrimitiveStatsCollector {
                 } else {
                     Box::new(IntegerRangeStatsCollector::<UInt64Type>::new())
                 }
-            }
-            amudai_format::schema::BasicType::Float32 => {
-                Box::new(FloatRangeStatsCollector::<Float32Type>::new())
-            }
-            amudai_format::schema::BasicType::Float64 => {
-                Box::new(FloatRangeStatsCollector::<Float64Type>::new())
             }
             amudai_format::schema::BasicType::DateTime => {
                 // DateTime is stored as UInt64 internally
@@ -125,7 +118,6 @@ impl PrimitiveStatsCollector {
             range_stats,
             count: self.range_stats.get_count(),
             null_count: self.range_stats.get_null_count(),
-            nan_count: self.range_stats.get_nan_count(),
         })
     }
 }
@@ -137,13 +129,11 @@ pub struct PrimitiveStats {
     pub range_stats: RangeStats,
     pub count: usize,
     pub null_count: usize,
-    pub nan_count: usize,
 }
 
 /// A trait for collecting range statistics.
 trait RangeStatsCollector: Send + Sync {
     fn get_count(&self) -> usize;
-    fn get_nan_count(&self) -> usize;
     fn get_null_count(&self) -> usize;
     fn finalize(&mut self) -> RangeStats;
     fn update(&mut self, values: &dyn Array);
@@ -220,15 +210,6 @@ where
     fn get_count(&self) -> usize {
         self.count
     }
-    /// Returns the count of `NaN` values processed.
-    ///
-    /// # Returns
-    ///
-    /// The count of `NaN` values.
-    fn get_nan_count(&self) -> usize {
-        0
-    }
-
     /// Returns the count of null values processed.
     ///
     /// # Returns
@@ -250,135 +231,6 @@ where
         self.count += null_count;
         self.null_count += null_count;
         // No changes to min/max since nulls don't contribute to range statistics
-    }
-}
-
-/// An implementation of `RangeStatsCollector` for FP types.
-struct FloatRangeStatsCollector<T: ArrowPrimitiveType> {
-    min: Option<T::Native>,
-    max: Option<T::Native>,
-    count: usize,
-    null_count: usize,
-    nan_count: usize,
-}
-
-impl<T: ArrowPrimitiveType> FloatRangeStatsCollector<T> {
-    /// Creates a new instance of `FloatRangeStatsCollector`.
-    ///
-    /// # Returns
-    ///
-    /// A new instance of `FloatRangeStatsCollector`.
-    pub fn new() -> Self {
-        Self {
-            max: None,
-            min: None,
-            count: 0,
-            null_count: 0,
-            nan_count: 0,
-        }
-    }
-}
-
-impl<T: ArrowPrimitiveType> RangeStatsCollector for FloatRangeStatsCollector<T>
-where
-    T::Native: ToAnyValue + FloatStatsOps,
-{
-    /// Updates the range statistics with the given array of values.
-    ///
-    /// # Arguments
-    ///
-    /// * `values` - A reference to an array of values to be processed.
-    fn update(&mut self, values: &dyn Array) {
-        let typed_values = values.as_primitive::<T>();
-        self.count += typed_values.len();
-        self.null_count += typed_values.null_count();
-        self.nan_count += typed_values.iter().flatten().filter(|v| v.is_nan()).count();
-
-        let min = typed_values
-            .iter()
-            .flatten()
-            .filter(|v| !v.is_nan())
-            .min_by(|a, b| a.compare(*b));
-        self.min = min_of(self.min, min);
-
-        let max = typed_values
-            .iter()
-            .flatten()
-            .filter(|v| !v.is_nan())
-            .max_by(|a, b| a.compare(*b));
-        self.max = max_of(self.max, max);
-    }
-
-    /// Finalizes the range statistics collection and returns the collected statistics.
-    ///
-    /// # Returns
-    ///
-    /// The collected `RangeStats`.
-    fn finalize(&mut self) -> RangeStats {
-        let min = self.min.map(|v| v.to_any_value());
-        let max = self.max.map(|v| v.to_any_value());
-        RangeStats {
-            min_value: min,
-            min_inclusive: true,
-            max_value: max,
-            max_inclusive: true,
-        }
-    }
-
-    /// Returns the total count of values processed.
-    ///
-    /// # Returns
-    ///
-    /// The total count of values.
-    fn get_count(&self) -> usize {
-        self.count
-    }
-
-    /// Returns the count of `NaN` values processed.
-    ///
-    /// # Returns
-    ///
-    /// The count of `NaN` values.
-    fn get_nan_count(&self) -> usize {
-        self.nan_count
-    }
-    /// Returns the count of null values processed.
-    ///
-    /// # Returns
-    ///
-    /// The count of null values.
-    fn get_null_count(&self) -> usize {
-        self.null_count
-    }
-
-    /// Processes a specified number of null values and updates the statistics.
-    ///
-    /// This method is more efficient than creating a null array when you only need to
-    /// track null counts without processing actual values.
-    ///
-    /// # Arguments
-    ///
-    /// * `null_count` - The number of null values to add to the statistics
-    fn process_nulls(&mut self, null_count: usize) {
-        self.count += null_count;
-        self.null_count += null_count;
-        // No changes to min/max or nan_count since nulls don't contribute to these statistics
-    }
-}
-
-trait FloatStatsOps {
-    fn is_nan(&self) -> bool;
-}
-
-impl FloatStatsOps for f32 {
-    fn is_nan(&self) -> bool {
-        f32::is_nan(*self)
-    }
-}
-
-impl FloatStatsOps for f64 {
-    fn is_nan(&self) -> bool {
-        f64::is_nan(*self)
     }
 }
 
@@ -417,8 +269,8 @@ mod tests {
     use amudai_common::Result;
     use amudai_format::schema::{BasicType, BasicTypeDescriptor};
     use arrow_array::{
-        Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, Int64Array, UInt8Array,
-        UInt16Array, UInt32Array, UInt64Array,
+        Int8Array, Int16Array, Int32Array, Int64Array, UInt8Array, UInt16Array, UInt32Array,
+        UInt64Array,
     };
 
     use super::PrimitiveStatsCollector;
@@ -714,114 +566,6 @@ mod tests {
         assert_eq!(stats.null_count, 2);
         Ok(())
     }
-
-    #[test]
-    fn test_primitive_stats_collector_float32_with_nulls() -> Result<()> {
-        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
-            basic_type: BasicType::Float32,
-            signed: true,
-            fixed_size: 0,
-            extended_type: Default::default(),
-        });
-        let array = Float32Array::from(vec![Some(1.1), None, Some(3.3), Some(4.4), None]);
-        collector.process_array(&array)?;
-        let stats = collector.finish()?;
-        assert_eq!(
-            stats.range_stats.min_value.unwrap().as_f64().unwrap(),
-            1.1f32 as f64
-        );
-        assert_eq!(
-            stats.range_stats.max_value.unwrap().as_f64().unwrap(),
-            4.4f32 as f64
-        );
-        assert_eq!(stats.count, 5);
-        assert_eq!(stats.null_count, 2);
-        Ok(())
-    }
-
-    #[test]
-    fn test_primitive_stats_collector_float64_with_nulls() -> Result<()> {
-        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
-            basic_type: BasicType::Float64,
-            signed: true,
-            fixed_size: 0,
-            extended_type: Default::default(),
-        });
-        let array = Float64Array::from(vec![
-            Some(1.11f64),
-            None,
-            Some(3.33f64),
-            Some(4.44f64),
-            None,
-        ]);
-        collector.process_array(&array)?;
-        let stats = collector.finish()?;
-        assert_eq!(stats.range_stats.min_value.unwrap().as_f64().unwrap(), 1.11);
-        assert_eq!(stats.range_stats.max_value.unwrap().as_f64().unwrap(), 4.44);
-        assert_eq!(stats.count, 5);
-        assert_eq!(stats.null_count, 2);
-        Ok(())
-    }
-
-    #[test]
-    fn test_primitive_stats_collector_float32_with_nan() -> Result<()> {
-        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
-            basic_type: BasicType::Float32,
-            signed: true,
-            fixed_size: 0,
-            extended_type: Default::default(),
-        });
-        let array = Float32Array::from(vec![
-            Some(1.1),
-            None,
-            Some(3.3),
-            Some(f32::NAN),
-            Some(4.4),
-            None,
-        ]);
-        collector.process_array(&array)?;
-        let stats = collector.finish()?;
-        assert_eq!(
-            stats.range_stats.min_value.unwrap().as_f64().unwrap(),
-            1.1f32 as f64
-        );
-
-        assert_eq!(
-            stats.range_stats.max_value.unwrap().as_f64().unwrap(),
-            4.4f32 as f64
-        );
-        assert_eq!(stats.count, 6);
-        assert_eq!(stats.null_count, 2);
-        assert_eq!(stats.nan_count, 1);
-        Ok(())
-    }
-
-    #[test]
-    fn test_primitive_stats_collector_float64_with_nan() -> Result<()> {
-        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
-            basic_type: BasicType::Float64,
-            signed: true,
-            fixed_size: 0,
-            extended_type: Default::default(),
-        });
-        let array = Float64Array::from(vec![
-            Some(1.11f64),
-            None,
-            Some(3.33f64),
-            Some(f64::NAN),
-            Some(4.44f64),
-            None,
-        ]);
-        collector.process_array(&array)?;
-        let stats = collector.finish()?;
-        assert_eq!(stats.range_stats.min_value.unwrap().as_f64().unwrap(), 1.11);
-        assert_eq!(stats.range_stats.max_value.unwrap().as_f64().unwrap(), 4.44);
-        assert_eq!(stats.count, 6);
-        assert_eq!(stats.null_count, 2);
-        assert_eq!(stats.nan_count, 1);
-        Ok(())
-    }
-
     #[test]
     fn test_primitive_stats_collector_process_nulls_method() -> Result<()> {
         let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
@@ -839,7 +583,6 @@ mod tests {
         let stats = collector.finish()?;
         assert_eq!(stats.count, 6); // 3 from array + 3 from process_nulls
         assert_eq!(stats.null_count, 4); // 1 from array + 3 from process_nulls
-        assert_eq!(stats.nan_count, 0); // No NaNs for integers
         assert_eq!(stats.range_stats.min_value.unwrap().as_i64().unwrap(), 10);
         assert_eq!(stats.range_stats.max_value.unwrap().as_i64().unwrap(), 20);
         Ok(())
@@ -860,41 +603,10 @@ mod tests {
         let stats = collector.finish()?;
         assert_eq!(stats.count, 5);
         assert_eq!(stats.null_count, 5);
-        assert_eq!(stats.nan_count, 0);
         assert!(stats.range_stats.min_value.is_none()); // No non-null values processed
         assert!(stats.range_stats.max_value.is_none());
         Ok(())
     }
-
-    #[test]
-    fn test_primitive_stats_collector_process_nulls_float_with_nan() -> Result<()> {
-        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
-            basic_type: BasicType::Float32,
-            signed: true,
-            fixed_size: 0,
-            extended_type: Default::default(),
-        });
-        let array = Float32Array::from(vec![Some(1.5), Some(f32::NAN), None, Some(2.5)]);
-        collector.process_array(&array)?;
-
-        // Add additional nulls using the dedicated method
-        collector.process_nulls(2);
-
-        let stats = collector.finish()?;
-        assert_eq!(stats.count, 6); // 4 from array + 2 from process_nulls
-        assert_eq!(stats.null_count, 3); // 1 from array + 2 from process_nulls
-        assert_eq!(stats.nan_count, 1); // 1 NaN from array, nulls don't affect this
-        assert_eq!(
-            stats.range_stats.min_value.unwrap().as_f64().unwrap(),
-            1.5f32 as f64
-        );
-        assert_eq!(
-            stats.range_stats.max_value.unwrap().as_f64().unwrap(),
-            2.5f32 as f64
-        );
-        Ok(())
-    }
-
     #[test]
     fn test_primitive_stats_collector_datetime() -> Result<()> {
         let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
@@ -921,7 +633,6 @@ mod tests {
         );
         assert_eq!(stats.count, 3);
         assert_eq!(stats.null_count, 0);
-        assert_eq!(stats.nan_count, 0);
         Ok(())
     }
 
@@ -938,7 +649,6 @@ mod tests {
         let stats = collector.finish()?;
         assert_eq!(stats.count, 0);
         assert_eq!(stats.null_count, 0);
-        assert_eq!(stats.nan_count, 0);
         assert!(stats.range_stats.min_value.is_none());
         assert!(stats.range_stats.max_value.is_none());
         Ok(())
@@ -957,7 +667,6 @@ mod tests {
         let stats = collector.finish()?;
         assert_eq!(stats.count, 4);
         assert_eq!(stats.null_count, 4);
-        assert_eq!(stats.nan_count, 0);
         assert!(stats.range_stats.min_value.is_none());
         assert!(stats.range_stats.max_value.is_none());
         Ok(())
@@ -976,7 +685,6 @@ mod tests {
         let stats = collector.finish()?;
         assert_eq!(stats.count, 1);
         assert_eq!(stats.null_count, 0);
-        assert_eq!(stats.nan_count, 0);
         assert_eq!(stats.range_stats.min_value.unwrap().as_i64().unwrap(), 42);
         assert_eq!(stats.range_stats.max_value.unwrap().as_i64().unwrap(), 42);
         assert!(stats.range_stats.min_inclusive);
@@ -1031,31 +739,6 @@ mod tests {
     }
 
     #[test]
-    fn test_primitive_stats_collector_boundary_values_float32() -> Result<()> {
-        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
-            basic_type: BasicType::Float32,
-            signed: true,
-            fixed_size: 0,
-            extended_type: Default::default(),
-        });
-        let array = Float32Array::from(vec![f32::MIN, f32::MAX, 0.0]);
-        collector.process_array(&array)?;
-        let stats = collector.finish()?;
-        assert_eq!(stats.count, 3);
-        assert_eq!(stats.null_count, 0);
-        assert_eq!(stats.nan_count, 0);
-        assert_eq!(
-            stats.range_stats.min_value.unwrap().as_f64().unwrap(),
-            f32::MIN as f64
-        );
-        assert_eq!(
-            stats.range_stats.max_value.unwrap().as_f64().unwrap(),
-            f32::MAX as f64
-        );
-        Ok(())
-    }
-
-    #[test]
     fn test_primitive_stats_collector_multiple_arrays() -> Result<()> {
         let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
             basic_type: BasicType::Int32,
@@ -1079,7 +762,6 @@ mod tests {
         let stats = collector.finish()?;
         assert_eq!(stats.count, 8); // 3 + 3 + 2
         assert_eq!(stats.null_count, 1); // Only one null from array2
-        assert_eq!(stats.nan_count, 0);
         assert_eq!(stats.range_stats.min_value.unwrap().as_i64().unwrap(), -5);
         assert_eq!(stats.range_stats.max_value.unwrap().as_i64().unwrap(), 15);
         Ok(())
@@ -1111,7 +793,6 @@ mod tests {
         let stats = collector.finish()?;
         assert_eq!(stats.count, 8); // 3 + 2 + 2 + 1
         assert_eq!(stats.null_count, 4); // 1 + 2 + 0 + 1
-        assert_eq!(stats.nan_count, 0);
         assert_eq!(stats.range_stats.min_value.unwrap().as_i64().unwrap(), 1);
         assert_eq!(stats.range_stats.max_value.unwrap().as_i64().unwrap(), 20);
         Ok(())
@@ -1135,69 +816,8 @@ mod tests {
         let stats = collector.finish()?;
         assert_eq!(stats.count, 3);
         assert_eq!(stats.null_count, 0);
-        assert_eq!(stats.nan_count, 0);
         assert_eq!(stats.range_stats.min_value.unwrap().as_i64().unwrap(), 1);
         assert_eq!(stats.range_stats.max_value.unwrap().as_i64().unwrap(), 3);
-        Ok(())
-    }
-
-    #[test]
-    fn test_primitive_stats_collector_float_special_values() -> Result<()> {
-        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
-            basic_type: BasicType::Float32,
-            signed: true,
-            fixed_size: 0,
-            extended_type: Default::default(),
-        });
-
-        let array = Float32Array::from(vec![
-            Some(f32::INFINITY),
-            Some(f32::NEG_INFINITY),
-            Some(f32::NAN),
-            Some(1.0),
-            None,
-        ]);
-        collector.process_array(&array)?;
-
-        let stats = collector.finish()?;
-        assert_eq!(stats.count, 5);
-        assert_eq!(stats.null_count, 1);
-        assert_eq!(stats.nan_count, 1); // Only NaN, not infinities
-
-        // Infinities should be included in min/max
-        assert_eq!(
-            stats.range_stats.min_value.unwrap().as_f64().unwrap(),
-            f32::NEG_INFINITY as f64
-        );
-        assert_eq!(
-            stats.range_stats.max_value.unwrap().as_f64().unwrap(),
-            f32::INFINITY as f64
-        );
-        assert!(stats.range_stats.min_inclusive);
-        assert!(stats.range_stats.max_inclusive);
-        Ok(())
-    }
-
-    #[test]
-    fn test_primitive_stats_collector_float64_only_nan() -> Result<()> {
-        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
-            basic_type: BasicType::Float64,
-            signed: true,
-            fixed_size: 0,
-            extended_type: Default::default(),
-        });
-
-        let array = Float64Array::from(vec![Some(f64::NAN), Some(f64::NAN), None]);
-        collector.process_array(&array)?;
-
-        let stats = collector.finish()?;
-        assert_eq!(stats.count, 3);
-        assert_eq!(stats.null_count, 1);
-        assert_eq!(stats.nan_count, 2);
-
-        // When all non-null values are NaN, min/max should be None
-        assert!(stats.range_stats.min_value.is_none());
-        assert!(stats.range_stats.max_value.is_none());
         Ok(())
     }
 

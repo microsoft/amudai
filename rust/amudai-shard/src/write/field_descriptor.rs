@@ -56,6 +56,9 @@ pub fn populate_statistics(descriptor: &mut shard::FieldDescriptor, encoded_fiel
             EncodedFieldStatistics::Decimal(decimal_stats) => {
                 populate_decimal_statistics(descriptor, decimal_stats);
             }
+            EncodedFieldStatistics::Floating(floating_stats) => {
+                populate_floating_statistics(descriptor, floating_stats);
+            }
         }
     }
 }
@@ -66,7 +69,6 @@ pub fn populate_statistics(descriptor: &mut shard::FieldDescriptor, encoded_fiel
 /// values appropriately. It handles:
 /// - Position count aggregation
 /// - Null count aggregation (None if either is None)
-/// - NaN count aggregation (None if either is None, for floating-point types)
 /// - Range statistics merging (min/max values)
 /// - Type-specific statistics merging (e.g., string statistics)
 ///
@@ -118,26 +120,6 @@ pub fn merge(
         }
     }
 
-    // Merge NaN count statistics (only applicable for floating-point types)
-    // NaN count is only set for floating-point types (f32/f64) during statistics population.
-    // For non-floating-point types, nan_count is None.
-    //
-    // The merging logic follows these principles:
-    // 1. If both descriptors have Some(count), sum them (both are floating-point)
-    // 2. For any other case (None/None, Some/None, None/Some), set to None
-    match (accumulated.nan_count, current.nan_count) {
-        (Some(accumulated_nan_count), Some(current_nan_count)) => {
-            // Both descriptors represent floating-point fields, sum the NaN counts
-            accumulated.nan_count = Some(accumulated_nan_count + current_nan_count);
-        }
-        _ => {
-            // All other cases: set to None
-            // - (None, None): Both are non-floating-point fields, keep None
-            // - Mixed types: Type inconsistency, handle gracefully by setting to None
-            accumulated.nan_count = None;
-        }
-    }
-
     // Merge range statistics (min/max values) with sticky None behavior
     //
     // With the early return for current.position_count == 0, we know that current has data.
@@ -169,7 +151,7 @@ pub fn merge(
                 merge_type_specific_stats(accumulated_type_specific, current_type_specific)?;
             }
             None => {
-                // Accumulated has None, this maintains consistency with null_count and nan_count behavior
+                // Accumulated has None, this maintains consistency with null_count behavior
                 // Keep type_specific as None
             }
         }
@@ -190,16 +172,6 @@ fn populate_primitive_statistics(
 ) {
     // Map null count
     descriptor.null_count = Some(primitive_stats.null_count as u64);
-
-    // Map NaN count based on data type:
-    // - For floating-point types (f32/f64): always set nan_count (even if 0)
-    // - For non-floating-point types: set to None since NaN doesn't apply
-    descriptor.nan_count = match primitive_stats.basic_type.basic_type {
-        amudai_format::schema::BasicType::Float32 | amudai_format::schema::BasicType::Float64 => {
-            Some(primitive_stats.nan_count as u64)
-        }
-        _ => None,
-    };
 
     // Map range statistics (always set for primitive types, even if min/max are None)
     // This distinguishes between:
@@ -324,6 +296,58 @@ fn populate_decimal_statistics(
             positive_count: decimal_stats.positive_count,
             negative_count: decimal_stats.negative_count,
             nan_count: decimal_stats.nan_count,
+        },
+    ));
+}
+
+/// Populates field descriptor with floating-point statistics.
+///
+/// This function converts floating-point statistics from the data stats format to the
+/// field descriptor format. For floating-point values, we set the null count and use range
+/// statistics to track minimum and maximum values. The floating-point specific counts
+/// are stored in the FloatingStats type-specific statistics.
+///
+/// # Arguments
+///
+/// * `descriptor` - The field descriptor to populate
+/// * `floating_stats` - The floating-point statistics to copy from
+fn populate_floating_statistics(
+    descriptor: &mut shard::FieldDescriptor,
+    floating_stats: &amudai_data_stats::floating::FloatingStats,
+) {
+    use amudai_format::defs::common::{AnyValue, any_value::Kind};
+
+    // Map null count
+    descriptor.null_count = Some(floating_stats.null_count);
+
+    // Convert f64 values to AnyValue for storage
+    let min_value = floating_stats.min_value.map(|v| AnyValue {
+        annotation: None,
+        kind: Some(Kind::DoubleValue(v)),
+    });
+
+    let max_value = floating_stats.max_value.map(|v| AnyValue {
+        annotation: None,
+        kind: Some(Kind::DoubleValue(v)),
+    });
+
+    // Map range statistics (min/max floating-point values, excluding NaN)
+    descriptor.range_stats = Some(shard::RangeStats {
+        min_value,
+        min_inclusive: true, // Floating-point ranges are typically inclusive
+        max_value,
+        max_inclusive: true, // Floating-point ranges are typically inclusive
+    });
+
+    // Populate type-specific floating-point statistics
+    descriptor.type_specific = Some(shard::field_descriptor::TypeSpecific::FloatingStats(
+        shard::FloatingStats {
+            zero_count: floating_stats.zero_count,
+            positive_count: floating_stats.positive_count,
+            negative_count: floating_stats.negative_count,
+            nan_count: floating_stats.nan_count,
+            positive_infinity_count: floating_stats.positive_infinity_count,
+            negative_infinity_count: floating_stats.negative_infinity_count,
         },
     ));
 }
@@ -581,12 +605,10 @@ mod tests {
             buffers: vec![],
             statistics: None,
         };
-
         let descriptor = create_with_stats(100, &encoded_field);
 
         assert_eq!(descriptor.position_count, 100);
         assert_eq!(descriptor.null_count, None);
-        assert_eq!(descriptor.nan_count, None);
         assert!(descriptor.range_stats.is_none());
     }
 
@@ -594,14 +616,13 @@ mod tests {
     fn test_create_with_stats_primitive_statistics() {
         let primitive_stats = PrimitiveStats {
             basic_type: BasicTypeDescriptor {
-                basic_type: amudai_format::schema::BasicType::Float32,
+                basic_type: amudai_format::schema::BasicType::Int32,
                 signed: true,
                 fixed_size: 0,
                 extended_type: Default::default(),
             },
             count: 50,
             null_count: 5,
-            nan_count: 2,
             range_stats: RangeStats {
                 min_value: Some(AnyValue {
                     kind: Some(Kind::I64Value(10)),
@@ -625,7 +646,6 @@ mod tests {
 
         assert_eq!(descriptor.position_count, 50);
         assert_eq!(descriptor.null_count, Some(5));
-        assert_eq!(descriptor.nan_count, Some(2));
         assert!(descriptor.range_stats.is_some());
 
         let range_stats = descriptor.range_stats.unwrap();
@@ -634,7 +654,7 @@ mod tests {
     }
 
     #[test]
-    fn test_populate_statistics_zero_nan_count() {
+    fn test_populate_statistics_primitive_zero_nan_count() {
         let primitive_stats = PrimitiveStats {
             basic_type: BasicTypeDescriptor {
                 basic_type: amudai_format::schema::BasicType::Int32,
@@ -644,7 +664,6 @@ mod tests {
             },
             count: 50,
             null_count: 5,
-            nan_count: 0, // Zero NaN count should result in None for non-FP types
             range_stats: RangeStats {
                 min_value: None,
                 min_inclusive: false,
@@ -662,11 +681,9 @@ mod tests {
             position_count: 50,
             ..Default::default()
         };
-
         populate_statistics(&mut descriptor, &encoded_field);
 
         assert_eq!(descriptor.null_count, Some(5));
-        assert_eq!(descriptor.nan_count, None); // Should be None for non-FP types
         assert!(descriptor.range_stats.is_some()); // Should always be Some for primitive types
 
         // But the min/max values inside should be None
@@ -674,13 +691,11 @@ mod tests {
         assert!(range_stats.min_value.is_none());
         assert!(range_stats.max_value.is_none());
     }
-
     #[test]
     fn test_merge_stripe_field_descriptor_simple() {
         let mut shard_field = shard::FieldDescriptor {
             position_count: 0,
             null_count: None,
-            nan_count: None,
             range_stats: None,
             ..Default::default()
         };
@@ -688,7 +703,6 @@ mod tests {
         let stripe_field = shard::FieldDescriptor {
             position_count: 50,
             null_count: Some(5),
-            nan_count: Some(2),
             range_stats: Some(RangeStats {
                 min_value: Some(AnyValue {
                     kind: Some(Kind::I64Value(1)),
@@ -708,7 +722,6 @@ mod tests {
 
         assert_eq!(shard_field.position_count, 50); // 0 + 50
         assert_eq!(shard_field.null_count, Some(5)); // None + Some(5) = Some(5) since accumulated position_count was 0
-        assert_eq!(shard_field.nan_count, Some(2)); // None + Some(2) = Some(2) since accumulated position_count was 0
         assert!(shard_field.range_stats.is_some());
     }
 
@@ -887,47 +900,44 @@ mod tests {
             panic!("Expected string statistics in type_specific field");
         }
     }
-
     #[test]
-    fn test_nan_count_behavior_by_data_type() {
-        // Test floating-point types - should always set nan_count even when 0
-        let float32_stats = PrimitiveStats {
-            basic_type: BasicTypeDescriptor {
-                basic_type: amudai_format::schema::BasicType::Float32,
-                signed: true,
-                fixed_size: 0,
-                extended_type: Default::default(),
-            },
-            count: 10,
+    fn test_floating_point_vs_integer_stats_handling() {
+        // Test that floating-point types use FloatingStats while integers use PrimitiveStats
+        use amudai_data_stats::floating::FloatingStats;
+
+        let floating_stats = FloatingStats {
+            total_count: 51,
             null_count: 0,
-            nan_count: 0, // Zero NaNs for float32
-            range_stats: RangeStats {
-                min_value: None,
-                min_inclusive: false,
-                max_value: None,
-                max_inclusive: false,
-            },
+            zero_count: 10,
+            positive_count: 20,
+            negative_count: 15,
+            nan_count: 3,
+            positive_infinity_count: 1,
+            negative_infinity_count: 2,
+            min_value: None,
+            max_value: None,
         };
 
-        let float64_stats = PrimitiveStats {
-            basic_type: BasicTypeDescriptor {
-                basic_type: amudai_format::schema::BasicType::Float64,
-                signed: true,
-                fixed_size: 0,
-                extended_type: Default::default(),
-            },
-            count: 10,
-            null_count: 0,
-            nan_count: 3, // Some NaNs for float64
-            range_stats: RangeStats {
-                min_value: None,
-                min_inclusive: false,
-                max_value: None,
-                max_inclusive: false,
-            },
+        // Test Float32 with FloatingStats
+        let mut descriptor = shard::FieldDescriptor::default();
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: Some(EncodedFieldStatistics::Floating(floating_stats.clone())),
         };
+        populate_statistics(&mut descriptor, &encoded_field);
 
-        // Test integer types - should never set nan_count
+        // Check that type_specific contains FloatingStats
+        if let Some(shard::field_descriptor::TypeSpecific::FloatingStats(stats)) =
+            &descriptor.type_specific
+        {
+            assert_eq!(stats.nan_count, 3);
+            assert_eq!(stats.positive_infinity_count, 1);
+            assert_eq!(stats.negative_infinity_count, 2);
+        } else {
+            panic!("Expected FloatingStats in type_specific");
+        }
+
+        // Test Int32 - should not have FloatingStats
         let int32_stats = PrimitiveStats {
             basic_type: BasicTypeDescriptor {
                 basic_type: amudai_format::schema::BasicType::Int32,
@@ -935,9 +945,8 @@ mod tests {
                 fixed_size: 0,
                 extended_type: Default::default(),
             },
-            count: 10,
-            null_count: 0,
-            nan_count: 0, // Not applicable for integers
+            count: 100,
+            null_count: 5,
             range_stats: RangeStats {
                 min_value: None,
                 min_inclusive: false,
@@ -946,32 +955,15 @@ mod tests {
             },
         };
 
-        // Test Float32 with zero NaNs - should set to Some(0)
-        let mut descriptor = shard::FieldDescriptor::default();
-        let encoded_field = EncodedField {
-            buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::Primitive(float32_stats)),
-        };
-        populate_statistics(&mut descriptor, &encoded_field);
-        assert_eq!(descriptor.nan_count, Some(0)); // Should be Some(0) for FP types
-
-        // Test Float64 with some NaNs - should set to Some(3)
-        let mut descriptor = shard::FieldDescriptor::default();
-        let encoded_field = EncodedField {
-            buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::Primitive(float64_stats)),
-        };
-        populate_statistics(&mut descriptor, &encoded_field);
-        assert_eq!(descriptor.nan_count, Some(3)); // Should be Some(3) for FP types
-
-        // Test Int32 - should never set nan_count regardless of value
         let mut descriptor = shard::FieldDescriptor::default();
         let encoded_field = EncodedField {
             buffers: vec![],
             statistics: Some(EncodedFieldStatistics::Primitive(int32_stats)),
         };
         populate_statistics(&mut descriptor, &encoded_field);
-        assert_eq!(descriptor.nan_count, None); // Should be None for non-FP types
+
+        // Should not have FloatingStats for integer types
+        assert!(descriptor.type_specific.is_none());
     }
 
     #[test]
@@ -986,7 +978,6 @@ mod tests {
             },
             count: 10,
             null_count: 10, // All nulls
-            nan_count: 0,
             range_stats: RangeStats {
                 min_value: None, // No min value (all nulls)
                 min_inclusive: false,
@@ -1004,7 +995,6 @@ mod tests {
             },
             count: 10,
             null_count: 2,
-            nan_count: 0,
             range_stats: RangeStats {
                 min_value: Some(AnyValue {
                     kind: Some(Kind::I64Value(5)),
@@ -1061,14 +1051,12 @@ mod tests {
             panic!("Expected I64Value for max");
         }
     }
-
     #[test]
     fn test_merge_field_descriptors() {
         // Test with all Some descriptors - should succeed
         let desc1 = Some(shard::FieldDescriptor {
             position_count: 100,
             null_count: Some(10),
-            nan_count: None,
             range_stats: Some(RangeStats {
                 min_value: Some(AnyValue {
                     kind: Some(Kind::I64Value(5)),
@@ -1087,7 +1075,6 @@ mod tests {
         let desc2 = Some(shard::FieldDescriptor {
             position_count: 200,
             null_count: Some(20),
-            nan_count: Some(5),
             range_stats: Some(RangeStats {
                 min_value: Some(AnyValue {
                     kind: Some(Kind::I64Value(1)),
@@ -1111,9 +1098,6 @@ mod tests {
         let descriptor = merged.unwrap();
         assert_eq!(descriptor.position_count, 300); // 100 + 200
         assert_eq!(descriptor.null_count, Some(30)); // 10 + 20
-
-        // NaN count should be None because desc1 has None
-        assert_eq!(descriptor.nan_count, None);
 
         // Range stats should be merged - should have the overall min/max
         assert!(descriptor.range_stats.is_some());
@@ -1145,14 +1129,12 @@ mod tests {
         let merged = merge_field_descriptors(descriptors).unwrap();
         assert!(merged.is_none());
     }
-
     #[test]
     fn test_merge_field_descriptors_single_some() {
         // Test with only one Some descriptor and no None values
         let desc = Some(shard::FieldDescriptor {
             position_count: 100,
             null_count: Some(10),
-            nan_count: Some(5),
             range_stats: Some(RangeStats {
                 min_value: Some(AnyValue {
                     kind: Some(Kind::I64Value(1)),
@@ -1175,7 +1157,6 @@ mod tests {
         let result = merged.unwrap();
         assert_eq!(result.position_count, 100);
         assert_eq!(result.null_count, Some(10));
-        assert_eq!(result.nan_count, Some(5));
 
         // Verify range_stats are preserved
         assert!(result.range_stats.is_some());
@@ -1189,13 +1170,10 @@ mod tests {
             assert_eq!(*max, 100);
         } else {
             panic!("Expected I64Value for max");
-        }
-
-        // Test with one Some descriptor mixed with None values - should return None
+        } // Test with one Some descriptor mixed with None values - should return None
         let desc = Some(shard::FieldDescriptor {
             position_count: 100,
             null_count: Some(10),
-            nan_count: Some(5),
             range_stats: Some(RangeStats {
                 min_value: Some(AnyValue {
                     kind: Some(Kind::I64Value(1)),
@@ -1600,24 +1578,21 @@ mod tests {
             panic!("Expected I64Value for max");
         }
     }
-
     #[test]
-    fn test_null_and_nan_count_merging_with_none_values() {
-        // Test that if ANY descriptor has None for null_count or nan_count,
+    fn test_null_count_merging_with_none_values() {
+        // Test that if ANY descriptor has None for null_count,
         // the merged result should be None
 
         // Test case 1: One descriptor has None null_count, other has Some
         let mut shard_field = shard::FieldDescriptor {
             position_count: 50,
             null_count: None,
-            nan_count: Some(1),
             ..Default::default()
         };
 
         let stripe_field = shard::FieldDescriptor {
             position_count: 30,
             null_count: Some(5),
-            nan_count: Some(2),
             ..Default::default()
         };
 
@@ -1625,20 +1600,17 @@ mod tests {
 
         assert_eq!(shard_field.position_count, 80); // 50 + 30
         assert_eq!(shard_field.null_count, None); // None + Some(5) = None
-        assert_eq!(shard_field.nan_count, Some(3)); // Some(1) + Some(2) = Some(3)
 
         // Test case 2: Both descriptors have Some values
         let mut shard_field2 = shard::FieldDescriptor {
             position_count: 50,
             null_count: Some(3),
-            nan_count: Some(1),
             ..Default::default()
         };
 
         let stripe_field2 = shard::FieldDescriptor {
             position_count: 30,
             null_count: Some(5),
-            nan_count: Some(2),
             ..Default::default()
         };
 
@@ -1646,28 +1618,6 @@ mod tests {
 
         assert_eq!(shard_field2.position_count, 80); // 50 + 30
         assert_eq!(shard_field2.null_count, Some(8)); // Some(3) + Some(5) = Some(8)
-        assert_eq!(shard_field2.nan_count, Some(3)); // Some(1) + Some(2) = Some(3)
-
-        // Test case 3: One descriptor has None nan_count, other has Some
-        let mut shard_field3 = shard::FieldDescriptor {
-            position_count: 50,
-            null_count: Some(3),
-            nan_count: None,
-            ..Default::default()
-        };
-
-        let stripe_field3 = shard::FieldDescriptor {
-            position_count: 30,
-            null_count: Some(5),
-            nan_count: Some(2),
-            ..Default::default()
-        };
-
-        merge(&mut shard_field3, &stripe_field3).unwrap();
-
-        assert_eq!(shard_field3.position_count, 80); // 50 + 30
-        assert_eq!(shard_field3.null_count, Some(8)); // Some(3) + Some(5) = Some(8)
-        assert_eq!(shard_field3.nan_count, None); // None + Some(2) = None
     }
 
     #[test]
@@ -2020,7 +1970,7 @@ mod tests {
 
     #[test]
     fn test_ascii_count_initial_state_behavior() {
-        // Test that ascii_count follows the initial state logic like null_count and nan_count
+        // Test that ascii_count follows the initial state logic like null_count
 
         // Case 1: Accumulated is in initial state - should allow setting ascii_count
         let mut accumulated = shard::FieldDescriptor {
@@ -2206,7 +2156,7 @@ mod tests {
     #[test]
     fn test_boolean_statistics_inconsistency_with_none_pattern() {
         // This test demonstrates that boolean statistics don't follow the
-        // "sticky None" pattern that other statistics follow (null_count, nan_count, ascii_count)
+        // "sticky None" pattern that other statistics follow (null_count, ascii_count)
 
         // Test 1: Boolean statistics cannot be None, so they always merge by addition
         let mut shard_field = shard::FieldDescriptor {
@@ -2258,7 +2208,7 @@ mod tests {
         }
 
         // This demonstrates the architectural inconsistency:
-        // - null_count, nan_count, ascii_count can be None and follow sticky None pattern
+        // - null_count, ascii_count can be None and follow sticky None pattern
         // - Boolean true_count/false_count are primitive u64 and always mergeable
         //
         // For consistency, boolean statistics should either:

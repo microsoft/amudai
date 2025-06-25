@@ -105,8 +105,6 @@ message FieldDescriptor {
     optional amudai.common.AnyValue constant_value = 3;
     // Dictionary size
     optional fixed64 dictionary_size = 4;
-    // For a floating-point type, this specifies the number of value slots containing NaN.
-    optional fixed64 nan_count = 5;
     // Provides the minimum and maximum values for the stored sequence, where the range bounds
     // may be inclusive or exclusive.
     optional RangeStats range_stats = 6;
@@ -131,6 +129,8 @@ message FieldDescriptor {
         BooleanStats boolean_stats = 22;
         // Statistics specific to decimal fields (128-bit precision).
         DecimalStats decimal_stats = 23;
+        // Statistics specific to floating-point fields (f32, f64).
+        FloatingStats floating_stats = 24;
     }
     
     repeated amudai.common.NameValuePair custom_properties = 40;
@@ -196,6 +196,22 @@ message DecimalStats {
     fixed64 negative_count = 3;
     // Number of decimal values that are NaN (Not a Number).
     fixed64 nan_count = 4;
+}
+
+// Statistics specific to floating-point fields (f32, f64).
+message FloatingStats {
+    // Number of floating-point values that are zero.
+    fixed64 zero_count = 1;
+    // Number of floating-point values that are positive (greater than zero).
+    fixed64 positive_count = 2;
+    // Number of floating-point values that are negative (less than zero).
+    fixed64 negative_count = 3;
+    // Number of floating-point values that are NaN (Not a Number).
+    fixed64 nan_count = 4;
+    // Number of floating-point values that are positive infinity.
+    fixed64 positive_infinity_count = 5;
+    // Number of floating-point values that are negative infinity.
+    fixed64 negative_infinity_count = 6;
 }
 
 message CardinalityInfo {

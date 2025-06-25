@@ -3,3 +3,6 @@ pub mod shard_store;
 
 #[cfg(test)]
 mod decimal_integration;
+
+#[cfg(test)]
+mod floating_integration;

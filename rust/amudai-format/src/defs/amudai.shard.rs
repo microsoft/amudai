@@ -122,9 +122,6 @@ pub struct FieldDescriptor {
     /// Dictionary size
     #[prost(fixed64, optional, tag = "4")]
     pub dictionary_size: ::core::option::Option<u64>,
-    /// For a floating-point type, this specifies the number of value slots containing NaN.
-    #[prost(fixed64, optional, tag = "5")]
-    pub nan_count: ::core::option::Option<u64>,
     /// Provides the minimum and maximum values for the stored sequence, where the range bounds
     /// may be inclusive or exclusive.
     #[prost(message, optional, tag = "6")]
@@ -153,7 +150,7 @@ pub struct FieldDescriptor {
     pub stored_index_size: ::core::option::Option<u64>,
     #[prost(fixed64, optional, tag = "43")]
     pub plain_data_size: ::core::option::Option<u64>,
-    #[prost(oneof = "field_descriptor::TypeSpecific", tags = "20, 21, 22, 23")]
+    #[prost(oneof = "field_descriptor::TypeSpecific", tags = "20, 21, 22, 23, 24")]
     pub type_specific: ::core::option::Option<field_descriptor::TypeSpecific>,
 }
 /// Nested message and enum types in `FieldDescriptor`.
@@ -173,6 +170,9 @@ pub mod field_descriptor {
         /// Statistics specific to decimal fields (128-bit precision).
         #[prost(message, tag = "23")]
         DecimalStats(super::DecimalStats),
+        /// Statistics specific to floating-point fields (f32, f64).
+        #[prost(message, tag = "24")]
+        FloatingStats(super::FloatingStats),
     }
 }
 /// Provides the minimum and maximum values for the stored sequence.
@@ -248,6 +248,28 @@ pub struct DecimalStats {
     /// Number of decimal values that are NaN (Not a Number).
     #[prost(fixed64, tag = "4")]
     pub nan_count: u64,
+}
+/// Statistics specific to floating-point fields (f32, f64).
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct FloatingStats {
+    /// Number of floating-point values that are zero.
+    #[prost(fixed64, tag = "1")]
+    pub zero_count: u64,
+    /// Number of floating-point values that are positive (greater than zero).
+    #[prost(fixed64, tag = "2")]
+    pub positive_count: u64,
+    /// Number of floating-point values that are negative (less than zero).
+    #[prost(fixed64, tag = "3")]
+    pub negative_count: u64,
+    /// Number of floating-point values that are NaN (Not a Number).
+    #[prost(fixed64, tag = "4")]
+    pub nan_count: u64,
+    /// Number of floating-point values that are positive infinity.
+    #[prost(fixed64, tag = "5")]
+    pub positive_infinity_count: u64,
+    /// Number of floating-point values that are negative infinity.
+    #[prost(fixed64, tag = "6")]
+    pub negative_infinity_count: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CardinalityInfo {

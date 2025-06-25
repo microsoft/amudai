@@ -42,10 +42,8 @@ fn test_end_to_end_statistics_integration() -> Result<()> {
     let field_data_type = schema.find_field("test_field")?.unwrap().1.data_type()?;
     let schema_id = field_data_type.schema_id()?;
     let field_descriptor = &prepared_stripe.fields.get(schema_id).unwrap().descriptor;
-
     assert_eq!(field_descriptor.position_count, 5);
     assert_eq!(field_descriptor.null_count, Some(0)); // No nulls
-    assert!(field_descriptor.nan_count.is_none()); // No NaNs for integers
 
     // Verify range statistics
     let range_stats = field_descriptor.range_stats.as_ref().unwrap();
@@ -656,11 +654,17 @@ fn test_float64_statistics_integration_with_edge_cases() -> Result<()> {
         .data_type()?;
     let schema_id = field_data_type.schema_id()?;
     let field_descriptor = &prepared_stripe.fields.get(schema_id).unwrap().descriptor;
-
     assert_eq!(field_descriptor.position_count, 7);
     assert_eq!(field_descriptor.null_count, Some(1));
-    // Should count 1 NaN
-    assert_eq!(field_descriptor.nan_count, Some(1));
+
+    // Check FloatingStats for NaN count
+    if let Some(shard::field_descriptor::TypeSpecific::FloatingStats(floating_stats)) =
+        &field_descriptor.type_specific
+    {
+        assert_eq!(floating_stats.nan_count, 1);
+    } else {
+        panic!("Expected FloatingStats for float field");
+    }
 
     let range_stats = field_descriptor.range_stats.as_ref().unwrap();
     let min_val = range_stats.min_value.as_ref().unwrap();
@@ -736,10 +740,17 @@ fn test_float64_statistics_aggregation_across_stripes() -> Result<()> {
     let shard_field_desc =
         crate::write::field_descriptor::merge_field_descriptors(field_descriptors_optional)?
             .expect("Should have merged field descriptors successfully");
-
     assert_eq!(shard_field_desc.position_count, 8);
     assert_eq!(shard_field_desc.null_count, Some(1));
-    assert_eq!(shard_field_desc.nan_count, Some(1));
+
+    // Check FloatingStats for NaN count in merged descriptor
+    if let Some(shard::field_descriptor::TypeSpecific::FloatingStats(floating_stats)) =
+        &shard_field_desc.type_specific
+    {
+        assert_eq!(floating_stats.nan_count, 1);
+    } else {
+        panic!("Expected FloatingStats for merged float field");
+    }
 
     let range_stats = shard_field_desc.range_stats.as_ref().unwrap();
     use amudai_format::defs::common::any_value::Kind;
@@ -974,10 +985,17 @@ fn test_float32_statistics_with_nan() -> Result<()> {
         .data_type()?;
     let schema_id = field_data_type.schema_id()?;
     let field_descriptor = &prepared_stripe.fields.get(schema_id).unwrap().descriptor;
-
     assert_eq!(field_descriptor.position_count, 4);
     assert_eq!(field_descriptor.null_count, Some(1));
-    assert_eq!(field_descriptor.nan_count, Some(1));
+
+    // Check FloatingStats for NaN count
+    if let Some(shard::field_descriptor::TypeSpecific::FloatingStats(floating_stats)) =
+        &field_descriptor.type_specific
+    {
+        assert_eq!(floating_stats.nan_count, 1);
+    } else {
+        panic!("Expected FloatingStats for float32 field");
+    }
 
     println!("✓ Float32 statistics with NaN test passed!");
     Ok(())

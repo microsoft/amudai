@@ -6,17 +6,24 @@ use amudai_arrow_compat::datetime_conversions;
 use amudai_blockstream::write::{
     primitive_buffer::PrimitiveBufferEncoder, staging_buffer::PrimitiveStagingBuffer,
 };
-use amudai_common::{Result, verify_arg};
+use amudai_common::{Result, error::Error, verify_arg};
+use amudai_data_stats::floating::FloatingStatsCollector;
 use amudai_data_stats::primitive::PrimitiveStatsCollector;
 use amudai_encodings::block_encoder::{
     BlockChecksum, BlockEncodingParameters, BlockEncodingPolicy, PresenceEncoding,
 };
 use amudai_format::defs::schema_ext::BasicTypeDescriptor;
-use arrow_array::Array;
+use arrow_array::{Array, Float32Array, Float64Array};
 
 use crate::write::field_encoder::FieldEncoderParams;
 
 use super::{EncodedField, EncodedFieldStatistics, FieldEncoderOps};
+
+/// Enum to handle different types of statistics collectors for primitive fields
+enum StatsCollector {
+    Primitive(PrimitiveStatsCollector),
+    Floating(FloatingStatsCollector),
+}
 
 /// Encoder implementation for primitive numeric fields: integers, FP, `DateTime`, `TimeSpan`.
 ///
@@ -41,7 +48,7 @@ pub struct PrimitiveFieldEncoder {
     /// Value buffer encoder.
     buffer_encoder: PrimitiveBufferEncoder,
     /// Optional statistics collector for gathering field statistics
-    stats_collector: Option<PrimitiveStatsCollector>,
+    stats_collector: Option<StatsCollector>,
 }
 
 impl PrimitiveFieldEncoder {
@@ -56,7 +63,16 @@ impl PrimitiveFieldEncoder {
         params: &FieldEncoderParams,
         normalized_arrow_type: arrow_schema::DataType,
     ) -> Result<Box<dyn FieldEncoderOps>> {
-        let stats_collector = Some(PrimitiveStatsCollector::new(params.basic_type));
+        use amudai_format::schema::BasicType;
+
+        let stats_collector = match params.basic_type.basic_type {
+            BasicType::Float32 | BasicType::Float64 => {
+                Some(StatsCollector::Floating(FloatingStatsCollector::new()))
+            }
+            _ => Some(StatsCollector::Primitive(PrimitiveStatsCollector::new(
+                params.basic_type,
+            ))),
+        };
 
         Ok(Box::new(PrimitiveFieldEncoder {
             staging: PrimitiveStagingBuffer::new(normalized_arrow_type.clone()),
@@ -83,6 +99,49 @@ impl PrimitiveFieldEncoder {
     /// Default (fallback) block value count when it cannot be inferred
     /// by the block encoder.
     const DEFAULT_BLOCK_SIZE: usize = 1024;
+    /// Collects floating-point statistics from an Arrow array.
+    fn collect_floating_stats_from_array(
+        collector: &mut FloatingStatsCollector,
+        array: &dyn Array,
+    ) -> Result<()> {
+        use arrow_schema::DataType;
+
+        match array.data_type() {
+            DataType::Float32 => {
+                let float_array = array
+                    .as_any()
+                    .downcast_ref::<Float32Array>()
+                    .ok_or_else(|| Error::invalid_arg("array_type", "Expected Float32Array"))?;
+                for i in 0..float_array.len() {
+                    if float_array.is_null(i) {
+                        collector.process_null();
+                    } else {
+                        collector.process_f32_value(float_array.value(i));
+                    }
+                }
+            }
+            DataType::Float64 => {
+                let float_array = array
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .ok_or_else(|| Error::invalid_arg("array_type", "Expected Float64Array"))?;
+                for i in 0..float_array.len() {
+                    if float_array.is_null(i) {
+                        collector.process_null();
+                    } else {
+                        collector.process_f64_value(float_array.value(i));
+                    }
+                }
+            }
+            _ => {
+                return Err(Error::invalid_arg(
+                    "array_type",
+                    "Floating statistics collector called with non-floating point array",
+                ));
+            }
+        }
+        Ok(())
+    }
 
     fn flush(&mut self, force: bool) -> Result<()> {
         if self.staging.is_empty() {
@@ -157,11 +216,16 @@ impl PrimitiveFieldEncoder {
 
 impl FieldEncoderOps for PrimitiveFieldEncoder {
     fn push_array(&mut self, array: Arc<dyn Array>) -> Result<()> {
-        let array = Self::convert_array(array, self.params.basic_type)?;
-
-        // Collect statistics if enabled
+        let array = Self::convert_array(array, self.params.basic_type)?; // Collect statistics if enabled
         if let Some(ref mut stats_collector) = self.stats_collector {
-            stats_collector.process_array(array.as_ref())?;
+            match stats_collector {
+                StatsCollector::Primitive(collector) => {
+                    collector.process_array(array.as_ref())?;
+                }
+                StatsCollector::Floating(collector) => {
+                    Self::collect_floating_stats_from_array(collector, array.as_ref())?;
+                }
+            }
         }
 
         self.staging.append(array);
@@ -171,11 +235,16 @@ impl FieldEncoderOps for PrimitiveFieldEncoder {
         Ok(())
     }
     fn push_nulls(&mut self, count: usize) -> Result<()> {
-        let null_array = arrow_array::new_null_array(&self.normalized_arrow_type, count);
-
-        // Collect statistics for null values efficiently
+        let null_array = arrow_array::new_null_array(&self.normalized_arrow_type, count); // Collect statistics for null values efficiently
         if let Some(ref mut stats_collector) = self.stats_collector {
-            stats_collector.process_nulls(count);
+            match stats_collector {
+                StatsCollector::Primitive(collector) => {
+                    collector.process_nulls(count);
+                }
+                StatsCollector::Floating(collector) => {
+                    collector.process_nulls(count);
+                }
+            }
         }
 
         self.staging.append(null_array);
@@ -189,12 +258,18 @@ impl FieldEncoderOps for PrimitiveFieldEncoder {
         if !self.staging.is_empty() {
             self.flush(true)?;
         }
-        let encoded_buffer = self.buffer_encoder.finish()?;
-
-        // Finalize statistics if enabled
+        let encoded_buffer = self.buffer_encoder.finish()?; // Finalize statistics if enabled
         let statistics = if let Some(stats_collector) = self.stats_collector {
-            let primitive_stats = stats_collector.finish()?;
-            Some(EncodedFieldStatistics::Primitive(primitive_stats))
+            match stats_collector {
+                StatsCollector::Primitive(collector) => {
+                    let primitive_stats = collector.finish()?;
+                    Some(EncodedFieldStatistics::Primitive(primitive_stats))
+                }
+                StatsCollector::Floating(collector) => {
+                    let floating_stats = collector.finalize();
+                    Some(EncodedFieldStatistics::Floating(floating_stats))
+                }
+            }
         } else {
             None
         };
@@ -317,7 +392,6 @@ mod tests {
             // Verify basic counts
             assert_eq!(stats.count, 10); // 5 + 5 values
             assert_eq!(stats.null_count, 2); // 2 nulls in second array
-            assert_eq!(stats.nan_count, 0); // No NaNs for integers
 
             // Verify range statistics
             assert!(stats.range_stats.min_value.is_some());
@@ -334,7 +408,6 @@ mod tests {
 
         Ok(())
     }
-
     #[test]
     fn test_primitive_stats_collection_float32_with_nan() -> Result<()> {
         let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
@@ -367,25 +440,30 @@ mod tests {
 
         let encoded_field = encoder.finish()?;
 
-        // Verify statistics were collected
+        // Verify statistics were collected - f32 should use FloatingStats now
         assert!(encoded_field.statistics.is_some());
-        if let Some(EncodedFieldStatistics::Primitive(stats)) = encoded_field.statistics {
+        if let Some(EncodedFieldStatistics::Floating(stats)) = encoded_field.statistics {
             // Verify basic counts
-            assert_eq!(stats.count, 6);
+            assert_eq!(stats.total_count, 6);
             assert_eq!(stats.null_count, 1);
             assert_eq!(stats.nan_count, 2);
+            assert_eq!(stats.positive_count, 3); // 1.5, 3.7, 2.1
+            assert_eq!(stats.negative_count, 0);
+            assert_eq!(stats.zero_count, 0);
+            assert_eq!(stats.positive_infinity_count, 0);
+            assert_eq!(stats.negative_infinity_count, 0);
 
             // Verify range statistics (should exclude NaN values)
-            assert!(stats.range_stats.min_value.is_some());
-            assert!(stats.range_stats.max_value.is_some());
+            assert!(stats.min_value.is_some());
+            assert!(stats.max_value.is_some());
 
-            let min_val = stats.range_stats.min_value.unwrap().as_f64().unwrap();
-            let max_val = stats.range_stats.max_value.unwrap().as_f64().unwrap();
+            let min_val = stats.min_value.unwrap();
+            let max_val = stats.max_value.unwrap();
 
             assert!((min_val - 1.5).abs() < 0.001);
             assert!((max_val - 3.7).abs() < 0.001);
         } else {
-            panic!("Expected primitive statistics but got different type or None");
+            panic!("Expected floating statistics but got different type or None");
         }
 
         Ok(())
@@ -422,7 +500,6 @@ mod tests {
         if let Some(EncodedFieldStatistics::Primitive(stats)) = encoded_field.statistics {
             assert_eq!(stats.count, 5);
             assert_eq!(stats.null_count, 0);
-            assert_eq!(stats.nan_count, 0);
         } else {
             panic!("Expected primitive statistics");
         }
@@ -467,7 +544,6 @@ mod tests {
         if let Some(EncodedFieldStatistics::Primitive(stats)) = encoded_field.statistics {
             assert_eq!(stats.count, 10); // 3 + 5 nulls + 2 = 10 total values
             assert_eq!(stats.null_count, 5); // 5 nulls from push_nulls
-            assert_eq!(stats.nan_count, 0); // No NaNs for integers
 
             // Verify range statistics (should only consider non-null values)
             assert_eq!(stats.range_stats.min_value.unwrap().as_i64().unwrap(), 1);

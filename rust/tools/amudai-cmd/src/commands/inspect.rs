@@ -140,8 +140,6 @@ struct FieldDescriptorInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     dictionary_size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    nan_count: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     stored_data_size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stored_index_size: Option<u64>,
@@ -272,7 +270,6 @@ fn create_field_descriptor_info(
             .as_ref()
             .map(|v| format!("{:?}", v)),
         dictionary_size: field_desc.dictionary_size,
-        nan_count: field_desc.nan_count,
         stored_data_size: field_desc.stored_data_size,
         stored_index_size: field_desc.stored_index_size,
         plain_data_size: field_desc.plain_data_size,
@@ -313,7 +310,6 @@ fn create_stripe_field_descriptor_info(
                 .as_ref()
                 .map(|v| format!("{:?}", v)),
             dictionary_size: field_desc.dictionary_size,
-            nan_count: field_desc.nan_count,
             stored_data_size: field_desc.stored_data_size,
             stored_index_size: field_desc.stored_index_size,
             plain_data_size: field_desc.plain_data_size,
@@ -718,6 +714,5 @@ fn gather_field_encoding_statistics(
         .collect::<Vec<_>>();
 
     stats.sort_unstable_by_key(|s| std::cmp::Reverse(s.blocks_count));
-
     Ok(stats)
 }

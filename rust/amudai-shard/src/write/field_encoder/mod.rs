@@ -188,6 +188,8 @@ pub enum EncodedFieldStatistics {
     Binary(amudai_data_stats::binary::BinaryStats),
     /// Statistics for decimal types
     Decimal(amudai_data_stats::decimal::DecimalStats),
+    /// Statistics for floating-point types
+    Floating(amudai_data_stats::floating::FloatingStats),
 }
 
 impl EncodedField {
