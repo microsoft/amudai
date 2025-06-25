@@ -21,7 +21,7 @@ If you're planning to modify the format definitions that use Protocol Buffers an
 #### Linux (Azure Linux, aka Mariner)
 
 ```
-sudo yum install protobuf-devel
+sudo tdnf install protobuf-devel
 
 cargo install planus-cli
 
