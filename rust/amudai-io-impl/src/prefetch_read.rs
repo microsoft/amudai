@@ -270,7 +270,8 @@ mod tests {
 
     #[test]
     fn test_prefetch_read_at_basics() {
-        let temp_store = crate::temp_file_store::create_file_based(16 * 1024 * 1024, None).unwrap();
+        let temp_store =
+            crate::temp_file_store::create_file_based_cached(16 * 1024 * 1024, None).unwrap();
         let mut writer = temp_store.allocate_writable(None).unwrap();
         for _ in 0..10 {
             writer.write_all(&vec![1u8; 4096]).unwrap();
@@ -294,7 +295,8 @@ mod tests {
 
     #[test]
     fn test_mutable_read_access() {
-        let temp_store = crate::temp_file_store::create_file_based(1024 * 1024, None).unwrap();
+        let temp_store =
+            crate::temp_file_store::create_file_based_cached(1024 * 1024, None).unwrap();
         let mut writer = temp_store.allocate_writable(None).unwrap();
         writer.write_all(&vec![42u8; 4096]).unwrap();
 
@@ -315,7 +317,8 @@ mod tests {
 
     #[test]
     fn test_sequential_access_pattern() {
-        let temp_store = crate::temp_file_store::create_file_based(1024 * 1024, None).unwrap();
+        let temp_store =
+            crate::temp_file_store::create_file_based_cached(1024 * 1024, None).unwrap();
         let mut writer = temp_store.allocate_writable(None).unwrap();
         for i in 0..100 {
             let value = (i % 256) as u8;
@@ -341,7 +344,8 @@ mod tests {
 
     #[test]
     fn test_random_access_pattern() {
-        let temp_store = crate::temp_file_store::create_file_based(1024 * 1024, None).unwrap();
+        let temp_store =
+            crate::temp_file_store::create_file_based_cached(1024 * 1024, None).unwrap();
         let mut writer = temp_store.allocate_writable(None).unwrap();
         writer.write_all(&vec![255u8; 1024 * 100]).unwrap();
 
@@ -368,7 +372,8 @@ mod tests {
 
     #[test]
     fn test_overlapping_reads() {
-        let temp_store = crate::temp_file_store::create_file_based(1024 * 1024, None).unwrap();
+        let temp_store =
+            crate::temp_file_store::create_file_based_cached(1024 * 1024, None).unwrap();
         let mut writer = temp_store.allocate_writable(None).unwrap();
         writer.write_all(&vec![123u8; 4096]).unwrap();
 
@@ -391,7 +396,8 @@ mod tests {
 
     #[test]
     fn test_empty_range_iterator() {
-        let temp_store = crate::temp_file_store::create_file_based(1024 * 1024, None).unwrap();
+        let temp_store =
+            crate::temp_file_store::create_file_based_cached(1024 * 1024, None).unwrap();
         let mut writer = temp_store.allocate_writable(None).unwrap();
         writer.write_all(&vec![1u8; 1024]).unwrap();
 
@@ -410,7 +416,8 @@ mod tests {
 
     #[test]
     fn test_reads_beyond_prefetched_range() {
-        let temp_store = crate::temp_file_store::create_file_based(1024 * 1024, None).unwrap();
+        let temp_store =
+            crate::temp_file_store::create_file_based_cached(1024 * 1024, None).unwrap();
         let mut writer = temp_store.allocate_writable(None).unwrap();
         writer.write_all(&vec![42u8; 10240]).unwrap();
 

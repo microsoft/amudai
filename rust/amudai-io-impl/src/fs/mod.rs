@@ -24,12 +24,13 @@
 //! - Uses `FILE_FLAG_NO_BUFFERING` for unbuffered I/O
 //! - Implements `FILE_FLAG_DELETE_ON_CLOSE` for automatic temporary file cleanup
 
+pub mod direct_file;
 #[cfg_attr(any(unix, target_os = "redox", target_os = "wasi"), path = "unix.rs")]
 #[cfg_attr(windows, path = "windows.rs")]
 mod platform;
-
 mod shared;
 
+pub use direct_file::{DirectFileReader, DirectFileWriter};
 pub use platform::*;
 
 /// Specifies the I/O buffering mode for file operations.
@@ -56,7 +57,7 @@ pub enum IoMode {
 mod tests {
     use amudai_bytes::buffer::AlignedByteVec;
 
-    use crate::fs::{IoMode, create_temporary_in};
+    use crate::fs::{IoMode, create_temporary_in, try_get_io_granularity};
 
     #[test]
     fn test_create_temp() {
@@ -66,5 +67,7 @@ mod tests {
         buf.resize(20000, 17);
         amudai_io::file::file_write_at(&file, 4096 * 3, &buf[..8192]).unwrap();
         amudai_io::file::file_read_at_exact(&file, 4096 * 2, &mut buf[..8192]).unwrap();
+        let n = try_get_io_granularity(&file).unwrap();
+        assert!(n.is_power_of_two());
     }
 }

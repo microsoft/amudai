@@ -11,7 +11,8 @@ fn create_stores() -> Vec<Arc<dyn TemporaryFileStore>> {
 fn create_stores_with_capacity(capacity: u64) -> Vec<Arc<dyn TemporaryFileStore>> {
     vec![
         super::create_in_memory(capacity).unwrap(),
-        super::create_file_based(capacity, None).unwrap(),
+        super::create_file_based_cached(capacity, None).unwrap(),
+        super::create_file_based_uncached(capacity, None).unwrap(),
     ]
 }
 

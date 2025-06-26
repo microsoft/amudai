@@ -130,6 +130,14 @@ pub fn create_temporary_in(folder_path: &Path, io_mode: IoMode) -> std::io::Resu
     }
 }
 
+pub fn get_io_granularity(file: &std::fs::File) -> u64 {
+    try_get_io_granularity(file).unwrap_or(4096).max(4096)
+}
+
+pub fn try_get_io_granularity(_file: &std::fs::File) -> std::io::Result<u64> {
+    Ok(4096)
+}
+
 /// Internal function to create a temporary file with platform-specific optimizations.
 ///
 /// # Arguments

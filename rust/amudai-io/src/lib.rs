@@ -12,6 +12,7 @@ pub mod file;
 pub mod io_extensions;
 pub mod memory;
 pub mod precached_read;
+pub mod read_adapter;
 pub mod sliced_read;
 pub mod temp_file_store;
 pub mod utils;

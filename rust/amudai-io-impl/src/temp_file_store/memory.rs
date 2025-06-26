@@ -413,4 +413,355 @@ mod tests {
         assert!(buffer2.write_all(b"1234").is_err());
         Ok(())
     }
+
+    #[test]
+    fn test_truncate_basic_memory() -> io::Result<()> {
+        let store = InMemoryTempFileStore::new(1000000);
+        let mut temp_file = store.allocate_writable(None)?;
+
+        // Write some data
+        let data = b"Hello, World! This is test data for truncation.";
+        temp_file.write_all(data)?;
+        assert_eq!(temp_file.current_size(), data.len() as u64);
+
+        // Truncate to smaller size
+        temp_file.truncate(20)?;
+        assert_eq!(temp_file.current_size(), 20);
+
+        // Verify the data is actually truncated
+        let mut reader = temp_file.into_reader()?;
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf)?;
+        assert_eq!(buf.len(), 20);
+        assert_eq!(&buf, &data[..20]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_truncate_to_zero_memory() -> io::Result<()> {
+        let store = InMemoryTempFileStore::new(1000000);
+        let mut temp_file = store.allocate_writable(None)?;
+
+        // Write some data
+        let data = b"Hello, World!";
+        temp_file.write_all(data)?;
+        assert_eq!(temp_file.current_size(), data.len() as u64);
+
+        // Truncate to zero
+        temp_file.truncate(0)?;
+        assert_eq!(temp_file.current_size(), 0);
+
+        // Verify the file is empty
+        let mut reader = temp_file.into_reader()?;
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf)?;
+        assert_eq!(buf.len(), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_truncate_no_effect_when_larger_memory() -> io::Result<()> {
+        let store = InMemoryTempFileStore::new(1000000);
+        let mut temp_file = store.allocate_writable(None)?;
+
+        // Write some data
+        let data = b"Hello, World!";
+        temp_file.write_all(data)?;
+        let original_size = temp_file.current_size();
+
+        // Try to truncate to larger size (should have no effect)
+        temp_file.truncate(original_size + 10)?;
+        assert_eq!(temp_file.current_size(), original_size);
+
+        // Verify the data is unchanged
+        let mut reader = temp_file.into_reader()?;
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf)?;
+        assert_eq!(buf.len(), data.len());
+        assert_eq!(&buf, data);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_truncate_to_same_size_memory() -> io::Result<()> {
+        let store = InMemoryTempFileStore::new(1000000);
+        let mut temp_file = store.allocate_writable(None)?;
+
+        // Write some data
+        let data = b"Hello, World!";
+        temp_file.write_all(data)?;
+        let original_size = temp_file.current_size();
+
+        // Truncate to same size (should have no effect)
+        temp_file.truncate(original_size)?;
+        assert_eq!(temp_file.current_size(), original_size);
+
+        // Verify the data is unchanged
+        let mut reader = temp_file.into_reader()?;
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf)?;
+        assert_eq!(buf.len(), data.len());
+        assert_eq!(&buf, data);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_truncate_multiple_times_memory() -> io::Result<()> {
+        let store = InMemoryTempFileStore::new(1000000);
+        let mut temp_file = store.allocate_writable(None)?;
+
+        // Write some data
+        let data = b"Hello, World! This is a longer test string for multiple truncations.";
+        temp_file.write_all(data)?;
+        assert_eq!(temp_file.current_size(), data.len() as u64);
+
+        // First truncation
+        temp_file.truncate(50)?;
+        assert_eq!(temp_file.current_size(), 50);
+
+        // Second truncation
+        temp_file.truncate(30)?;
+        assert_eq!(temp_file.current_size(), 30);
+
+        // Third truncation
+        temp_file.truncate(10)?;
+        assert_eq!(temp_file.current_size(), 10);
+
+        // Verify the final data
+        let mut reader = temp_file.into_reader()?;
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf)?;
+        assert_eq!(buf.len(), 10);
+        assert_eq!(&buf, &data[..10]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_truncate_after_sparse_writes_memory() -> io::Result<()> {
+        let store = InMemoryTempFileStore::new(1000000);
+        let mut temp_file = store.allocate_buffer(None)?;
+
+        // Write sparse data
+        temp_file.write_at(0, b"start")?;
+        temp_file.write_at(100, b"middle")?;
+        temp_file.write_at(200, b"end")?;
+
+        let initial_size = temp_file.current_size();
+        assert_eq!(initial_size, 203); // 200 + 3 bytes for "end"
+
+        // Truncate to middle of file
+        temp_file.truncate(150)?;
+        assert_eq!(temp_file.current_size(), 150);
+
+        // Verify the data
+        let reader = temp_file.into_read_at()?;
+        let start_data = reader.read_at(0..5)?;
+        assert_eq!(start_data.as_ref(), b"start");
+
+        let middle_data = reader.read_at(100..106)?;
+        assert_eq!(middle_data.as_ref(), b"middle");
+
+        // End should be truncated away
+        let end_data = reader.read_at(145..150)?;
+        assert_eq!(end_data.len(), 5);
+        // Should be zeros since we truncated before the "end" data
+        assert_eq!(end_data.as_ref(), &[0, 0, 0, 0, 0]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_truncate_write_position_adjustment_memory() -> io::Result<()> {
+        let store = InMemoryTempFileStore::new(1000000);
+        let mut temp_file = store.allocate_writable(None)?;
+
+        // Write some data
+        let data = b"Hello, World! This is test data.";
+        temp_file.write_all(data)?;
+
+        // Current write position should be at end
+        assert_eq!(temp_file.current_size(), data.len() as u64);
+
+        // Truncate to middle
+        temp_file.truncate(10)?;
+        assert_eq!(temp_file.current_size(), 10);
+
+        // Write more data - should continue from current position
+        temp_file.write_all(b" NEW")?;
+        assert_eq!(temp_file.current_size(), 14);
+
+        // Verify the data
+        let mut reader = temp_file.into_reader()?;
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf)?;
+        assert_eq!(buf.len(), 14);
+        assert_eq!(&buf[..10], &data[..10]);
+        assert_eq!(&buf[10..], b" NEW");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_truncate_budget_tracking_memory() -> io::Result<()> {
+        let store = InMemoryTempFileStore::new(1000);
+        let mut temp_file = store.allocate_writable(None)?;
+
+        // Write data to consume budget
+        let data = vec![42u8; 800];
+        temp_file.write_all(&data)?;
+        assert_eq!(temp_file.current_size(), 800);
+        assert_eq!(store.available_space(), 200);
+
+        // Truncate to smaller size - should free up budget
+        temp_file.truncate(400)?;
+        assert_eq!(temp_file.current_size(), 400);
+        assert_eq!(store.available_space(), 600);
+
+        // Truncate to zero - should free all budget
+        temp_file.truncate(0)?;
+        assert_eq!(temp_file.current_size(), 0);
+        assert_eq!(store.available_space(), 1000);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_truncate_large_buffer_memory() -> io::Result<()> {
+        let store = InMemoryTempFileStore::new(10_000_000);
+        let mut temp_file = store.allocate_writable(None)?;
+
+        // Write a large amount of data
+        let chunk = vec![42u8; 1024];
+        for _ in 0..1000 {
+            temp_file.write_all(&chunk)?;
+        }
+
+        let initial_size = temp_file.current_size();
+        assert_eq!(initial_size, 1024 * 1000);
+
+        // Truncate to 1/4 size
+        let target_size = initial_size / 4;
+        temp_file.truncate(target_size)?;
+        assert_eq!(temp_file.current_size(), target_size);
+
+        // Verify the data
+        let mut reader = temp_file.into_reader()?;
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf)?;
+        assert_eq!(buf.len(), target_size as usize);
+
+        // All bytes should be 42
+        assert!(buf.iter().all(|&b| b == 42));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_truncate_empty_buffer_memory() -> io::Result<()> {
+        let store = InMemoryTempFileStore::new(1000000);
+        let mut temp_file = store.allocate_writable(None)?;
+
+        // Truncate empty file to zero (should be no-op)
+        assert_eq!(temp_file.current_size(), 0);
+        temp_file.truncate(0)?;
+        assert_eq!(temp_file.current_size(), 0);
+
+        // Truncate empty file to larger size (should be no-op)
+        temp_file.truncate(100)?;
+        assert_eq!(temp_file.current_size(), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_truncate_read_at_boundaries_memory() -> io::Result<()> {
+        let store = InMemoryTempFileStore::new(1000000);
+        let mut temp_file = store.allocate_buffer(None)?;
+
+        // Write test data with pattern
+        let data = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        temp_file.write_at(0, data)?;
+        assert_eq!(temp_file.current_size(), data.len() as u64);
+
+        // Truncate at various boundaries
+        temp_file.truncate(25)?;
+        assert_eq!(temp_file.current_size(), 25);
+
+        // Test read at exactly the boundary
+        let boundary_read = temp_file.read_at(24..25)?;
+        assert_eq!(boundary_read.as_ref(), b"O");
+
+        // Test read beyond boundary (should be empty)
+        let beyond_read = temp_file.read_at(25..30)?;
+        assert_eq!(beyond_read.len(), 0);
+
+        // Test read spanning boundary
+        let span_read = temp_file.read_at(23..30)?;
+        assert_eq!(span_read.as_ref(), b"NO");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_truncate_and_rewrite_memory() -> io::Result<()> {
+        let store = InMemoryTempFileStore::new(1000000);
+        let mut temp_file = store.allocate_buffer(None)?;
+
+        // Initial write
+        temp_file.write_at(0, b"Hello, World!")?;
+        assert_eq!(temp_file.current_size(), 13);
+
+        // Truncate to middle
+        temp_file.truncate(7)?;
+        assert_eq!(temp_file.current_size(), 7);
+
+        // Overwrite from beginning
+        temp_file.write_at(0, b"Hi")?;
+        assert_eq!(temp_file.current_size(), 7);
+
+        // Write beyond current size
+        temp_file.write_at(10, b"New!")?;
+        assert_eq!(temp_file.current_size(), 14);
+
+        // Verify final data
+        let final_data = temp_file.read_at(0..14)?;
+        let expected = b"Hillo, \x00\x00\x00New!";
+        assert_eq!(final_data.as_ref(), expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_truncate_stress_test_memory() -> io::Result<()> {
+        let store = InMemoryTempFileStore::new(1000000);
+        let mut temp_file = store.allocate_writable(None)?;
+
+        // Write data in chunks and truncate repeatedly
+        for i in 0..100 {
+            let data = vec![i as u8; 100];
+            temp_file.write_all(&data)?;
+
+            // Every 10 iterations, truncate to half size
+            if i % 10 == 9 {
+                let current = temp_file.current_size();
+                temp_file.truncate(current / 2)?;
+            }
+        }
+
+        // Verify we can still read the data
+        let final_size = temp_file.current_size();
+        assert!(final_size > 0);
+
+        let mut reader = temp_file.into_reader()?;
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf)?;
+        assert_eq!(buf.len(), final_size as usize);
+
+        Ok(())
+    }
 }

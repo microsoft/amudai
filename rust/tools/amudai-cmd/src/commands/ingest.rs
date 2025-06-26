@@ -41,7 +41,7 @@ pub fn run(
     let object_store = Arc::new(LocalFsObjectStore::new_unscoped());
 
     // Create temporary store with 10GB budget
-    let temp_store = temp_file_store::create_file_based(10 * 1024 * 1024 * 1024, None)
+    let temp_store = temp_file_store::create_file_based_cached(10 * 1024 * 1024 * 1024, None)
         .with_context(|| "Failed to create temporary file store")?;
 
     // Create shard builder

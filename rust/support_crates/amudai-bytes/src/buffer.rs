@@ -1186,4 +1186,218 @@ mod tests {
         assert_eq!(round_down(65, 64), 64);
         assert_eq!(round_down(128, 64), 128);
     }
+
+    #[cfg(test)]
+    mod truncate_tests {
+        use super::*;
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_basic() {
+            let mut vec = AlignedByteVec::copy_from_slice(b"Hello, World!");
+            assert_eq!(vec.len(), 13);
+
+            vec.truncate(5);
+            assert_eq!(vec.len(), 5);
+            assert_eq!(vec.as_slice(), b"Hello");
+        }
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_to_zero() {
+            let mut vec = AlignedByteVec::copy_from_slice(b"Hello, World!");
+            assert_eq!(vec.len(), 13);
+
+            vec.truncate(0);
+            assert_eq!(vec.len(), 0);
+            assert!(vec.is_empty());
+        }
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_larger_than_length() {
+            let mut vec = AlignedByteVec::copy_from_slice(b"Hello");
+            assert_eq!(vec.len(), 5);
+
+            // Truncating to larger size should have no effect
+            vec.truncate(10);
+            assert_eq!(vec.len(), 5);
+            assert_eq!(vec.as_slice(), b"Hello");
+        }
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_same_length() {
+            let mut vec = AlignedByteVec::copy_from_slice(b"Hello");
+            assert_eq!(vec.len(), 5);
+
+            vec.truncate(5);
+            assert_eq!(vec.len(), 5);
+            assert_eq!(vec.as_slice(), b"Hello");
+        }
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_empty() {
+            let mut vec = AlignedByteVec::new();
+            assert_eq!(vec.len(), 0);
+
+            vec.truncate(0);
+            assert_eq!(vec.len(), 0);
+
+            vec.truncate(10);
+            assert_eq!(vec.len(), 0);
+        }
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_multiple_times() {
+            let mut vec = AlignedByteVec::copy_from_slice(b"0123456789ABCDEF");
+            assert_eq!(vec.len(), 16);
+
+            vec.truncate(12);
+            assert_eq!(vec.len(), 12);
+            assert_eq!(vec.as_slice(), b"0123456789AB");
+
+            vec.truncate(8);
+            assert_eq!(vec.len(), 8);
+            assert_eq!(vec.as_slice(), b"01234567");
+
+            vec.truncate(4);
+            assert_eq!(vec.len(), 4);
+            assert_eq!(vec.as_slice(), b"0123");
+
+            vec.truncate(1);
+            assert_eq!(vec.len(), 1);
+            assert_eq!(vec.as_slice(), b"0");
+        }
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_after_extend() {
+            let mut vec = AlignedByteVec::copy_from_slice(b"Hello");
+            vec.extend_from_slice(b", World!");
+            assert_eq!(vec.len(), 13);
+            assert_eq!(vec.as_slice(), b"Hello, World!");
+
+            vec.truncate(7);
+            assert_eq!(vec.len(), 7);
+            assert_eq!(vec.as_slice(), b"Hello, ");
+        }
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_large_buffer() {
+            let large_data = vec![42u8; 10000];
+            let mut vec = AlignedByteVec::copy_from_slice(&large_data);
+            assert_eq!(vec.len(), 10000);
+
+            vec.truncate(5000);
+            assert_eq!(vec.len(), 5000);
+            assert!(vec.as_slice().iter().all(|&b| b == 42));
+
+            vec.truncate(1000);
+            assert_eq!(vec.len(), 1000);
+            assert!(vec.as_slice().iter().all(|&b| b == 42));
+        }
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_and_resize() {
+            let mut vec = AlignedByteVec::copy_from_slice(b"Hello, World!");
+            vec.truncate(5);
+            assert_eq!(vec.as_slice(), b"Hello");
+
+            // Resize after truncate
+            vec.resize(10, b'X');
+            assert_eq!(vec.as_slice(), b"HelloXXXXX");
+        }
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_alignment_preserved() {
+            let mut vec = AlignedByteVec::with_capacity_and_alignment(1000, 64);
+            let test_data = (0..500).map(|i| (i % 256) as u8).collect::<Vec<_>>();
+            vec.extend_from_slice(&test_data);
+
+            // Verify alignment before truncate
+            assert!(vec.is_aligned_at(0, 64));
+
+            vec.truncate(200);
+            assert_eq!(vec.len(), 200);
+
+            // Verify alignment is still preserved after truncate
+            assert!(vec.is_aligned_at(0, 64));
+
+            // Verify data integrity
+            for (i, &byte) in vec.as_slice().iter().enumerate() {
+                assert_eq!(byte, (i % 256) as u8);
+            }
+        }
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_capacity_unchanged() {
+            let mut vec = AlignedByteVec::with_capacity(1000);
+            vec.extend_from_slice(&vec![42u8; 500]);
+
+            let original_capacity = vec.capacity();
+            assert_eq!(vec.len(), 500);
+
+            vec.truncate(100);
+            assert_eq!(vec.len(), 100);
+            // Capacity should remain unchanged after truncate
+            assert_eq!(vec.capacity(), original_capacity);
+        }
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_boundary_conditions() {
+            let mut vec = AlignedByteVec::with_capacity(100);
+            vec.extend_from_slice(b"Test data");
+
+            // Truncate to exact length
+            vec.truncate(9);
+            assert_eq!(vec.len(), 9);
+
+            // Truncate to one less
+            vec.truncate(8);
+            assert_eq!(vec.len(), 8);
+            assert_eq!(vec.as_slice(), b"Test dat");
+
+            // Truncate to one
+            vec.truncate(1);
+            assert_eq!(vec.len(), 1);
+            assert_eq!(vec.as_slice(), b"T");
+        }
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_different_alignments() {
+            for alignment in [16, 32, 64, 128] {
+                let mut vec = AlignedByteVec::with_capacity_and_alignment(1000, alignment);
+                let test_data = (0..200).map(|i| (i % 256) as u8).collect::<Vec<_>>();
+                vec.extend_from_slice(&test_data);
+
+                assert!(vec.is_aligned_at(0, alignment));
+
+                vec.truncate(100);
+                assert_eq!(vec.len(), 100);
+                assert!(vec.is_aligned_at(0, alignment));
+
+                // Verify data integrity up to truncation point
+                for (i, &byte) in vec.as_slice().iter().enumerate() {
+                    assert_eq!(byte, (i % 256) as u8);
+                }
+            }
+        }
+
+        #[test]
+        fn test_aligned_byte_vec_truncate_stress_test() {
+            let mut vec = AlignedByteVec::with_capacity(10000);
+
+            // Fill with pattern
+            for i in 0..5000 {
+                vec.extend_from_slice(&[(i % 256) as u8]);
+            }
+
+            // Truncate in steps
+            for target_len in (0..5000).rev().step_by(100) {
+                vec.truncate(target_len);
+                assert_eq!(vec.len(), target_len);
+
+                // Verify data integrity
+                for (i, &byte) in vec.as_slice().iter().enumerate() {
+                    assert_eq!(byte, (i % 256) as u8);
+                }
+            }
+        }
+    }
 }

@@ -664,4 +664,142 @@ mod tests {
         assert!(bytes2.is_aligned(64));
         assert_eq!(&bytes2[..4], b"ello");
     }
+
+    #[cfg(test)]
+    mod truncate_tests {
+        use super::*;
+
+        #[test]
+        fn test_bytes_mut_truncate_basic() {
+            let mut bytes = BytesMut::copy_from_slice(b"Hello, World!");
+            assert_eq!(bytes.len(), 13);
+
+            bytes.truncate(5);
+            assert_eq!(bytes.len(), 5);
+            assert_eq!(bytes.as_slice(), b"Hello");
+        }
+
+        #[test]
+        fn test_bytes_mut_truncate_to_zero() {
+            let mut bytes = BytesMut::copy_from_slice(b"Hello, World!");
+            assert_eq!(bytes.len(), 13);
+
+            bytes.truncate(0);
+            assert_eq!(bytes.len(), 0);
+            assert!(bytes.is_empty());
+        }
+
+        #[test]
+        fn test_bytes_mut_truncate_larger_than_length() {
+            let mut bytes = BytesMut::copy_from_slice(b"Hello");
+            assert_eq!(bytes.len(), 5);
+
+            // Truncating to larger size should have no effect
+            bytes.truncate(10);
+            assert_eq!(bytes.len(), 5);
+            assert_eq!(bytes.as_slice(), b"Hello");
+        }
+
+        #[test]
+        fn test_bytes_mut_truncate_same_length() {
+            let mut bytes = BytesMut::copy_from_slice(b"Hello");
+            assert_eq!(bytes.len(), 5);
+
+            bytes.truncate(5);
+            assert_eq!(bytes.len(), 5);
+            assert_eq!(bytes.as_slice(), b"Hello");
+        }
+
+        #[test]
+        fn test_bytes_mut_truncate_empty() {
+            let mut bytes = BytesMut::new();
+            assert_eq!(bytes.len(), 0);
+
+            bytes.truncate(0);
+            assert_eq!(bytes.len(), 0);
+
+            bytes.truncate(10);
+            assert_eq!(bytes.len(), 0);
+        }
+
+        #[test]
+        fn test_bytes_mut_truncate_multiple_times() {
+            let mut bytes = BytesMut::copy_from_slice(b"0123456789ABCDEF");
+            assert_eq!(bytes.len(), 16);
+
+            bytes.truncate(12);
+            assert_eq!(bytes.len(), 12);
+            assert_eq!(bytes.as_slice(), b"0123456789AB");
+
+            bytes.truncate(8);
+            assert_eq!(bytes.len(), 8);
+            assert_eq!(bytes.as_slice(), b"01234567");
+
+            bytes.truncate(4);
+            assert_eq!(bytes.len(), 4);
+            assert_eq!(bytes.as_slice(), b"0123");
+
+            bytes.truncate(1);
+            assert_eq!(bytes.len(), 1);
+            assert_eq!(bytes.as_slice(), b"0");
+        }
+
+        #[test]
+        fn test_bytes_mut_truncate_after_extend() {
+            let mut bytes = BytesMut::copy_from_slice(b"Hello");
+            bytes.extend_from_slice(b", World!");
+            assert_eq!(bytes.len(), 13);
+            assert_eq!(bytes.as_slice(), b"Hello, World!");
+
+            bytes.truncate(7);
+            assert_eq!(bytes.len(), 7);
+            assert_eq!(bytes.as_slice(), b"Hello, ");
+        }
+
+        #[test]
+        fn test_bytes_mut_truncate_large_buffer() {
+            let large_data = vec![42u8; 10000];
+            let mut bytes = BytesMut::copy_from_slice(&large_data);
+            assert_eq!(bytes.len(), 10000);
+
+            bytes.truncate(5000);
+            assert_eq!(bytes.len(), 5000);
+            assert!(bytes.as_slice().iter().all(|&b| b == 42));
+
+            bytes.truncate(1000);
+            assert_eq!(bytes.len(), 1000);
+            assert!(bytes.as_slice().iter().all(|&b| b == 42));
+        }
+
+        #[test]
+        fn test_bytes_mut_truncate_and_resize() {
+            let mut bytes = BytesMut::copy_from_slice(b"Hello, World!");
+            bytes.truncate(5);
+            assert_eq!(bytes.as_slice(), b"Hello");
+
+            // Resize after truncate
+            bytes.resize(10, b'X');
+            assert_eq!(bytes.as_slice(), b"HelloXXXXX");
+        }
+
+        #[test]
+        fn test_bytes_mut_truncate_boundary_conditions() {
+            let mut bytes = BytesMut::with_capacity(100);
+            bytes.extend_from_slice(b"Test data");
+
+            // Truncate to exact length
+            bytes.truncate(9);
+            assert_eq!(bytes.len(), 9);
+
+            // Truncate to one less
+            bytes.truncate(8);
+            assert_eq!(bytes.len(), 8);
+            assert_eq!(bytes.as_slice(), b"Test dat");
+
+            // Truncate to one
+            bytes.truncate(1);
+            assert_eq!(bytes.len(), 1);
+            assert_eq!(bytes.as_slice(), b"T");
+        }
+    }
 }
