@@ -13,7 +13,7 @@ use crate::{
         data_generator::{self, FieldKind, FieldProperties, create_nested_test_schema, make_field},
         shard_store::ShardStore,
     },
-    write::shard_builder::{ShardBuilder, ShardBuilderParams},
+    write::shard_builder::{ShardBuilder, ShardBuilderParams, ShardFileOrganization},
 };
 
 /// Helper function to convert 16-byte slice to d128 using the correct raw bytes approach
@@ -37,6 +37,7 @@ fn test_basic_shard_builder_flow() {
         object_store: Arc::new(NullObjectStore),
         temp_store: temp_file_store::create_in_memory(32 * 1024 * 1024).unwrap(),
         encoding_profile: Default::default(),
+        file_organization: Default::default(),
     })
     .unwrap();
 
@@ -66,6 +67,7 @@ fn test_nested_schema_shard_builder_flow() {
         object_store: Arc::new(NullObjectStore),
         temp_store: temp_file_store::create_in_memory(32 * 1024 * 1024).unwrap(),
         encoding_profile: Default::default(),
+        file_organization: Default::default(),
     })
     .unwrap();
 
@@ -124,6 +126,29 @@ fn test_list_encoding() {
         seq.values.as_slice::<u64>(),
         &[0, 0, 1, 3, 6, 10, 15, 21, 28, 36, 45,]
     );
+}
+
+#[test]
+fn test_single_file_shard_organization() {
+    let shard_store = ShardStore::new();
+    shard_store.set_shard_file_organization(ShardFileOrganization::SingleFile);
+    let shard_ref = shard_store.ingest_shard_with_nested_schema(10000);
+    let shard = shard_store.open_shard(&shard_ref.url);
+    assert!(shard.fetch_url_list().unwrap().urls.is_empty());
+    shard_store.verify_shard(shard);
+
+    shard_store.set_shard_file_organization(ShardFileOrganization::TwoLevel);
+    let shard_ref = shard_store.ingest_shard_with_nested_schema(10000);
+    let shard = shard_store.open_shard(&shard_ref.url);
+    assert!(
+        shard
+            .fetch_url_list()
+            .unwrap()
+            .urls
+            .iter()
+            .any(|url| url.contains(".amudai.stripe"))
+    );
+    shard_store.verify_shard(shard);
 }
 
 #[test]

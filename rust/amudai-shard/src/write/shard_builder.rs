@@ -88,6 +88,23 @@ impl ShardBuilder {
     }
 }
 
+/// File-level structure of the data shard: how each component of the shard format -
+/// such as metadata messages, data buffers, and others — should be stored in files.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ShardFileOrganization {
+    /// The top level consists of a single "shard directory" file. This file includes
+    /// a sequence of stripe directories, along with their field descriptors, shard index
+    /// descriptors, the schema, and a table of contents that references all these elements.
+    /// The second level comprises a collection of stripe data files, with one file
+    /// for each stripe.
+    #[default]
+    TwoLevel,
+
+    /// An entire shard written as a single file, an approach best suited for relatively
+    /// small or short-lived shards.
+    SingleFile,
+}
+
 /// Configuration parameters for constructing a `ShardBuilder`.
 ///
 /// A shard is a self-contained data storage unit that consists of one or more stripes,
@@ -162,6 +179,8 @@ pub struct ShardBuilderParams {
     /// When not specified, `BlockEncodingProfile::Balanced` provides a good balance
     /// between compression ratio and encoding performance for most use cases.
     pub encoding_profile: BlockEncodingProfile,
+
+    pub file_organization: ShardFileOrganization,
 }
 
 /// A prepared shard that is ready to be sealed.
@@ -181,8 +200,21 @@ impl PreparedShard {
         let PreparedShard { params, stripes } = self;
         let shard_url = ObjectUrl::parse(shard_url)?;
         let container = shard_url.get_container()?;
-        let stripes = Self::seal_stripes(stripes, &container, &params)?;
-        let (directory_blob, directory) = Self::write_directory(stripes, &shard_url, &params)?;
+        let mut writer =
+            ArtifactWriter::framed(params.object_store.create(&shard_url)?, shard_url.as_str())?;
+
+        let stripes = match params.file_organization {
+            ShardFileOrganization::TwoLevel => {
+                Self::write_stripes_as_separate_artifacts(stripes, &container, &params)?
+            }
+            ShardFileOrganization::SingleFile => {
+                Self::write_stripes_to_single_artifact(stripes, &mut writer)?
+            }
+        };
+
+        let (directory_blob, directory) =
+            Self::write_directory(writer, stripes, &shard_url, &params)?;
+
         Ok(SealedShard {
             directory_blob,
             directory,
@@ -190,13 +222,11 @@ impl PreparedShard {
     }
 
     fn write_directory(
+        mut writer: ArtifactWriter,
         stripes: Vec<SealedStripe>,
         shard_url: &ObjectUrl,
         params: &ShardBuilderParams,
     ) -> Result<(DataRef, shard::ShardDirectory)> {
-        let writer = params.object_store.create(shard_url)?;
-        let mut writer = ArtifactWriter::framed(writer, shard_url.as_str())?;
-
         let mut directory = Self::initialize_directory(&stripes);
 
         let url_list = Self::prepare_url_list(&stripes, shard_url);
@@ -239,6 +269,7 @@ impl PreparedShard {
             urls: set.into_iter().collect(),
         };
         list.compact_data_refs(shard_url);
+        list.urls.retain(|url| !url.is_empty());
         list
     }
 
@@ -334,7 +365,7 @@ impl PreparedShard {
         Ok(data_ref)
     }
 
-    fn seal_stripes(
+    fn write_stripes_as_separate_artifacts(
         stripes: Vec<PreparedStripe>,
         container: &ObjectUrl,
         params: &ShardBuilderParams,
@@ -346,6 +377,18 @@ impl PreparedShard {
             let mut writer = ArtifactWriter::framed(writer, url.as_str())?;
             let stripe = stripe.seal(&mut writer)?;
             writer.seal()?;
+            sealed.push(stripe);
+        }
+        Ok(sealed)
+    }
+
+    fn write_stripes_to_single_artifact(
+        stripes: Vec<PreparedStripe>,
+        writer: &mut ArtifactWriter,
+    ) -> Result<Vec<SealedStripe>> {
+        let mut sealed = Vec::with_capacity(stripes.len());
+        for stripe in stripes {
+            let stripe = stripe.seal(writer)?;
             sealed.push(stripe);
         }
         Ok(sealed)

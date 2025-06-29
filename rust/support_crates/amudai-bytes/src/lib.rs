@@ -5,6 +5,7 @@ use std::ops::RangeBounds;
 
 use buffer::{AlignedByteVec, Buffer};
 
+pub mod align;
 pub mod buffer;
 
 /// A mutable buffer of bytes, conceptually similar to a `Vec<u8>`.

@@ -1,9 +1,17 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 mod commands;
 mod schema_parser;
 mod utils;
+
+#[derive(ValueEnum, Clone, Debug)]
+enum ShardFileOrganization {
+    /// Single file organization
+    Single,
+    /// Two-level file organization (default)
+    Twolevel,
+}
 
 #[derive(Parser)]
 #[command(name = "amudai-cmd")]
@@ -30,6 +38,10 @@ enum Commands {
         /// Source file(s) to ingest (can be specified multiple times)
         #[arg(short, long, required = true)]
         file: Vec<String>,
+
+        /// Shard file organization structure
+        #[arg(long, value_enum, default_value = "twolevel")]
+        shard_file_organization: ShardFileOrganization,
 
         /// Output shard URL or path
         shard_path: String,
@@ -78,8 +90,9 @@ fn main() -> Result<()> {
             schema_file,
             schema,
             file,
+            shard_file_organization: shard_file_structure,
             shard_path,
-        } => commands::ingest::run(schema_file, schema, file, shard_path),
+        } => commands::ingest::run(schema_file, schema, file, shard_file_structure, shard_path),
         Commands::Inspect {
             verbose,
             shard_path,

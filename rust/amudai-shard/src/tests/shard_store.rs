@@ -1,6 +1,7 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use amudai_arrow_compat::arrow_to_amudai_schema::FromArrowSchema;
+use amudai_encodings::block_encoder::BlockEncodingProfile;
 use amudai_format::{defs::common::DataRef, schema_builder::SchemaBuilder};
 use amudai_io_impl::temp_file_store;
 use amudai_objectstore::{
@@ -13,11 +14,13 @@ use tempfile::TempDir;
 
 use crate::{
     tests::data_generator::{create_nested_test_schema, generate_batches},
-    write::shard_builder::{ShardBuilder, ShardBuilderParams},
+    write::shard_builder::{ShardBuilder, ShardBuilderParams, ShardFileOrganization},
 };
 
 pub struct ShardStore {
     pub object_store: Arc<dyn ObjectStore>,
+    encoding_profile: Mutex<BlockEncodingProfile>,
+    file_organization: Mutex<ShardFileOrganization>,
     _temp_dir: TempDir,
 }
 
@@ -33,8 +36,18 @@ impl ShardStore {
         let fs = LocalFsObjectStore::new(dir.path(), LocalFsMode::VirtualRoot).unwrap();
         ShardStore {
             object_store: Arc::new(fs),
+            encoding_profile: Default::default(),
+            file_organization: Default::default(),
             _temp_dir: dir,
         }
+    }
+
+    pub fn set_shard_encoding_profile(&self, encoding_profile: BlockEncodingProfile) {
+        *self.encoding_profile.lock().unwrap() = encoding_profile;
+    }
+
+    pub fn set_shard_file_organization(&self, file_organization: ShardFileOrganization) {
+        *self.file_organization.lock().unwrap() = file_organization;
     }
 
     pub fn open_shard(&self, url: impl AsRef<str>) -> crate::read::shard::Shard {
@@ -78,7 +91,8 @@ impl ShardStore {
             schema: shard_schema.into(),
             object_store: self.object_store.clone(),
             temp_store: temp_file_store::create_in_memory(256 * 1024 * 1024).unwrap(),
-            encoding_profile: Default::default(),
+            encoding_profile: *self.encoding_profile.lock().unwrap(),
+            file_organization: *self.file_organization.lock().unwrap(),
         })
         .unwrap()
     }
@@ -90,5 +104,96 @@ impl ShardStore {
             .seal(&format!("file:///{}/test.amudai.shard", fastrand::u32(..)))
             .unwrap();
         shard.directory_blob
+    }
+
+    pub fn verify_shard(&self, shard: crate::read::shard::Shard) {
+        // Get the schema for the shard
+        let schema = shard.fetch_schema().expect("Failed to fetch schema");
+
+        // Iterate through all stripes in the shard
+        for stripe_index in 0..shard.stripe_count() {
+            let stripe = shard
+                .open_stripe(stripe_index)
+                .expect("Failed to open stripe");
+
+            // Verify all fields in the schema (including nested fields)
+            for field_index in 0..schema.len().expect("Failed to get schema length") {
+                let field = schema.field_at(field_index).expect("Failed to get field");
+                let data_type = field.data_type().expect("Failed to get data type");
+
+                // Recursively verify this field and all its nested children
+                Self::verify_field_recursive(&stripe, &data_type);
+            }
+        }
+    }
+
+    fn verify_field_recursive(
+        stripe: &crate::read::stripe::Stripe,
+        data_type: &amudai_format::schema::DataType,
+    ) {
+        let field = stripe.open_field(data_type.clone()).expect(&format!(
+            "Failed to open field '{}' (schema_id: {:?})",
+            data_type.name().unwrap_or("<unknown>"),
+            data_type
+                .schema_id()
+                .unwrap_or(amudai_format::schema::SchemaId::invalid())
+        ));
+
+        let decoder = field.create_decoder().expect(&format!(
+            "Failed to create decoder for field '{}' (schema_id: {:?})",
+            data_type.name().unwrap_or("<unknown>"),
+            data_type
+                .schema_id()
+                .unwrap_or(amudai_format::schema::SchemaId::invalid())
+        ));
+
+        let total_positions = field.position_count();
+        let mut reader = decoder
+            .create_reader(std::iter::once(0..total_positions))
+            .expect(&format!(
+                "Failed to create reader for field '{}' (schema_id: {:?})",
+                data_type.name().unwrap_or("<unknown>"),
+                data_type
+                    .schema_id()
+                    .unwrap_or(amudai_format::schema::SchemaId::invalid())
+            ));
+
+        let batch_size = 1024u64;
+        let mut position = 0u64;
+
+        while position < total_positions {
+            let end_position = (position + batch_size).min(total_positions);
+            reader.read(position..end_position).expect(&format!(
+                "Failed to read data from field '{}' (schema_id: {:?}) at positions {}..{}",
+                data_type.name().unwrap_or("<unknown>"),
+                data_type
+                    .schema_id()
+                    .unwrap_or(amudai_format::schema::SchemaId::invalid()),
+                position,
+                end_position
+            ));
+            position = end_position;
+        }
+
+        let child_count = data_type.child_count().expect("Failed to get child count");
+        for child_index in 0..child_count {
+            let child_data_type = data_type
+                .child_at(child_index)
+                .expect("Failed to get child data type");
+            Self::verify_field_recursive(stripe, &child_data_type);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_verify_shard() {
+        let shard_store = ShardStore::new();
+        let shard_ref = shard_store.ingest_shard_with_nested_schema(1000);
+        let shard = shard_store.open_shard(&shard_ref.url);
+        shard_store.verify_shard(shard);
     }
 }

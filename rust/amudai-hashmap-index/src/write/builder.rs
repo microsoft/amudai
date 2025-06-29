@@ -179,6 +179,7 @@ impl HashmapIndexBuilder {
             object_store: Arc::clone(&params.object_store),
             temp_store: Arc::clone(&params.temp_store),
             encoding_profile: Default::default(),
+            file_organization: Default::default(),
         };
 
         let partition_builders = (0..partitions_count)

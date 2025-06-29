@@ -1,4 +1,7 @@
-use amudai_bytes::Bytes;
+use amudai_bytes::{
+    Bytes,
+    align::{align_down_u64, align_up_u64},
+};
 use std::ops::Range;
 
 use crate::{ReadAt, StorageProfile};
@@ -55,7 +58,7 @@ impl<R: ReadAt> PrecachedReadAt<R> {
     /// A new `PrecachedReadAt` instance with the specified prefix cached
     pub fn from_prefix(inner: R, prefix_size: u64) -> std::io::Result<Self> {
         let size = inner.size()?;
-        let cache_size = prefix_size.min(size);
+        let cache_size = align_up_u64(prefix_size, 64).min(size);
         let cached_buffer = inner.read_at(0..cache_size)?;
 
         Ok(Self {
@@ -81,7 +84,7 @@ impl<R: ReadAt> PrecachedReadAt<R> {
     pub fn from_suffix(inner: R, suffix_size: u64) -> std::io::Result<Self> {
         let size = inner.size()?;
         let cache_size = suffix_size.min(size);
-        let cached_offset = size.saturating_sub(cache_size);
+        let cached_offset = align_down_u64(size.saturating_sub(cache_size), 64);
         let cached_buffer = inner.read_at(cached_offset..size)?;
 
         Ok(Self {

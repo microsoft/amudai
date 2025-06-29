@@ -19,7 +19,10 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use amudai_bytes::{Bytes, BytesMut};
+use amudai_bytes::{
+    Bytes, BytesMut,
+    align::{align_down_u64, align_up_u64, is_aligned_u64},
+};
 use amudai_io::{ReadAt, StorageProfile, verify};
 
 use crate::fs::platform;
@@ -217,8 +220,8 @@ impl DirectFileReader {
         let original_len = (original_end - original_start) as usize;
 
         // Align the read range to IO_GRANULARITY boundaries
-        let aligned_start = align_down(original_start, self.io_granularity);
-        let aligned_end = align_up(original_end, self.io_granularity);
+        let aligned_start = align_down_u64(original_start, self.io_granularity);
+        let aligned_end = align_up_u64(original_end, self.io_granularity);
 
         // Perform the aligned read
         let aligned_data = self.read_at_aligned(aligned_start..aligned_end)?;
@@ -312,7 +315,7 @@ impl DirectFileWriter {
 
         let current_size = file.metadata()?.len();
         // Ensure we start at an aligned position
-        let buffer_pos = align_up(current_size, io_granularity);
+        let buffer_pos = align_up_u64(current_size, io_granularity);
         Ok(DirectFileWriter {
             file,
             buffer_pos,
@@ -407,7 +410,7 @@ impl DirectFileWriter {
         }
 
         // Verify alignment requirements
-        if !is_aligned(pos, self.io_granularity) {
+        if !is_aligned_u64(pos, self.io_granularity) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!(
@@ -417,7 +420,7 @@ impl DirectFileWriter {
             ));
         }
 
-        if !is_aligned(buffer.len() as u64, self.io_granularity) {
+        if !is_aligned_u64(buffer.len() as u64, self.io_granularity) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!(
@@ -428,7 +431,7 @@ impl DirectFileWriter {
             ));
         }
 
-        if !is_aligned(buffer.as_ptr() as u64, self.io_granularity) {
+        if !is_aligned_u64(buffer.as_ptr() as u64, self.io_granularity) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Buffer is not properly aligned",
@@ -494,7 +497,7 @@ impl DirectFileWriter {
 
         // Pad buffer to alignment boundary
         let current_len = self.buffer.len();
-        let aligned_len = align_up(current_len as u64, self.io_granularity) as usize;
+        let aligned_len = align_up_u64(current_len as u64, self.io_granularity) as usize;
 
         // Extend buffer with zeros to reach alignment
         if current_len < aligned_len {
@@ -543,7 +546,7 @@ impl DirectFileWriter {
         assert!(self.buffer.is_empty());
         assert_eq!(self.position(), self.buffer_pos);
 
-        let new_buffer_pos = align_down(pos, self.io_granularity);
+        let new_buffer_pos = align_down_u64(pos, self.io_granularity);
         if pos > self.buffer_pos {
             if new_buffer_pos < pos {
                 self.buffer.resize((pos - new_buffer_pos) as usize, 0);
@@ -597,8 +600,8 @@ impl Write for DirectFileWriter {
         }
 
         if self.buffer.is_empty()
-            && is_aligned(buf.len() as u64, self.io_granularity)
-            && is_aligned(buf.as_ptr() as u64, self.io_granularity)
+            && is_aligned_u64(buf.len() as u64, self.io_granularity)
+            && is_aligned_u64(buf.as_ptr() as u64, self.io_granularity)
         {
             amudai_io::file::file_write_at(&self.file, self.buffer_pos, buf)?;
             self.buffer_pos += buf.len() as u64;
@@ -625,7 +628,7 @@ impl Write for DirectFileWriter {
             bytes_written += to_copy;
             remaining = &remaining[to_copy..];
 
-            if is_aligned(self.buffer.len() as u64, self.io_granularity) {
+            if is_aligned_u64(self.buffer.len() as u64, self.io_granularity) {
                 self.flush_buffer()?;
             }
         }
@@ -695,59 +698,6 @@ pub struct FileWriteResult {
     /// This size is always >= `logical_size` and is typically aligned to the
     /// I/O granularity boundary of the storage device.
     pub file_size: u64,
-}
-
-/// Aligns a position down to the nearest I/O granularity boundary.
-///
-/// This function rounds the given position down to the largest value that is
-/// less than or equal to `pos` and is a multiple of `io_granularity`.
-///
-/// # Arguments
-///
-/// * `pos` - The position to align
-/// * `io_granularity` - The alignment boundary (must be a power of 2)
-///
-/// # Returns
-///
-/// The aligned position, which will be `<= pos`
-#[inline]
-fn align_down(pos: u64, io_granularity: u64) -> u64 {
-    pos & !(io_granularity - 1)
-}
-
-/// Aligns a position up to the nearest I/O granularity boundary.
-///
-/// This function rounds the given position up to the smallest value that is
-/// greater than or equal to `pos` and is a multiple of `io_granularity`.
-///
-/// # Arguments
-///
-/// * `pos` - The position to align
-/// * `io_granularity` - The alignment boundary (must be a power of 2)
-///
-/// # Returns
-///
-/// The aligned position, which will be `>= pos`
-#[inline]
-fn align_up(pos: u64, io_granularity: u64) -> u64 {
-    (pos + io_granularity - 1) & !(io_granularity - 1)
-}
-
-/// Checks if a position is aligned to the specified I/O granularity boundary.
-///
-/// Returns `true` if the position is a multiple of `io_granularity`.
-///
-/// # Arguments
-///
-/// * `pos` - The position to check
-/// * `io_granularity` - The alignment boundary (must be a power of 2)
-///
-/// # Returns
-///
-/// `true` if `pos` is aligned to `io_granularity`, `false` otherwise
-#[inline]
-fn is_aligned(pos: u64, io_granularity: u64) -> bool {
-    (pos & (io_granularity - 1)) == 0
 }
 
 #[cfg(test)]

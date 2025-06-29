@@ -15,15 +15,25 @@ use amudai_arrow_compat::arrow_to_amudai_schema::FromArrowSchema;
 use amudai_format::schema_builder::SchemaBuilder;
 use amudai_io_impl::temp_file_store;
 use amudai_objectstore::local_store::LocalFsObjectStore;
-use amudai_shard::write::shard_builder::{ShardBuilder, ShardBuilderParams};
+use amudai_shard::write::shard_builder::{self, ShardBuilder, ShardBuilderParams};
 
-use crate::{commands::file_path_to_object_url, schema_parser, utils};
+use crate::{ShardFileOrganization, commands::file_path_to_object_url, schema_parser, utils};
+
+fn convert_file_organization_param(
+    value: ShardFileOrganization,
+) -> shard_builder::ShardFileOrganization {
+    match value {
+        ShardFileOrganization::Single => shard_builder::ShardFileOrganization::SingleFile,
+        ShardFileOrganization::Twolevel => shard_builder::ShardFileOrganization::TwoLevel,
+    }
+}
 
 /// Run the ingest command
 pub fn run(
     schema_path: Option<String>,
     schema_string: Option<String>,
     source_files: Vec<String>,
+    shard_file_organization: ShardFileOrganization,
     shard_path: String,
 ) -> Result<()> {
     let shard_url = file_path_to_object_url(&shard_path)?;
@@ -50,6 +60,7 @@ pub fn run(
         object_store,
         temp_store,
         encoding_profile: Default::default(),
+        file_organization: convert_file_organization_param(shard_file_organization),
     })
     .with_context(|| "Failed to create shard builder")?;
 
