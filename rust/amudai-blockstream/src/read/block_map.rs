@@ -1180,7 +1180,7 @@ mod tests {
 
         let positions = vec![5, 8, 12, 15];
         let result = estimate_block_count_for_positions(10.0, positions.into_iter(), 100);
-        assert!(result >= 1 && result <= 2);
+        assert!((1..=2).contains(&result));
 
         let positions = vec![5, 20, 35, 50];
         let result = estimate_block_count_for_positions(10.0, positions.into_iter(), 100);
@@ -1188,7 +1188,7 @@ mod tests {
 
         let positions = vec![5, 3, 20, 15, 40];
         let result = estimate_block_count_for_positions(10.0, positions.into_iter(), 100);
-        assert!(result >= 1 && result <= 5);
+        assert!((1..=5).contains(&result));
 
         let positions: Vec<u64> = (0..1000).map(|i| i * 20).collect();
         assert_eq!(
@@ -1202,7 +1202,7 @@ mod tests {
 
         let positions = vec![5, 5, 5, 10, 20];
         let result = estimate_block_count_for_positions(10.0, positions.into_iter(), 100);
-        assert!(result >= 2 && result <= 3);
+        assert!((2..=3).contains(&result));
     }
 
     #[test]

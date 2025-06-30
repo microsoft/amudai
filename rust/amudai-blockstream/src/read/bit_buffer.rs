@@ -653,7 +653,7 @@ mod tests {
 
         let mut expected_pattern = Vec::new();
         for &(value, count) in &runs {
-            expected_pattern.extend(std::iter::repeat(value).take(count));
+            expected_pattern.extend(std::iter::repeat_n(value, count));
         }
 
         let buffer = create_test_buffer_runs(&runs).unwrap();

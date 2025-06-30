@@ -805,7 +805,7 @@ mod tests {
         let block = reader.read_block(50).unwrap();
 
         assert_eq!(block.descriptor.ordinal, 50);
-        assert!(block.data().len() > 0);
+        assert!(!block.data().is_empty());
         assert!(block.checksum.is_some());
         block.verify_checksum().unwrap();
     }
@@ -947,7 +947,7 @@ mod tests {
 
             let logical_size = block.descriptor.logical_size();
             assert!(
-                logical_size >= 100 && logical_size < 300,
+                (100..300).contains(&logical_size),
                 "Block {} has unexpected logical size: {}",
                 i,
                 logical_size

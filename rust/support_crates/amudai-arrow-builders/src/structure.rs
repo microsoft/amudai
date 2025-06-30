@@ -426,7 +426,7 @@ mod tests {
         }
 
         fn field_name(&self, index: usize) -> &str {
-            const NAMES: &'static [&'static str] = &["name", "value", "blob", "measures"];
+            const NAMES: &[&str] = &["name", "value", "blob", "measures"];
             NAMES[index]
         }
 

@@ -168,7 +168,7 @@ mod tests {
         assert_eq!(decoder.basic_type().basic_type, BasicType::String);
         assert!(decoder.has_embedded_presence());
 
-        let ranges = vec![10u64..100, 200..300];
+        let ranges = [10u64..100, 200..300];
         let mut reader = decoder
             .create_reader(ranges.iter().cloned(), BlockReaderPrefetch::Enabled)
             .unwrap();
@@ -276,7 +276,7 @@ mod tests {
 
         // Values should have the expected contents
         for i in 0..50 {
-            let expected_idx = (mid_point as i32 - 25) + i as i32;
+            let expected_idx = (mid_point as i32 - 25) + i;
             assert!(
                 seq.binary_at(i as usize)
                     .ends_with(format!("_{}", expected_idx).as_bytes())

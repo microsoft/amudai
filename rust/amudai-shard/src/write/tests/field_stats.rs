@@ -534,7 +534,7 @@ fn test_datetime_statistics_aggregation_across_stripes() -> Result<()> {
     let schema_message = schema_builder.finish_and_seal();
     let schema = schema_message.schema()?;
 
-    let stripe_data = vec![
+    let stripe_data = [
         vec![Some(1_000), Some(2_000)],
         vec![Some(500), Some(3_000)],
         vec![Some(2_500), Some(1_500)],
@@ -696,7 +696,7 @@ fn test_float64_statistics_aggregation_across_stripes() -> Result<()> {
     let schema_message = schema_builder.finish_and_seal();
     let schema = schema_message.schema()?;
 
-    let stripe_data = vec![
+    let stripe_data = [
         vec![Some(1.0), Some(2.0), Some(f64::NAN)],
         vec![Some(-1.0), Some(3.0)],
         vec![Some(f64::INFINITY), Some(f64::NEG_INFINITY), None],
@@ -836,7 +836,7 @@ fn test_binary_statistics_aggregation_across_stripes() -> Result<()> {
     let schema_message = schema_builder.finish_and_seal();
     let schema = schema_message.schema()?;
 
-    let stripe_data = vec![
+    let stripe_data = [
         vec![Some(b"a".as_ref()), Some(b"bb".as_ref()), None],
         vec![Some(b"ccc".as_ref()), Some(b"dddd".as_ref())],
         vec![Some(b"".as_ref()), Some(b"eeeeee".as_ref())],
@@ -1757,7 +1757,7 @@ fn test_decimal_statistics_aggregation() -> Result<()> {
     let schema = schema_message.schema()?;
 
     // Create test data for multiple stripes
-    let stripe_data = vec![
+    let stripe_data = [
         vec![
             Some(d128::from_str("10.5").unwrap()),
             Some(d128::from_str("-20.3").unwrap()),

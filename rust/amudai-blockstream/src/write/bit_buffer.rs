@@ -544,7 +544,7 @@ mod tests {
     #[test]
     fn bitbufferencoder_append_buffer_all_true() {
         let mut enc = create_bit_buffer_encoder();
-        let buf = BooleanBuffer::from_iter(std::iter::repeat(true).take(32));
+        let buf = BooleanBuffer::from_iter(std::iter::repeat_n(true, 32));
         enc.append(&buf).unwrap();
         match enc.finish().unwrap() {
             EncodedBitBuffer::Constant(v, n) => {
@@ -558,7 +558,7 @@ mod tests {
     #[test]
     fn bitbufferencoder_append_buffer_all_false() {
         let mut enc = create_bit_buffer_encoder();
-        let buf = BooleanBuffer::from_iter(std::iter::repeat(false).take(32));
+        let buf = BooleanBuffer::from_iter(std::iter::repeat_n(false, 32));
         enc.append(&buf).unwrap();
         match enc.finish().unwrap() {
             EncodedBitBuffer::Constant(v, n) => {
@@ -684,7 +684,7 @@ mod tests {
 
     fn verify_buf(buf: &PreparedEncodedBuffer, bit_count: u64) {
         let decoder = PrimitiveBufferDecoder::from_prepared_buffer(
-            &buf,
+            buf,
             BasicTypeDescriptor {
                 basic_type: BasicType::Int8,
                 fixed_size: 0,
@@ -694,7 +694,7 @@ mod tests {
         )
         .unwrap();
         let byte_count = decoder.block_stream().block_map().value_count().unwrap();
-        assert_eq!((bit_count + 7) / 8, byte_count);
+        assert_eq!(bit_count.div_ceil(8), byte_count);
         let mut reader = decoder
             .create_reader(std::iter::empty(), BlockReaderPrefetch::Disabled)
             .unwrap();
@@ -746,7 +746,7 @@ mod tests {
     #[test]
     fn test_append_buffer_all_true() {
         let mut enc = bit_buffer_blocks_encoder_default();
-        let buffer = BooleanBuffer::from_iter(std::iter::repeat(true).take(128));
+        let buffer = BooleanBuffer::from_iter(std::iter::repeat_n(true, 128));
         enc.append(&buffer).unwrap();
         let buf = enc.finish().unwrap();
         verify_buf(&buf, 128);
@@ -755,7 +755,7 @@ mod tests {
     #[test]
     fn test_append_buffer_all_false() {
         let mut enc = bit_buffer_blocks_encoder_default();
-        let buffer = BooleanBuffer::from_iter(std::iter::repeat(false).take(128));
+        let buffer = BooleanBuffer::from_iter(std::iter::repeat_n(false, 128));
         enc.append(&buffer).unwrap();
         let buf = enc.finish().unwrap();
         verify_buf(&buf, 128);

@@ -196,7 +196,7 @@ mod tests {
             },
         )
         .unwrap();
-        let ranges = vec![10u64..100, 200..500];
+        let ranges = [10u64..100, 200..500];
         let mut reader = decoder
             .create_reader(ranges.iter().cloned(), BlockReaderPrefetch::Enabled)
             .unwrap();
@@ -510,7 +510,7 @@ mod tests {
 
             let values = seq.values.as_slice::<i32>();
             for i in 0i32..50 {
-                assert_eq!(values[i as usize], (start + i) as i32);
+                assert_eq!(values[i as usize], { start + i });
             }
         }
 

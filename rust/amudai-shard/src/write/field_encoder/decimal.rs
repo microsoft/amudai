@@ -623,7 +623,7 @@ mod tests {
         let d128_val2 = d128::from_str("-987.65").unwrap();
         let d128_val3 = d128::from_str("0.00").unwrap();
 
-        let expected_bytes = vec![
+        let expected_bytes = [
             d128_val1.to_raw_bytes(),
             d128_val2.to_raw_bytes(),
             d128_val3.to_raw_bytes(),

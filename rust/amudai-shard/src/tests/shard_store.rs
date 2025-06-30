@@ -131,47 +131,55 @@ impl ShardStore {
         stripe: &crate::read::stripe::Stripe,
         data_type: &amudai_format::schema::DataType,
     ) {
-        let field = stripe.open_field(data_type.clone()).expect(&format!(
-            "Failed to open field '{}' (schema_id: {:?})",
-            data_type.name().unwrap_or("<unknown>"),
-            data_type
-                .schema_id()
-                .unwrap_or(amudai_format::schema::SchemaId::invalid())
-        ));
-
-        let decoder = field.create_decoder().expect(&format!(
-            "Failed to create decoder for field '{}' (schema_id: {:?})",
-            data_type.name().unwrap_or("<unknown>"),
-            data_type
-                .schema_id()
-                .unwrap_or(amudai_format::schema::SchemaId::invalid())
-        ));
-
-        let total_positions = field.position_count();
-        let mut reader = decoder
-            .create_reader(std::iter::once(0..total_positions))
-            .expect(&format!(
-                "Failed to create reader for field '{}' (schema_id: {:?})",
+        let field = stripe.open_field(data_type.clone()).unwrap_or_else(|_| {
+            panic!(
+                "Failed to open field '{}' (schema_id: {:?})",
                 data_type.name().unwrap_or("<unknown>"),
                 data_type
                     .schema_id()
                     .unwrap_or(amudai_format::schema::SchemaId::invalid())
-            ));
+            )
+        });
+
+        let decoder = field.create_decoder().unwrap_or_else(|_| {
+            panic!(
+                "Failed to create decoder for field '{}' (schema_id: {:?})",
+                data_type.name().unwrap_or("<unknown>"),
+                data_type
+                    .schema_id()
+                    .unwrap_or(amudai_format::schema::SchemaId::invalid())
+            )
+        });
+
+        let total_positions = field.position_count();
+        let mut reader = decoder
+            .create_reader(std::iter::once(0..total_positions))
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Failed to create reader for field '{}' (schema_id: {:?})",
+                    data_type.name().unwrap_or("<unknown>"),
+                    data_type
+                        .schema_id()
+                        .unwrap_or(amudai_format::schema::SchemaId::invalid())
+                )
+            });
 
         let batch_size = 1024u64;
         let mut position = 0u64;
 
         while position < total_positions {
             let end_position = (position + batch_size).min(total_positions);
-            reader.read(position..end_position).expect(&format!(
-                "Failed to read data from field '{}' (schema_id: {:?}) at positions {}..{}",
-                data_type.name().unwrap_or("<unknown>"),
-                data_type
-                    .schema_id()
-                    .unwrap_or(amudai_format::schema::SchemaId::invalid()),
-                position,
-                end_position
-            ));
+            reader.read(position..end_position).unwrap_or_else(|_| {
+                panic!(
+                    "Failed to read data from field '{}' (schema_id: {:?}) at positions {}..{}",
+                    data_type.name().unwrap_or("<unknown>"),
+                    data_type
+                        .schema_id()
+                        .unwrap_or(amudai_format::schema::SchemaId::invalid()),
+                    position,
+                    end_position
+                )
+            });
             position = end_position;
         }
 

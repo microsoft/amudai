@@ -444,7 +444,7 @@ fn test_large_dataset() {
     for i in 0..1000 {
         builder.id_field().set(i as i64);
         builder.name_field().set(format!("Person {}", i));
-        builder.age_field().set(20 + (i % 60) as i32);
+        builder.age_field().set(20 + (i % 60));
         builder
             .email_field()
             .set(format!("person{}@example.com", i));

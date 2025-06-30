@@ -398,8 +398,8 @@ mod tests {
             .expect("Failed to create ArrowReaderBuilder")
             .with_object_store(shard_store.object_store.clone());
 
-        let mut reader = reader_builder.build().unwrap();
-        while let Some(frame) = reader.next() {
+        let reader = reader_builder.build().unwrap();
+        for frame in reader {
             let frame = frame.unwrap();
             dbg!(frame.num_rows());
         }

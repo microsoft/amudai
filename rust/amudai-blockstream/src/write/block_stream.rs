@@ -155,7 +155,7 @@ mod tests {
         let res = encoder.finish().unwrap();
         assert_eq!(res.block_count, 100);
         assert!(res.block_map_size < 400);
-        assert_eq!(res.data_size, ((data_size + 15) / 16 * 16) as u64);
+        assert_eq!(res.data_size, (data_size.div_ceil(16) * 16) as u64);
         let buf = res.block_stream.read_at(0..res.total_size()).unwrap();
         assert_eq!(&buf[0..10], b"aababcabcd");
     }

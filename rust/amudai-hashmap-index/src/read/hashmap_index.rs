@@ -174,7 +174,7 @@ impl HashmapIndex {
         let position_ranges = RangeList::from(vec![bucket_index as u64..(bucket_index as u64 + 1)]);
 
         // Use the existing amudai-arrow infrastructure to read the data
-        let mut reader_builder = ArrowReaderBuilder::try_new(&partition.shard.url().as_str())
+        let mut reader_builder = ArrowReaderBuilder::try_new(partition.shard.url().as_str())
             .map_err(|e| {
                 amudai_common::error::Error::invalid_operation(format!(
                     "Failed to create reader: {}",
