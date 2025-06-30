@@ -276,6 +276,11 @@ impl BlockEncoder for BinaryBlockEncoder {
 
         metadata.finalize(&mut buffer);
 
+        // Make sure the target buffer is aligned before returning.
+        // Decoders know exactly how many bytes to read, so this padding will be ignored.
+        let alignment = buffer.len().next_multiple_of(ALIGNMENT_BYTES);
+        buffer.resize(alignment, 0);
+
         if self.policy.parameters.checksum == BlockChecksum::Enabled {
             let checksum = amudai_format::checksum::compute(&buffer);
             buffer.extend_from_slice(&checksum.to_le_bytes());
