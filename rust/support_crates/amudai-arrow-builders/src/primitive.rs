@@ -30,8 +30,8 @@ use std::sync::Arc;
 use arrow_array::{
     Array, ArrowPrimitiveType,
     types::{
-        Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type,
-        TimestampNanosecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
+        DurationNanosecondType, Float32Type, Float64Type, Int8Type, Int16Type, Int32Type,
+        Int64Type, TimestampNanosecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
     },
 };
 
@@ -156,6 +156,32 @@ impl<T: ArrowPrimitiveType> Default for PrimitiveBuilder<T> {
 }
 
 impl<T: ArrowPrimitiveType> ArrayBuilder for PrimitiveBuilder<T> {
+    fn as_any(&self) -> &(dyn std::any::Any + 'static) {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut (dyn std::any::Any + 'static) {
+        self
+    }
+
+    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+        use arrow_buffer::ArrowNativeType;
+        if let Some(value) = value {
+            assert_eq!(value.len(), T::Native::get_byte_width());
+            let mut v = T::Native::default();
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    value.as_ptr(),
+                    &mut v as *mut T::Native as *mut u8,
+                    value.len(),
+                );
+            }
+            self.set(v);
+        } else {
+            self.set_null();
+        }
+    }
+
     /// Returns the current logical position where the next value will be placed.
     ///
     /// This position represents the index of the next element to be added to the array.
@@ -190,8 +216,9 @@ impl<T: ArrowPrimitiveType> ArrayBuilder for PrimitiveBuilder<T> {
     ///
     /// An `Arc<dyn Array>` containing the built primitive array. The concrete type
     /// will be the appropriate Arrow primitive array (e.g., `Int64Array`, `Float64Array`).
-    fn build(mut self) -> Arc<dyn Array> {
+    fn build(&mut self) -> Arc<dyn Array> {
         self.fill_missing();
+        self.next_pos = 0;
         Arc::new(self.inner.finish())
     }
 }
@@ -239,3 +266,6 @@ pub type Float64Builder = PrimitiveBuilder<Float64Type>;
 /// date/time types, consider converting from your date/time library to nanosecond
 /// timestamps before using this builder.
 pub type TimestampBuilder = PrimitiveBuilder<TimestampNanosecondType>;
+
+/// Type alias for building arrays of durations with nanosecond precision.
+pub type DurationBuilder = PrimitiveBuilder<DurationNanosecondType>;

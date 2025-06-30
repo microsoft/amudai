@@ -36,7 +36,7 @@ pub trait BlockDecoder: Send + Sync + 'static {
     /// # Arguments
     ///
     /// - `encoded` - A byte slice containing the encoded block, including the header
-    ///  and the payload.
+    ///   and the payload.
     ///
     /// # Returns
     ///

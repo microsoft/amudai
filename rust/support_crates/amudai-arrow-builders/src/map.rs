@@ -206,7 +206,7 @@ impl<K: ArrayBuilder, V: ArrayBuilder> MapBuilder<K, V> {
     }
 }
 
-impl<K: ArrayBuilder, V: ArrayBuilder> Default for MapBuilder<K, V> {
+impl<K: ArrayBuilder + Default, V: ArrayBuilder + Default> Default for MapBuilder<K, V> {
     /// Creates a new `MapBuilder` with default configuration.
     ///
     /// This initializes:
@@ -226,6 +226,22 @@ impl<K: ArrayBuilder, V: ArrayBuilder> Default for MapBuilder<K, V> {
 }
 
 impl<K: ArrayBuilder, V: ArrayBuilder> ArrayBuilder for MapBuilder<K, V> {
+    fn as_any(&self) -> &(dyn std::any::Any + 'static) {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut (dyn std::any::Any + 'static) {
+        self
+    }
+
+    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+        if value.is_some() {
+            self.finish_map();
+        } else {
+            self.finish_null_map();
+        }
+    }
+
     /// Returns the current logical position in the map array.
     ///
     /// This represents how many maps should exist at this position,
@@ -267,7 +283,7 @@ impl<K: ArrayBuilder, V: ArrayBuilder> ArrayBuilder for MapBuilder<K, V> {
     /// Panics if the number of keys doesn't equal the number of values.
     ///
     /// [`MapArray`]: arrow_array::MapArray
-    fn build(mut self) -> Arc<dyn Array> {
+    fn build(&mut self) -> Arc<dyn Array> {
         self.fill_missing();
 
         let keys = self.keys.build();
@@ -295,10 +311,13 @@ impl<K: ArrayBuilder, V: ArrayBuilder> ArrayBuilder for MapBuilder<K, V> {
             false,
         ));
 
-        let offsets =
-            arrow_buffer::OffsetBuffer::new(arrow_buffer::ScalarBuffer::from(self.offsets));
+        let offsets = arrow_buffer::OffsetBuffer::new(arrow_buffer::ScalarBuffer::from(
+            std::mem::take(&mut self.offsets),
+        ));
 
         let nulls = self.nulls.finish();
+
+        self.next_pos = 0;
 
         Arc::new(arrow_array::MapArray::new(
             entries_field,

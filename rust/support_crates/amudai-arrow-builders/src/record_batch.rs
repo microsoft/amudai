@@ -120,7 +120,7 @@ impl<S: StructFieldsBuilder> RecordBatchBuilder<S> {
     ///
     /// This method will panic if the internal Arrow record batch construction fails,
     /// which should not happen under normal circumstances with valid builders.
-    pub fn build(self) -> arrow_array::RecordBatch {
+    pub fn build(&mut self) -> arrow_array::RecordBatch {
         let field_names = (0..self.fields.field_count())
             .map(|i| self.fields.field_name(i).to_string())
             .collect::<Vec<_>>();

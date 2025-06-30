@@ -217,9 +217,10 @@ fn generate_struct_fields_builder_impl(
                 NAMES[index]
             }
 
-            fn build_fields(mut self) -> Vec<std::sync::Arc<dyn arrow_array::Array>> {
+            fn build_fields(&mut self) -> Vec<std::sync::Arc<dyn arrow_array::Array>> {
                 use #crate_path::ArrayBuilder;
                 #(#build_fields_moves)*
+                self.next_pos = 0;
                 vec![
                     #(#build_fields_calls,)*
                 ]
@@ -283,6 +284,7 @@ fn map_type_to_builder(
                         }
                         quote! { #crate_path::FixedSizeBinaryBuilder<_> }
                     }
+                    "FluidStruct" | "GenericStruct" => quote! { #crate_path::FluidStructBuilder },
                     _ => {
                         // For other types, try to append "Builder"
                         let builder_name = syn::Ident::new(

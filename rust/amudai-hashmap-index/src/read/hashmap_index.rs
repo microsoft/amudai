@@ -171,7 +171,7 @@ impl HashmapIndex {
         let bucket_index = get_entry_bucket_index(hash, partition.buckets_count);
 
         // Read the specific bucket from the shard using amudai-arrow
-        let position_ranges = RangeList::from(vec![bucket_index as u64..(bucket_index as u64 + 1)]);
+        let position_ranges = RangeList::from_elem(bucket_index as u64..(bucket_index as u64 + 1));
 
         // Use the existing amudai-arrow infrastructure to read the data
         let mut reader_builder = ArrowReaderBuilder::try_new(partition.shard.url().as_str())

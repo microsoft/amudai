@@ -267,15 +267,16 @@ pub mod structure;
 #[cfg(test)]
 mod tests;
 
+use arrow_schema::TimeUnit;
 pub use binary::{BinaryBuilder, FixedSizeBinaryBuilder};
 pub use list::ListBuilder;
 pub use map::MapBuilder;
 pub use primitive::{
-    Float32Builder, Float64Builder, Int8Builder, Int16Builder, Int32Builder, Int64Builder,
-    TimestampBuilder, UInt8Builder, UInt16Builder, UInt32Builder, UInt64Builder,
+    DurationBuilder, Float32Builder, Float64Builder, Int8Builder, Int16Builder, Int32Builder,
+    Int64Builder, TimestampBuilder, UInt8Builder, UInt16Builder, UInt32Builder, UInt64Builder,
 };
 pub use string::StringBuilder;
-pub use structure::{StructBuilder, StructFieldsBuilder};
+pub use structure::{FluidStructBuilder, FluidStructFields, StructBuilder, StructFieldsBuilder};
 
 /// Core trait for building Apache Arrow arrays.
 ///
@@ -302,7 +303,13 @@ pub use structure::{StructBuilder, StructFieldsBuilder};
 /// - Calling `move_to_pos(pos)` sets the next insertion point to `pos`
 /// - Values set after the current position automatically fill gaps with nulls
 /// - The `build()` method finalizes any remaining gaps and produces a valid Arrow array
-pub trait ArrayBuilder: Default + Send + Sync + 'static {
+pub trait ArrayBuilder: Send + Sync + 'static {
+    fn as_any(&self) -> &(dyn std::any::Any + 'static);
+
+    fn as_any_mut(&mut self) -> &mut (dyn std::any::Any + 'static);
+
+    fn push_raw_value(&mut self, value: Option<&[u8]>);
+
     /// Returns the current logical position where the next value will be placed.
     ///
     /// This position represents the index of the next element to be added to the array.
@@ -322,18 +329,105 @@ pub trait ArrayBuilder: Default + Send + Sync + 'static {
     ///   or equal to the current position.
     fn move_to_pos(&mut self, pos: u64);
 
-    /// Consumes the builder and produces the final Apache Arrow array.
+    /// Finalizes the array builder and produces the Apache Arrow array.
     ///
     /// This method finalizes the building process by:
     /// 1. Filling any remaining gaps between the last set value and the current position with nulls
     /// 2. Converting the internal buffer(s) into an Apache Arrow array
     /// 3. Returning the array wrapped in an `Arc<dyn Array>`
     ///
-    /// After calling this method, the builder is consumed and cannot be used further.
+    /// After calling this method, the builder is reset to its initial state (value position 0).
     ///
     /// # Returns
     ///
     /// An `Arc<dyn Array>` containing the built Arrow array. The concrete type depends
     /// on the builder implementation (e.g., `LargeStringArray` for `StringBuilder`).
-    fn build(self) -> Arc<dyn Array>;
+    fn build(&mut self) -> Arc<dyn Array>;
+}
+
+/// Creates an appropriate builder for the given Arrow data type.
+///
+/// This function provides a factory method for creating array builders based on Apache Arrow
+/// data types. It returns a boxed trait object that implements [`ArrayBuilder`], allowing
+/// for dynamic builder creation at runtime.
+///
+/// # Parameters
+///
+/// * `data_type` - The Arrow data type for which to create a builder
+///
+/// # Returns
+///
+/// A boxed [`ArrayBuilder`] trait object that can build arrays of the specified type.
+///
+/// # Supported Types
+///
+/// The function supports the following Arrow data types:
+///
+/// - **Integer types**: `Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`
+/// - **Floating point types**: `Float32`, `Float64`
+/// - **Temporal types**: `Timestamp(Nanosecond)`, `Duration(Nanosecond)`
+/// - **Binary types**: `Binary`, `LargeBinary`, `FixedSizeBinary(n)`
+/// - **String types**: `Utf8`, `LargeUtf8`
+///
+/// # Panics
+///
+/// This function will panic (via `unimplemented!`) if called with an unsupported data type.
+/// Currently unsupported types include:
+/// - Complex nested types (List, Map, Struct) - these should be created directly
+/// - Decimal types (marked as `todo!`)
+/// - Other specialized Arrow types
+///
+/// # Examples
+///
+/// ```rust
+/// use amudai_arrow_builders::{create_builder, ArrayBuilder};
+/// use arrow_schema::DataType;
+///
+/// // Create a string builder
+/// let mut builder = create_builder(&DataType::LargeUtf8);
+/// builder.push_raw_value(Some(b"hello"));
+/// builder.push_raw_value(Some(b"world"));
+/// let array = builder.build();
+///
+/// // Create an integer builder
+/// let mut int_builder = create_builder(&DataType::Int64);
+/// int_builder.push_raw_value(Some(&42i64.to_le_bytes()));
+/// let int_array = int_builder.build();
+/// ```
+///
+/// # Note
+///
+/// For complex nested types like `List`, `Map`, or `Struct`, it's recommended to create
+/// the appropriate builder directly (e.g., `ListBuilder::default()`) rather than using
+/// this factory function, as they require type parameters that cannot be determined
+/// from the Arrow schema alone.
+pub fn create_builder(data_type: &arrow_schema::DataType) -> Box<dyn ArrayBuilder> {
+    match data_type {
+        arrow_schema::DataType::Int8 => Box::new(Int8Builder::default()),
+        arrow_schema::DataType::Int16 => Box::new(Int16Builder::default()),
+        arrow_schema::DataType::Int32 => Box::new(Int32Builder::default()),
+        arrow_schema::DataType::Int64 => Box::new(Int64Builder::default()),
+        arrow_schema::DataType::UInt8 => Box::new(UInt8Builder::default()),
+        arrow_schema::DataType::UInt16 => Box::new(UInt16Builder::default()),
+        arrow_schema::DataType::UInt32 => Box::new(UInt32Builder::default()),
+        arrow_schema::DataType::UInt64 => Box::new(UInt64Builder::default()),
+        arrow_schema::DataType::Float32 => Box::new(Float32Builder::default()),
+        arrow_schema::DataType::Float64 => Box::new(Float64Builder::default()),
+        arrow_schema::DataType::Timestamp(TimeUnit::Nanosecond, _) => {
+            Box::new(TimestampBuilder::default())
+        }
+        arrow_schema::DataType::Duration(TimeUnit::Nanosecond) => {
+            Box::new(DurationBuilder::default())
+        }
+        arrow_schema::DataType::Binary => Box::new(BinaryBuilder::default()),
+        arrow_schema::DataType::FixedSizeBinary(size) => {
+            Box::new(FixedSizeBinaryBuilder::new(*size as usize))
+        }
+        arrow_schema::DataType::LargeBinary => Box::new(BinaryBuilder::default()),
+        arrow_schema::DataType::Utf8 => Box::new(StringBuilder::default()),
+        arrow_schema::DataType::LargeUtf8 => Box::new(StringBuilder::default()),
+        arrow_schema::DataType::Decimal128(_, _) => todo!(),
+        arrow_schema::DataType::Decimal256(_, _) => todo!(),
+        _ => unimplemented!("ArrayBuilder for {}", data_type),
+    }
 }

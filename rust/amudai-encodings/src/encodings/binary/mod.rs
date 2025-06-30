@@ -304,7 +304,7 @@ impl BinaryEncodings {
     fn read_encoding<'a, 'b>(
         &'a self,
         buffer: &'b [u8],
-    ) -> amudai_common::Result<(&'a Box<dyn StringEncoding>, &'b [u8])> {
+    ) -> amudai_common::Result<(&'a dyn StringEncoding, &'b [u8])> {
         if buffer.len() < 2 {
             return Err(amudai_common::error::Error::invalid_format(
                 "Buffer is too small".to_string(),
@@ -313,7 +313,7 @@ impl BinaryEncodings {
         let encoding_code = buffer.read_value::<u16>(0);
         if let Ok(encoding_kind) = EncodingKind::try_from(encoding_code) {
             if let Some(encoding) = self.encodings_by_name.get(&encoding_kind) {
-                Ok((encoding, &buffer[2..]))
+                Ok((encoding.as_ref(), &buffer[2..]))
             } else {
                 Err(amudai_common::error::Error::invalid_format(format!(
                     "Unsupported encoding: {encoding_kind:?}"

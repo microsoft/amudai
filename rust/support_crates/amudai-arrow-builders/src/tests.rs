@@ -47,6 +47,14 @@ struct_builder!(
     crate
 );
 
+struct_builder!(
+    struct NodeRecord {
+        id: String,
+        properties: FluidStruct,
+    },
+    crate
+);
+
 #[test]
 fn test_basic_event_builder() {
     let mut builder = EventBuilder::default();
@@ -584,4 +592,46 @@ fn test_record_batch() {
     let json_output = record_batch_to_ndjson(&record_batch).unwrap();
     println!("Record batch JSON:\n{}", json_output);
     assert_eq!(record_batch.num_rows(), 5);
+}
+
+#[test]
+fn test_generic_builder() {
+    let mut builder = NodeRecordBuilder::default();
+    builder
+        .properties
+        .register_field("a", &arrow_schema::DataType::Int64);
+    builder
+        .properties
+        .register_field("b", &arrow_schema::DataType::LargeUtf8);
+    builder
+        .properties
+        .register_field("c", &arrow_schema::DataType::FixedSizeBinary(10));
+
+    for i in 0..3 {
+        builder.id_field().set(i.to_string());
+        builder
+            .properties_field()
+            .field("b")
+            .push_raw_value(Some(b"abcd"));
+        builder
+            .properties_field()
+            .field("c")
+            .push_raw_value(Some(b"1234567890"));
+        builder.properties_field().finish_struct();
+        builder.finish_struct();
+    }
+
+    let arr = builder.build();
+    assert_eq!(arr.len(), 3);
+    let c = arr
+        .as_struct()
+        .column_by_name("properties")
+        .unwrap()
+        .as_struct()
+        .column_by_name("c")
+        .unwrap();
+    let c = c.as_fixed_size_binary();
+    assert_eq!(c.len(), 3);
+    assert_eq!(c.value(0), b"1234567890");
+    assert_eq!(c.value(2), b"1234567890");
 }

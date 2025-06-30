@@ -8,6 +8,7 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+ahash = { workspace = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }

@@ -126,6 +126,22 @@ impl Default for BinaryBuilder {
 /// is expected, including as an element type for nested structures like lists of
 /// binary data or maps with binary values.
 impl ArrayBuilder for BinaryBuilder {
+    fn as_any(&self) -> &(dyn std::any::Any + 'static) {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut (dyn std::any::Any + 'static) {
+        self
+    }
+
+    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+        if let Some(value) = value {
+            self.set(value);
+        } else {
+            self.set_null();
+        }
+    }
+
     /// Returns the current logical position in the binary array being built.
     ///
     /// This represents the index where the next binary value will be placed.
@@ -156,8 +172,9 @@ impl ArrayBuilder for BinaryBuilder {
     /// # Returns
     ///
     /// An `Arc<dyn Array>` containing the built `LargeBinaryArray`.
-    fn build(mut self) -> Arc<dyn Array> {
+    fn build(&mut self) -> Arc<dyn Array> {
         self.fill_missing();
+        self.next_pos = 0;
         Arc::new(self.inner.finish())
     }
 }
@@ -192,6 +209,15 @@ pub struct FixedSizeBinaryBuilder<const S: usize> {
     next_pos: u64,
     /// The underlying Apache Arrow fixed-size binary builder.
     inner: arrow_array::builder::FixedSizeBinaryBuilder,
+}
+
+impl FixedSizeBinaryBuilder<0> {
+    pub fn new(size: usize) -> Self {
+        FixedSizeBinaryBuilder {
+            next_pos: 0,
+            inner: arrow_array::builder::FixedSizeBinaryBuilder::new(size as i32),
+        }
+    }
 }
 
 impl<const S: usize> FixedSizeBinaryBuilder<S> {
@@ -269,6 +295,22 @@ impl<const S: usize> Default for FixedSizeBinaryBuilder<S> {
 /// `ArrayBuilder` is expected, including as an element type for nested structures
 /// like lists of fixed-size binary data.
 impl<const S: usize> ArrayBuilder for FixedSizeBinaryBuilder<S> {
+    fn as_any(&self) -> &(dyn std::any::Any + 'static) {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut (dyn std::any::Any + 'static) {
+        self
+    }
+
+    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+        if let Some(value) = value {
+            self.set(value);
+        } else {
+            self.set_null();
+        }
+    }
+
     /// Returns the current logical position in the fixed-size binary array being built.
     ///
     /// This represents the index where the next binary value will be placed.
@@ -300,8 +342,9 @@ impl<const S: usize> ArrayBuilder for FixedSizeBinaryBuilder<S> {
     /// # Returns
     ///
     /// An `Arc<dyn Array>` containing the built `FixedSizeBinaryArray`.
-    fn build(mut self) -> Arc<dyn Array> {
+    fn build(&mut self) -> Arc<dyn Array> {
         self.fill_missing();
+        self.next_pos = 0;
         Arc::new(self.inner.finish())
     }
 }

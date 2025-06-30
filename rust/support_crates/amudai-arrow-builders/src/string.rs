@@ -137,6 +137,22 @@ impl Default for StringBuilder {
 /// used by all builders in this crate. It enables sparse value setting and
 /// automatic gap filling with null values.
 impl ArrayBuilder for StringBuilder {
+    fn as_any(&self) -> &(dyn std::any::Any + 'static) {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut (dyn std::any::Any + 'static) {
+        self
+    }
+
+    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+        if let Some(value) = value {
+            self.set(std::str::from_utf8(value).expect("from_utf8"));
+        } else {
+            self.set_null();
+        }
+    }
+
     /// Returns the current logical position where the next value will be placed.
     ///
     /// # Returns
@@ -175,8 +191,9 @@ impl ArrayBuilder for StringBuilder {
     /// all the string values and nulls that were set during the building process.
     ///
     /// [`LargeStringArray`]: arrow_array::LargeStringArray
-    fn build(mut self) -> Arc<dyn Array> {
+    fn build(&mut self) -> Arc<dyn Array> {
         self.fill_missing();
+        self.next_pos = 0;
         Arc::new(self.inner.finish())
     }
 }

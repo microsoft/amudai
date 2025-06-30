@@ -14,7 +14,7 @@ use std::ffi::OsString;
 /// # Arguments
 ///
 /// * `len` - The length of the random alphanumeric suffix to append
-///           after the ".tmp" prefix
+///   after the ".tmp" prefix
 ///
 /// # Returns
 ///

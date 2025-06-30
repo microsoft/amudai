@@ -97,7 +97,7 @@ impl LocalTempFileWriter {
         }
     }
 
-    fn into_read_at_impl(mut self: Box<Self>) -> io::Result<LocalTempFileReadAt> {
+    fn into_read_at_impl(mut self) -> io::Result<LocalTempFileReadAt> {
         self.shrink_allocation_to_size();
         let FileWriteResult {
             file, logical_size, ..

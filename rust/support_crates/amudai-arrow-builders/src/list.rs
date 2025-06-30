@@ -158,7 +158,7 @@ impl<T: ArrayBuilder> ListBuilder<T> {
 /// - An empty values builder of type `T`
 /// - Offsets initialized to `[0]`
 /// - A null buffer with initial capacity
-impl<T: ArrayBuilder> Default for ListBuilder<T> {
+impl<T: ArrayBuilder + Default> Default for ListBuilder<T> {
     fn default() -> Self {
         ListBuilder {
             next_pos: 0,
@@ -174,6 +174,22 @@ impl<T: ArrayBuilder> Default for ListBuilder<T> {
 /// This implementation enables `ListBuilder` to be used anywhere an `ArrayBuilder` is expected,
 /// including as the element type for nested structures like lists of lists or maps with list values.
 impl<T: ArrayBuilder> ArrayBuilder for ListBuilder<T> {
+    fn as_any(&self) -> &(dyn std::any::Any + 'static) {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut (dyn std::any::Any + 'static) {
+        self
+    }
+
+    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+        if value.is_some() {
+            self.finish_list();
+        } else {
+            self.finish_null_list();
+        }
+    }
+
     /// Returns the current logical position where the next list will be placed.
     #[inline]
     fn next_pos(&self) -> u64 {
@@ -197,7 +213,7 @@ impl<T: ArrayBuilder> ArrayBuilder for ListBuilder<T> {
     ///
     /// An `Arc<dyn Array>` containing the built `LargeListArray`. Cast to the specific
     /// type using Arrow's casting utilities if needed.
-    fn build(mut self) -> Arc<dyn Array> {
+    fn build(&mut self) -> Arc<dyn Array> {
         self.fill_missing();
 
         let values = self.values.build();
@@ -208,11 +224,12 @@ impl<T: ArrayBuilder> ArrayBuilder for ListBuilder<T> {
             true,
         ));
 
-        let offsets =
-            arrow_buffer::OffsetBuffer::new(arrow_buffer::ScalarBuffer::from(self.offsets));
+        let offsets = arrow_buffer::OffsetBuffer::new(arrow_buffer::ScalarBuffer::from(
+            std::mem::take(&mut self.offsets),
+        ));
 
         let nulls = self.nulls.finish();
-
+        self.next_pos = 0;
         Arc::new(arrow_array::LargeListArray::new(
             field, offsets, values, nulls,
         ))
