@@ -60,6 +60,26 @@ impl Field {
         Stripe::from_ctx(self.0.stripe().clone())
     }
 
+    /// Opens a child field at the specified index.
+    pub fn open_child_at(&self, index: usize) -> Result<Field> {
+        let child_type = self.data_type().child_at(index)?;
+        self.get_stripe().open_field(child_type)
+    }
+
+    /// Opens a child field with the specified name.
+    pub fn open_child(&self, name: &str) -> Result<Field> {
+        let (_, child_type) = self.data_type().find_child(name)?.ok_or_else(|| {
+            amudai_common::error::Error::invalid_arg(
+                "field name",
+                format!(
+                    "Child field '{name}' of '{}' not found",
+                    self.data_type().name().unwrap_or_default()
+                ),
+            )
+        })?;
+        self.get_stripe().open_field(child_type)
+    }
+
     /// Creates a decoder for reading this field's data.
     ///
     /// # Errors
@@ -126,6 +146,11 @@ impl Field {
     /// (such as Parquet) will return an error.
     pub fn get_encoded_buffers(&self) -> Result<&[shard::EncodedBuffer]> {
         self.0.get_encoded_buffers()
+    }
+
+    /// Returns an `EncodedBuffer` descriptor of the specified kind for this field's data.
+    pub fn get_encoded_buffer(&self, kind: shard::BufferKind) -> Result<&shard::EncodedBuffer> {
+        self.0.get_encoded_buffer(kind)
     }
 
     /// Opens a buffer reader for the given encoded buffer.

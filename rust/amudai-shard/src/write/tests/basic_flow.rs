@@ -4,7 +4,10 @@ use amudai_arrow_compat::arrow_to_amudai_schema::FromArrowSchema;
 use amudai_format::{schema::BasicType, schema_builder::SchemaBuilder};
 use amudai_io_impl::temp_file_store;
 use amudai_objectstore::null_store::NullObjectStore;
-use arrow_array::{Array, RecordBatchIterator, builder::Int8Builder};
+use arrow_array::{
+    Array, RecordBatchIterator,
+    builder::{Int8Builder, StringBuilder},
+};
 use arrow_schema::{DataType, Schema};
 use decimal::d128;
 
@@ -126,6 +129,59 @@ fn test_list_encoding() {
         seq.values.as_slice::<u64>(),
         &[0, 0, 1, 3, 6, 10, 15, 21, 28, 36, 45,]
     );
+}
+
+#[test]
+fn test_map_encoding() {
+    let shard_store = ShardStore::new();
+
+    let map_data = generate_map_data(10);
+    let schema = map_data.schema().clone();
+
+    let shard_ref = shard_store.ingest_shard_from_record_batches(RecordBatchIterator::new(
+        std::iter::once(map_data).map(Ok),
+        schema,
+    ));
+
+    let shard = shard_store.open_shard(&shard_ref.url);
+    let stripe = shard.open_stripe(0).unwrap();
+    let schema = stripe.fetch_schema().unwrap();
+    let field = schema.find_field("properties").unwrap().unwrap().1;
+    let field = stripe.open_field(field.data_type().unwrap()).unwrap();
+    assert_eq!(field.data_type().basic_type().unwrap(), BasicType::Map);
+    assert_eq!(
+        field.descriptor().field.as_ref().unwrap().position_count,
+        10
+    );
+
+    let mut reader = field
+        .create_decoder()
+        .unwrap()
+        .create_reader(std::iter::empty())
+        .unwrap();
+    let seq = reader.read(0..11).unwrap();
+    assert_eq!(
+        seq.values.as_slice::<u64>(),
+        &[0, 0, 1, 3, 6, 10, 15, 21, 28, 36, 45,]
+    );
+
+    let mut keys = field
+        .open_child_at(0)
+        .unwrap()
+        .create_decoder()
+        .unwrap()
+        .create_reader(std::iter::empty())
+        .unwrap();
+    let mut values = field
+        .open_child_at(1)
+        .unwrap()
+        .create_decoder()
+        .unwrap()
+        .create_reader(std::iter::empty())
+        .unwrap();
+
+    keys.read(0..45).unwrap();
+    values.read(0..45).unwrap();
 }
 
 #[test]
@@ -459,6 +515,28 @@ fn generate_list_data(count: usize) -> arrow_array::RecordBatch {
     arrow_array::RecordBatch::try_from_iter(vec![(
         "numbers",
         Arc::new(list_array) as arrow_array::ArrayRef,
+    )])
+    .unwrap()
+}
+
+fn generate_map_data(count: usize) -> arrow_array::RecordBatch {
+    use arrow_array::builder::{Int32Builder, MapBuilder};
+
+    let mut map_builder = MapBuilder::new(None, StringBuilder::new(), Int32Builder::new());
+
+    for i in 0..count {
+        for j in 0..i {
+            map_builder.keys().append_value(format!("key_{j}"));
+            map_builder.values().append_value(j as i32);
+        }
+        map_builder.append(true).unwrap();
+    }
+
+    let map_array = map_builder.finish();
+
+    arrow_array::RecordBatch::try_from_iter(vec![(
+        "properties",
+        Arc::new(map_array) as arrow_array::ArrayRef,
     )])
     .unwrap()
 }

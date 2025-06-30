@@ -155,7 +155,7 @@ impl FieldContext {
                 let decoder = BytesFieldDecoder::from_field(self)?;
                 return Ok(FieldDecoder::Bytes(decoder));
             }
-            BasicType::List => {
+            BasicType::List | BasicType::Map => {
                 let decoder = ListFieldDecoder::from_field(self)?;
                 return Ok(FieldDecoder::List(decoder));
             }
@@ -163,7 +163,6 @@ impl FieldContext {
                 let decoder = StructFieldDecoder::from_field(self)?;
                 return Ok(FieldDecoder::Struct(decoder));
             }
-            BasicType::Map => (),
             BasicType::Union => (),
         }
 
@@ -236,5 +235,22 @@ impl FieldContext {
             }
         };
         Ok(&native_encoding.buffers)
+    }
+
+    /// Returns an `EncodedBuffer` descriptor of the specified kind for this field's data.
+    pub fn get_encoded_buffer(&self, kind: shard::BufferKind) -> Result<&shard::EncodedBuffer> {
+        self.get_encoded_buffers()?
+            .iter()
+            .find(|buf| buf.kind() == kind)
+            .ok_or_else(|| {
+                amudai_common::error::Error::invalid_arg(
+                    "kind",
+                    format!(
+                        "Encoded buffer '{kind:?}' not found in field '{}' ({:?})",
+                        self.data_type().name().unwrap_or_default(),
+                        self.schema_id()
+                    ),
+                )
+            })
     }
 }

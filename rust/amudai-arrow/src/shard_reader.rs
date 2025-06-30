@@ -339,7 +339,7 @@ mod tests {
     use amudai_format::defs::common::DataRef;
     use amudai_shard::tests::{
         data_generator::{
-            create_bytes_flat_test_schema, create_nested_test_schema,
+            create_bytes_flat_test_schema, create_map_test_schema, create_nested_test_schema,
             create_primitive_flat_test_schema,
         },
         shard_store::ShardStore,
@@ -402,6 +402,27 @@ mod tests {
         for frame in reader {
             let frame = frame.unwrap();
             dbg!(frame.num_rows());
+        }
+    }
+
+    #[test]
+    fn test_map_reader() {
+        let schema = create_map_test_schema();
+
+        let shard_store = ShardStore::new();
+
+        let shard_ref: DataRef = shard_store.ingest_shard_with_schema(&schema, 10000);
+
+        let reader_builder = ArrowReaderBuilder::try_new(&shard_ref.url)
+            .expect("Failed to create ArrowReaderBuilder")
+            .with_object_store(shard_store.object_store.clone());
+
+        let reader = reader_builder.build().unwrap();
+        for frame in reader {
+            let frame = frame.unwrap();
+            let json =
+                amudai_arrow_processing::array_to_json::record_batch_to_ndjson(&frame).unwrap();
+            assert!(json.contains("\"Props\":{"));
         }
     }
 

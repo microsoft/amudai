@@ -85,16 +85,12 @@ impl ListFieldDecoder {
     ///   fail.
     pub(crate) fn from_field(field: &FieldContext) -> Result<ListFieldDecoder> {
         let basic_type = field.data_type().describe()?;
-        verify_data!(basic_type, basic_type.basic_type == BasicType::List);
-
-        let encoded_buffers = field.get_encoded_buffers()?;
-        verify_data!(encoded_buffers, !encoded_buffers.is_empty());
-        verify_data!(encoded_buffers, encoded_buffers.len() <= 2);
-        let encoded_buffer = &encoded_buffers[0];
         verify_data!(
-            encoded_buffer,
-            encoded_buffer.kind == BufferKind::Offsets as i32
+            basic_type,
+            basic_type.basic_type == BasicType::List || basic_type.basic_type == BasicType::Map
         );
+
+        let encoded_buffer = field.get_encoded_buffer(BufferKind::Offsets)?;
 
         let reader = field.open_data_ref(
             encoded_buffer

@@ -6,7 +6,7 @@ use std::{
 };
 
 use arrow_array::{
-    Array, ArrayRef, FixedSizeBinaryArray, ListArray, RecordBatch, StructArray,
+    Array, ArrayRef, FixedSizeBinaryArray, ListArray, MapArray, RecordBatch, StructArray,
     builder::{
         BinaryBuilder, BooleanBuilder, Float32Builder, Float64Builder, Int32Builder, Int64Builder,
         StringBuilder,
@@ -76,6 +76,61 @@ pub fn create_nested_test_schema() -> Arc<Schema> {
                     ..Default::default()
                 },
             ))),
+            FieldProperties {
+                kind: FieldKind::Unspecified,
+                nulls_fraction: 0.1,
+                min_value: 0,
+                max_value: 10,
+                ..Default::default()
+            },
+        ),
+    ]))
+}
+
+pub fn create_map_test_schema() -> Arc<Schema> {
+    Arc::new(Schema::new(vec![
+        make_field(
+            "Id",
+            DataType::Utf8,
+            FieldProperties {
+                kind: FieldKind::Unique,
+                nulls_fraction: 0.0,
+                word_dictionary: 1000,
+                ..Default::default()
+            },
+        ),
+        make_field(
+            "Props",
+            DataType::Map(
+                Arc::new(make_field(
+                    "entries",
+                    DataType::Struct(
+                        vec![
+                            make_field(
+                                "key",
+                                DataType::Utf8,
+                                FieldProperties {
+                                    kind: FieldKind::Word,
+                                    nulls_fraction: 0.0,
+                                    ..Default::default()
+                                },
+                            ),
+                            make_field(
+                                "value",
+                                DataType::Utf8,
+                                FieldProperties {
+                                    kind: FieldKind::Word,
+                                    nulls_fraction: 0.1,
+                                    ..Default::default()
+                                },
+                            ),
+                        ]
+                        .into(),
+                    ),
+                    FieldProperties::default(),
+                )),
+                false,
+            ),
             FieldProperties {
                 kind: FieldKind::Unspecified,
                 nulls_fraction: 0.1,
@@ -205,6 +260,11 @@ pub fn generate_field(field: &arrow_schema::Field, len: usize) -> Arc<dyn Array>
         DataType::LargeList(item) => {
             generate_list(&FieldProperties::from_metadata(field.metadata()), item, len)
         }
+        DataType::Map(entry_field, _) => generate_map(
+            &FieldProperties::from_metadata(field.metadata()),
+            entry_field,
+            len,
+        ),
         _ => unimplemented!("generate_field for {:?}", field.data_type()),
     }
 }
@@ -278,6 +338,65 @@ pub fn generate_list(props: &FieldProperties, field: &Arc<Field>, len: usize) ->
         offsets.finish(),
         child,
         validity,
+    ))
+}
+
+pub fn generate_map(
+    props: &FieldProperties,
+    entry_field: &Arc<Field>,
+    len: usize,
+) -> Arc<dyn Array> {
+    let mut offsets = OffsetBufferBuilder::<i32>::new(len);
+
+    let min_list_size = props.min_value as usize;
+    let max_list_size = (props.max_value as usize + 1).max(min_list_size + 1);
+
+    let list_sizes = (0..len)
+        .map(|_| {
+            let is_valid = if props.nulls_fraction > 0.0 {
+                fastrand::f64() >= props.nulls_fraction
+            } else {
+                true
+            };
+            let size = if is_valid {
+                fastrand::usize(min_list_size..max_list_size)
+            } else {
+                0
+            };
+            (is_valid, size)
+        })
+        .collect::<Vec<_>>();
+
+    let total_child_len = list_sizes.iter().map(|e| e.1).sum::<usize>();
+
+    let DataType::Struct(kv_fields) = entry_field.data_type() else {
+        panic!("not a struct")
+    };
+    assert_eq!(kv_fields.len(), 2);
+
+    let key = generate_field(&kv_fields[0], total_child_len);
+    let value = generate_field(&kv_fields[1], total_child_len);
+
+    for &(_, size) in &list_sizes {
+        offsets.push_length(size);
+    }
+
+    let validity = if props.nulls_fraction > 0.0 {
+        let mut validity_builder = Vec::with_capacity(len);
+        for &(is_valid, _) in &list_sizes {
+            validity_builder.push(is_valid);
+        }
+        Some(NullBuffer::from(validity_builder))
+    } else {
+        None
+    };
+
+    Arc::new(MapArray::new(
+        entry_field.clone(),
+        offsets.finish(),
+        StructArray::new(kv_fields.clone(), vec![key, value], None),
+        validity,
+        false,
     ))
 }
 

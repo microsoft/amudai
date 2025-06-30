@@ -16,7 +16,7 @@ use amudai_shard::read::{
     field_decoder::{FieldDecoder, FieldReader, boolean::BooleanFieldReader},
 };
 use arrow::{
-    array::{ArrayRef, LargeListArray, StructArray},
+    array::{ArrayRef, LargeListArray, MapArray, StructArray},
     datatypes::{DataType as ArrowDataType, Field as ArrowField, Fields as ArrowFields},
     error::ArrowError,
 };
@@ -54,6 +54,9 @@ pub enum ArrayReader {
     /// Handles nested list structures, converting them to Arrow LargeListArray
     /// instances with proper offset and null handling.
     List(ListArrayReader),
+
+    /// Reader for map types.
+    Map(MapArrayReader),
 }
 
 impl ArrayReader {
@@ -78,6 +81,9 @@ impl ArrayReader {
             ArrowDataType::LargeList(field) => {
                 ArrayReader::new_list(field, stripe_field, pos_ranges_hint)
             }
+            ArrowDataType::Map(entry_field, _) => {
+                ArrayReader::new_map(entry_field, stripe_field, pos_ranges_hint)
+            }
             _ => ArrayReader::new_basic(arrow_type, stripe_field, pos_ranges_hint),
         }
     }
@@ -98,6 +104,7 @@ impl ArrayReader {
             ArrayReader::Boolean(reader) => reader.read(pos_range),
             ArrayReader::Struct(reader) => reader.read(pos_range),
             ArrayReader::List(reader) => reader.read(pos_range),
+            ArrayReader::Map(reader) => reader.read(pos_range),
         }
     }
 }
@@ -218,6 +225,84 @@ impl ArrayReader {
             arrow_item_field,
             list_reader,
             Box::new(child_reader),
+        )))
+    }
+
+    /// Creates a new map array reader for converting Amudai map fields to Arrow
+    /// MapArray.
+    ///
+    /// # Arguments
+    /// * `arrow_entry_field` - Arrow field definition for the map's child entry struct
+    /// * `amudai_map_field` - The Amudai field containing the map data to be read
+    /// * `pos_ranges_hint` - Iterator over position ranges that provides hints for
+    ///   optimizing list and child element access patterns
+    ///
+    /// # Returns
+    /// Returns a new `ArrayReader::Map` variant containing a configured `MapArrayReader`.
+    fn new_map(
+        arrow_entry_field: Arc<ArrowField>,
+        amudai_map_field: Field,
+        pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
+    ) -> Result<ArrayReader, ArrowError> {
+        let basic_type = amudai_map_field.data_type().describe().to_arrow_res()?;
+        if basic_type.basic_type != BasicType::Map {
+            return Err(ArrowError::SchemaError(
+                "Field cannot be converted to a map".into(),
+            ));
+        }
+
+        let ArrowDataType::Struct(struct_fields) = arrow_entry_field.data_type() else {
+            return Err(ArrowError::SchemaError(
+                "Arrow map entry field is not a struct".into(),
+            ));
+        };
+        if struct_fields.len() != 2 {
+            return Err(ArrowError::SchemaError(format!(
+                "Arrow map entry struct has unexpected field count {}",
+                struct_fields.len()
+            )));
+        }
+
+        let arrow_key_field = &struct_fields[0];
+        let arrow_value_field = &struct_fields[1];
+
+        let map_reader = amudai_map_field
+            .create_decoder()
+            .to_arrow_res()?
+            .create_reader(pos_ranges_hint.clone())
+            .to_arrow_res()?;
+
+        let stripe = amudai_map_field.get_stripe();
+        let amudai_key_type = amudai_map_field.data_type().child_at(0).to_arrow_res()?;
+        let amudai_value_type = amudai_map_field.data_type().child_at(1).to_arrow_res()?;
+
+        let amudai_key_field = stripe.open_field(amudai_key_type.clone()).to_arrow_res()?;
+        let map_count = amudai_map_field.position_count();
+        let entry_count = amudai_key_field.position_count();
+        let entry_ranges =
+            derive_list_item_pos_ranges_hint(pos_ranges_hint, map_count, entry_count);
+
+        let key_reader = create_array_reader(
+            &stripe,
+            Some(&amudai_map_field),
+            Some(amudai_key_type),
+            arrow_key_field.data_type().clone(),
+            entry_ranges.iter().cloned(),
+        )?;
+
+        let value_reader = create_array_reader(
+            &stripe,
+            Some(&amudai_map_field),
+            Some(amudai_value_type),
+            arrow_value_field.data_type().clone(),
+            entry_ranges.iter().cloned(),
+        )?;
+
+        Ok(ArrayReader::Map(MapArrayReader::new(
+            arrow_entry_field,
+            map_reader,
+            Box::new(key_reader),
+            Box::new(value_reader),
         )))
     }
 
@@ -513,6 +598,97 @@ impl ListArrayReader {
         let list_array =
             LargeListArray::try_new(self.child_field.clone(), offset_buffer, child_array, nulls)?;
         Ok(Arc::new(list_array))
+    }
+}
+
+/// Reader for Amudai map fields, converting them to Arrow MapArray instances.
+///
+/// This reader handles variable-length map entries by coordinating the reading
+/// of map metadata (offsets and null information) with the reading of child entry
+/// data. It properly handles the conversion from Amudai's absolute offset representation
+/// to Arrow's relative offset representation.
+///
+/// The reader uses position range hints to optimize child data access patterns,
+/// avoiding unnecessary I/O when only specific map ranges are being read.
+pub struct MapArrayReader {
+    entry_field: Arc<ArrowField>,
+    kv_fields: ArrowFields,
+    map_reader: Box<dyn FieldReader>,
+    key_reader: Box<ArrayReader>,
+    value_reader: Box<ArrayReader>,
+}
+
+impl MapArrayReader {
+    pub fn new(
+        entry_field: Arc<ArrowField>,
+        map_reader: Box<dyn FieldReader>,
+        key_reader: Box<ArrayReader>,
+        value_reader: Box<ArrayReader>,
+    ) -> MapArrayReader {
+        let ArrowDataType::Struct(fields) = entry_field.data_type() else {
+            panic!("unexpected entry type");
+        };
+        assert_eq!(fields.len(), 2);
+        MapArrayReader {
+            kv_fields: fields.clone(),
+            entry_field,
+            map_reader,
+            key_reader,
+            value_reader,
+        }
+    }
+
+    pub fn read(&mut self, pos_range: Range<u64>) -> Result<ArrayRef, ArrowError> {
+        let start = pos_range.start;
+        let end = pos_range.end.checked_add(1).ok_or_else(|| {
+            ArrowError::InvalidArgumentError(format!("invalid pos range end: {}", pos_range.end))
+        })?;
+
+        let map_values = self.map_reader.read(start..end).to_arrow_res()?;
+
+        let mut offsets = Offsets::from_values(map_values.values);
+        let child_start = offsets.first();
+        let child_end = offsets.last();
+        if child_start > child_end {
+            return Err(ArrowError::InvalidArgumentError("child list range".into()));
+        }
+
+        let key_array = if child_start == child_end {
+            // arrow::array::new_empty_array(self.entry_field.data_type())
+            todo!()
+        } else {
+            self.key_reader.read(child_start..child_end)?
+        };
+
+        let value_array = if child_start == child_end {
+            // arrow::array::new_empty_array(self.entry_field.data_type())
+            todo!()
+        } else {
+            self.value_reader.read(child_start..child_end)?
+        };
+
+        // Convert absolute (stripe-based) child offsets into zero-based
+        // child array offsets.
+        offsets.normalize();
+
+        let offset_buffer = offsets.into_arrow_offsets_32().to_arrow_res()?;
+
+        let nulls = map_values
+            .presence
+            .into_arrow_null_buffer()
+            .to_arrow_res()?;
+
+        let entries =
+            StructArray::try_new(self.kv_fields.clone(), vec![key_array, value_array], None)?;
+
+        let map_array = MapArray::try_new(
+            self.entry_field.clone(),
+            offset_buffer,
+            entries,
+            nulls,
+            false,
+        )?;
+        Ok(Arc::new(map_array))
     }
 }
 
