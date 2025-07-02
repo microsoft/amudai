@@ -22,6 +22,7 @@ amudai-data-stats = { workspace = true }
 amudai-encodings = { workspace = true }
 amudai-format = { workspace = true }
 amudai-hashmap-index = { workspace = true }
+amudai-index-core = { workspace = true }
 amudai-io = { workspace = true }
 amudai-io-impl = { workspace = true }
 amudai-keyed-vector = { workspace = true }

@@ -17,6 +17,7 @@ amudai-arrow-compat = { workspace = true }
 amudai-collections = { workspace = true }
 amudai-common = { workspace = true }
 amudai-format = { workspace = true }
+amudai-index-core = { workspace = true }
 amudai-io = { workspace = true }
 amudai-objectstore = { workspace = true }
 amudai-shard = { workspace = true }

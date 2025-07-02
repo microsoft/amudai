@@ -16,6 +16,10 @@ I/O abstractions, mainly:
 
 Provides a couple of simple implementations: memory-based and file-based.
 
+## amudai-index-core
+
+Traits and type definitions related to indexing structures (index probe APIs).
+
 ## amudai-objectstore
 
 *Object Store* abstraction: a hypothetical "storage service" client capable of issuing `Reader`'s and `Writer`'s for a given object URL.
@@ -83,7 +87,7 @@ Code-generation tasks for Amudai development.
  _____________________________________________________________________
                                    │
  __________________________________▼__________________________________
-                                 shard
+                             shard  index-core
  _____________________________________________________________________
                                    │
  __________________________________▼__________________________________
@@ -95,7 +99,7 @@ Code-generation tasks for Amudai development.
  _____________________________________________________________________
                                    │
  __________________________________▼__________________________________
-                   objectstore (:io)    format(:io)
+                 objectstore (:io)    format(:io)
  _____________________________________________________________________
                                    │
  __________________________________▼__________________________________

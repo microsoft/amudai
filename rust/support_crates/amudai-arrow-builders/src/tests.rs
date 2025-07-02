@@ -50,6 +50,7 @@ struct_builder!(
 struct_builder!(
     struct NodeRecord {
         id: String,
+        flag: bool,
         properties: FluidStruct,
     },
     crate
@@ -651,4 +652,22 @@ fn test_fluid_struct_builder_no_fields() {
     assert_eq!(arr.len(), 3);
     let s = amudai_arrow_processing::array_to_json::array_to_ndjson(&arr).unwrap();
     assert!(s.contains(r#""properties":{}"#));
+}
+
+#[test]
+fn test_bool_builder() {
+    let mut builder = RecordBatchBuilder::<NodeRecordFields>::default();
+
+    for i in 0..5 {
+        builder.id_field().push(i.to_string());
+        if i != 3 {
+            builder.flag_field().push(i % 2 == 0);
+        }
+        builder.finish_record();
+    }
+
+    let batch = builder.build();
+    let s = amudai_arrow_processing::array_to_json::record_batch_to_ndjson(&batch).unwrap();
+    assert!(s.contains(r#""flag":true"#));
+    assert!(s.contains(r#""flag":false"#));
 }

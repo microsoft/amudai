@@ -9,6 +9,7 @@ members = [
     "rust/amudai-encodings",
     "rust/amudai-format",
     "rust/amudai-hashmap-index",
+    "rust/amudai-index-core",
     "rust/amudai-io",
     "rust/amudai-io-impl",
     "rust/amudai-objectstore",
@@ -32,7 +33,7 @@ exclude = []
 resolver = "2"
 
 [workspace.package]
-version = "0.2.9"
+version = "0.2.10"
 edition = "2024"
 authors = ["Kusto Devs"]
 readme = "README.md"
@@ -99,29 +100,30 @@ xshell = "0.2"
 xxhash-rust = { version = "0.8", features = ["xxh64", "xxh3"] }
 zstd = { version = "0.13" }
 
-amudai = { version = "0.2.9", path = "rust/amudai" }
-amudai-arrow = { version = "0.2.9", path = "rust/amudai-arrow" }
-amudai-arrow-builders = { version = "0.2.9", path = "rust/support_crates/amudai-arrow-builders" }
-amudai-arrow-builders-macros = { version = "0.2.9", path = "rust/support_crates/amudai-arrow-builders-macros" }
-amudai-arrow-compat = { version = "0.2.9", path = "rust/amudai-arrow-compat" }
-amudai-arrow-processing = { version = "0.2.9", path = "rust/support_crates/amudai-arrow-processing" }
-amudai-blockstream = { version = "0.2.9", path = "rust/amudai-blockstream" }
-amudai-budget-tracker = { version = "0.2.9", path = "rust/support_crates/amudai-budget-tracker" }
-amudai-bytes = { version = "0.2.9", path = "rust/support_crates/amudai-bytes" }
-amudai-collections = { version = "0.2.9", path = "rust/support_crates/amudai-collections" }
-amudai-common = { version = "0.2.9", path = "rust/amudai-common" }
-amudai-data-stats = { version = "0.2.9", path = "rust/amudai-data-stats" }
-amudai-encodings = { version = "0.2.9", path = "rust/amudai-encodings" }
-amudai-format = { version = "0.2.9", path = "rust/amudai-format" }
-amudai-hashmap-index = { version = "0.2.9", path = "rust/amudai-hashmap-index" }
-amudai-io = { version = "0.2.9", path = "rust/amudai-io" }
-amudai-io-impl = { version = "0.2.9", path = "rust/amudai-io-impl" }
-amudai-keyed-vector = { version = "0.2.9", path = "rust/support_crates/amudai-keyed-vector" }
-amudai-objectstore = { version = "0.2.9", path = "rust/amudai-objectstore" }
-amudai-sequence = { version = "0.2.9", path = "rust/amudai-sequence" }
-amudai-shard = { version = "0.2.9", path = "rust/amudai-shard" }
-amudai-testkit = { version = "0.2.9", path = "rust/amudai-testkit" }
-amudai-text-index = { version = "0.2.9", path = "rust/amudai-text-index" }
+amudai = { version = "0.2.10", path = "rust/amudai" }
+amudai-arrow = { version = "0.2.10", path = "rust/amudai-arrow" }
+amudai-arrow-builders = { version = "0.2.10", path = "rust/support_crates/amudai-arrow-builders" }
+amudai-arrow-builders-macros = { version = "0.2.10", path = "rust/support_crates/amudai-arrow-builders-macros" }
+amudai-arrow-compat = { version = "0.2.10", path = "rust/amudai-arrow-compat" }
+amudai-arrow-processing = { version = "0.2.10", path = "rust/support_crates/amudai-arrow-processing" }
+amudai-blockstream = { version = "0.2.10", path = "rust/amudai-blockstream" }
+amudai-budget-tracker = { version = "0.2.10", path = "rust/support_crates/amudai-budget-tracker" }
+amudai-bytes = { version = "0.2.10", path = "rust/support_crates/amudai-bytes" }
+amudai-collections = { version = "0.2.10", path = "rust/support_crates/amudai-collections" }
+amudai-common = { version = "0.2.10", path = "rust/amudai-common" }
+amudai-data-stats = { version = "0.2.10", path = "rust/amudai-data-stats" }
+amudai-encodings = { version = "0.2.10", path = "rust/amudai-encodings" }
+amudai-format = { version = "0.2.10", path = "rust/amudai-format" }
+amudai-hashmap-index = { version = "0.2.10", path = "rust/amudai-hashmap-index" }
+amudai-index-core = { version = "0.2.10", path = "rust/amudai-index-core" }
+amudai-io = { version = "0.2.10", path = "rust/amudai-io" }
+amudai-io-impl = { version = "0.2.10", path = "rust/amudai-io-impl" }
+amudai-keyed-vector = { version = "0.2.10", path = "rust/support_crates/amudai-keyed-vector" }
+amudai-objectstore = { version = "0.2.10", path = "rust/amudai-objectstore" }
+amudai-sequence = { version = "0.2.10", path = "rust/amudai-sequence" }
+amudai-shard = { version = "0.2.10", path = "rust/amudai-shard" }
+amudai-testkit = { version = "0.2.10", path = "rust/amudai-testkit" }
+amudai-text-index = { version = "0.2.10", path = "rust/amudai-text-index" }
 
 [profile.devrel]
 inherits = "release"

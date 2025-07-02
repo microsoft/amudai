@@ -240,6 +240,7 @@ fn map_type_to_builder(
                 match segment.ident.to_string().as_str() {
                     "string" | "String" => quote! { #crate_path::StringBuilder },
                     "binary" | "Binary" => quote! { #crate_path::BinaryBuilder },
+                    "bool" | "Boolean" => quote! { #crate_path::BooleanBuilder },
                     "i8" | "Int8" => quote! { #crate_path::Int8Builder },
                     "i16" | "Int16" => quote! { #crate_path::Int16Builder },
                     "i32" | "Int32" => quote! { #crate_path::Int32Builder },

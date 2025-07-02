@@ -258,6 +258,7 @@ use std::sync::Arc;
 use arrow_array::Array;
 
 pub mod binary;
+pub mod boolean;
 pub mod list;
 pub mod map;
 pub mod primitive;
@@ -268,13 +269,16 @@ pub mod structure;
 mod tests;
 
 use arrow_schema::TimeUnit;
+
 pub use binary::{BinaryBuilder, FixedSizeBinaryBuilder};
+pub use boolean::BooleanBuilder;
 pub use list::ListBuilder;
 pub use map::MapBuilder;
 pub use primitive::{
     DurationBuilder, Float32Builder, Float64Builder, Int8Builder, Int16Builder, Int32Builder,
     Int64Builder, TimestampBuilder, UInt8Builder, UInt16Builder, UInt32Builder, UInt64Builder,
 };
+pub use record_batch::RecordBatchBuilder;
 pub use string::StringBuilder;
 pub use structure::{FluidStructBuilder, FluidStructFields, StructBuilder, StructFieldsBuilder};
 
@@ -489,6 +493,7 @@ impl<T: ArrayBuilder + ?Sized> ArrayBuilderExt for T {
 /// from the Arrow schema alone.
 pub fn create_builder(data_type: &arrow_schema::DataType) -> Box<dyn ArrayBuilder> {
     match data_type {
+        arrow_schema::DataType::Boolean => Box::new(BooleanBuilder::default()),
         arrow_schema::DataType::Int8 => Box::new(Int8Builder::default()),
         arrow_schema::DataType::Int16 => Box::new(Int16Builder::default()),
         arrow_schema::DataType::Int32 => Box::new(Int32Builder::default()),
