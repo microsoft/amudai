@@ -224,12 +224,13 @@ impl<FB: StructFieldsBuilder> ArrayBuilder for StructBuilder<FB> {
         self
     }
 
-    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+    fn try_push_raw_value(&mut self, value: Option<&[u8]>) -> Result<(), arrow_schema::ArrowError> {
         if value.is_some() {
             self.finish_struct();
         } else {
             self.finish_null_struct();
         }
+        Ok(())
     }
 
     /// Returns the next logical position from the fields builder.
@@ -260,20 +261,27 @@ impl<FB: StructFieldsBuilder> ArrayBuilder for StructBuilder<FB> {
     fn build(&mut self) -> Arc<dyn Array> {
         self.fill_missing();
 
-        let field_names = (0..self.fields.field_count())
-            .map(|i| self.fields.field_name(i).to_string())
-            .collect::<Vec<_>>();
-
-        let arrays = self.fields.build_fields();
         let nulls = self.nulls.finish();
+        if self.field_count() == 0 {
+            let len = self.next_pos() as usize;
+            Arc::new(arrow_array::StructArray::new_empty_fields(len, nulls))
+        } else {
+            let field_names = (0..self.fields.field_count())
+                .map(|i| self.fields.field_name(i).to_string())
+                .collect::<Vec<_>>();
 
-        let fields = field_names
-            .into_iter()
-            .enumerate()
-            .map(|(i, name)| arrow_schema::Field::new(name, arrays[i].data_type().clone(), true))
-            .collect::<Vec<_>>();
-        let fields = arrow_schema::Fields::from(fields);
-        Arc::new(arrow_array::StructArray::new(fields, arrays, nulls))
+            let arrays = self.fields.build_fields();
+
+            let fields = field_names
+                .into_iter()
+                .enumerate()
+                .map(|(i, name)| {
+                    arrow_schema::Field::new(name, arrays[i].data_type().clone(), true)
+                })
+                .collect::<Vec<_>>();
+            let fields = arrow_schema::Fields::from(fields);
+            Arc::new(arrow_array::StructArray::new(fields, arrays, nulls))
+        }
     }
 }
 
@@ -299,7 +307,7 @@ impl<FB: StructFieldsBuilder> ArrayBuilder for StructBuilder<FB> {
 ///
 /// ```rust
 /// use amudai_arrow_builders::structure::{FluidStructFields, StructBuilder};
-/// use amudai_arrow_builders::ArrayBuilder;
+/// use amudai_arrow_builders::{ArrayBuilder, ArrayBuilderExt};
 /// use arrow_schema::DataType;
 ///
 /// let mut builder = StructBuilder::<FluidStructFields>::default();
@@ -378,6 +386,23 @@ impl FluidStructFields {
         self.fields.push((builder, name.to_string()));
     }
 
+    /// Checks whether a field with the specified name has been registered.
+    ///
+    /// This method performs a fast lookup to determine if a field with the given name
+    /// exists in the current set of registered fields. It's useful for conditional
+    /// field access or validation before attempting to access a field.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the field to check for
+    ///
+    /// # Returns
+    ///
+    /// `true` if a field with the specified name exists, `false` otherwise
+    pub fn contains_field(&self, name: &str) -> bool {
+        self.field_map.contains_key(name)
+    }
+
     /// Returns a mutable reference to the array builder for the specified field.
     ///
     /// This method provides access to the array builder associated with the given
@@ -400,6 +425,29 @@ impl FluidStructFields {
     pub fn field(&mut self, name: impl AsRef<str>) -> &mut dyn ArrayBuilder {
         let index = *self.field_map.get(name.as_ref()).expect("field");
         self.field_at(index)
+    }
+
+    /// Returns a mutable reference to the array builder for the specified field, if it exists.
+    ///
+    /// This method is similar to [`field`](Self::field) but returns `None` instead of panicking
+    /// when the field name is not found. This allows for safe field access when you're not certain
+    /// whether a field has been registered.
+    ///
+    /// Before returning the builder, it synchronizes the builder to the current position to ensure
+    /// that subsequent operations write to the correct array index.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the field to access (can be any type that converts to `&str`)
+    ///
+    /// # Returns
+    ///
+    /// `Some(&mut dyn ArrayBuilder)` if the field exists, `None` otherwise
+    pub fn try_field(&mut self, name: impl AsRef<str>) -> Option<&mut dyn ArrayBuilder> {
+        self.field_map
+            .get(name.as_ref())
+            .cloned()
+            .map(|i| self.field_at(i))
     }
 
     /// Returns a mutable reference to the array builder at the specified index.
@@ -558,23 +606,23 @@ mod tests {
     fn test_struct_builder() {
         let mut builder = FooBuilder::default();
 
-        builder.name_field().set("aaa");
-        builder.value_field().set(10);
+        builder.name_field().push("aaa");
+        builder.value_field().push(10);
         builder.finish_struct();
 
-        builder.name_field().set("bbb");
+        builder.name_field().push("bbb");
 
         {
             let measures = builder.measures_field();
-            measures.item().set(b"111");
-            measures.item().set(b"222");
+            measures.item().push(b"111");
+            measures.item().push(b"222");
             measures.finish_list();
         }
         builder.finish_struct();
 
-        builder.name_field().set("ccc");
-        builder.value_field().set(20);
-        builder.blob_field().set(b"1234abc");
+        builder.name_field().push("ccc");
+        builder.value_field().push(20);
+        builder.blob_field().push(b"1234abc");
         builder.finish_struct();
 
         let arr = builder.build();

@@ -234,12 +234,13 @@ impl<K: ArrayBuilder, V: ArrayBuilder> ArrayBuilder for MapBuilder<K, V> {
         self
     }
 
-    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+    fn try_push_raw_value(&mut self, value: Option<&[u8]>) -> Result<(), arrow_schema::ArrowError> {
         if value.is_some() {
             self.finish_map();
         } else {
             self.finish_null_map();
         }
+        Ok(())
     }
 
     /// Returns the current logical position in the map array.
@@ -318,6 +319,7 @@ impl<K: ArrayBuilder, V: ArrayBuilder> ArrayBuilder for MapBuilder<K, V> {
         let nulls = self.nulls.finish();
 
         self.next_pos = 0;
+        self.offsets.push(0);
 
         Arc::new(arrow_array::MapArray::new(
             entries_field,
@@ -340,18 +342,18 @@ mod tests {
         let mut builder = MapBuilder::<StringBuilder, Int32Builder>::default();
 
         // First map: {"a": 1, "b": 2}
-        builder.key().set("a");
-        builder.value().set(1);
-        builder.key().set("b");
-        builder.value().set(2);
+        builder.key().push("a");
+        builder.value().push(1);
+        builder.key().push("b");
+        builder.value().push(2);
         builder.finish_map();
 
         // Null map
         builder.finish_null_map();
 
         // Third map: {"c": 3}
-        builder.key().set("c");
-        builder.value().set(3);
+        builder.key().push("c");
+        builder.value().push(3);
         builder.finish_map();
 
         let map_array = builder.build();
@@ -369,21 +371,21 @@ mod tests {
         // First map: {"x": 10, "y": 20}
         {
             let (key, value) = builder.entry();
-            key.set("x");
-            value.set(10);
+            key.push("x");
+            value.push(10);
         }
         {
             let (key, value) = builder.entry();
-            key.set("y");
-            value.set(20);
+            key.push("y");
+            value.push(20);
         }
         builder.finish_map();
 
         // Second map: {"z": 30}
         {
             let (key, value) = builder.entry();
-            key.set("z");
-            value.set(30);
+            key.push("z");
+            value.push(30);
         }
         builder.finish_map();
 

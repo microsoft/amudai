@@ -64,7 +64,7 @@ impl BinaryBuilder {
     /// # Parameters
     ///
     /// * `value` - The binary data to store. Can be any type implementing `AsRef<[u8]>`.
-    pub fn set(&mut self, value: impl AsRef<[u8]>) {
+    pub fn push(&mut self, value: impl AsRef<[u8]>) {
         self.fill_missing();
         self.inner.append_value(value);
         self.next_pos += 1;
@@ -75,7 +75,7 @@ impl BinaryBuilder {
     /// This creates a null entry in the binary array, which is different from an empty
     /// binary value (zero-length byte array). Null values are tracked in the array's
     /// null buffer and can be checked with `is_null()` methods on the resulting array.
-    pub fn set_null(&mut self) {
+    pub fn push_null(&mut self) {
         self.fill_missing();
         self.inner.append_null();
         self.next_pos += 1;
@@ -134,12 +134,13 @@ impl ArrayBuilder for BinaryBuilder {
         self
     }
 
-    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+    fn try_push_raw_value(&mut self, value: Option<&[u8]>) -> Result<(), arrow_schema::ArrowError> {
         if let Some(value) = value {
-            self.set(value);
+            self.push(value);
         } else {
-            self.set_null();
+            self.push_null();
         }
+        Ok(())
     }
 
     /// Returns the current logical position in the binary array being built.
@@ -209,6 +210,7 @@ pub struct FixedSizeBinaryBuilder<const S: usize> {
     next_pos: u64,
     /// The underlying Apache Arrow fixed-size binary builder.
     inner: arrow_array::builder::FixedSizeBinaryBuilder,
+    value_size: usize,
 }
 
 impl FixedSizeBinaryBuilder<0> {
@@ -216,6 +218,7 @@ impl FixedSizeBinaryBuilder<0> {
         FixedSizeBinaryBuilder {
             next_pos: 0,
             inner: arrow_array::builder::FixedSizeBinaryBuilder::new(size as i32),
+            value_size: size,
         }
     }
 }
@@ -233,7 +236,7 @@ impl<const S: usize> FixedSizeBinaryBuilder<S> {
     /// # Panics
     ///
     /// Panics if the provided value doesn't have exactly `S` bytes.
-    pub fn set(&mut self, value: impl AsRef<[u8]>) {
+    pub fn push(&mut self, value: impl AsRef<[u8]>) {
         self.fill_missing();
         self.inner.append_value(value).expect("append");
         self.next_pos += 1;
@@ -243,7 +246,7 @@ impl<const S: usize> FixedSizeBinaryBuilder<S> {
     ///
     /// This creates a null entry in the fixed-size binary array. Null values don't
     /// consume space in the values buffer and are tracked separately in the null buffer.
-    pub fn set_null(&mut self) {
+    pub fn push_null(&mut self) {
         self.fill_missing();
         self.inner.append_null();
         self.next_pos += 1;
@@ -285,6 +288,7 @@ impl<const S: usize> Default for FixedSizeBinaryBuilder<S> {
         FixedSizeBinaryBuilder {
             next_pos: 0,
             inner: arrow_array::builder::FixedSizeBinaryBuilder::new(S as i32),
+            value_size: S,
         }
     }
 }
@@ -303,12 +307,20 @@ impl<const S: usize> ArrayBuilder for FixedSizeBinaryBuilder<S> {
         self
     }
 
-    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+    fn try_push_raw_value(&mut self, value: Option<&[u8]>) -> Result<(), arrow_schema::ArrowError> {
         if let Some(value) = value {
-            self.set(value);
+            if value.len() != self.value_size {
+                return Err(arrow_schema::ArrowError::InvalidArgumentError(format!(
+                    "Expected value size {}, got {}",
+                    self.value_size,
+                    value.len()
+                )));
+            }
+            self.push(value);
         } else {
-            self.set_null();
+            self.push_null();
         }
+        Ok(())
     }
 
     /// Returns the current logical position in the fixed-size binary array being built.

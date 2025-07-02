@@ -67,7 +67,7 @@ impl StringBuilder {
     /// # Performance
     ///
     /// The string data is copied into Arrow's internal buffers.
-    pub fn set(&mut self, value: impl AsRef<str>) {
+    pub fn push(&mut self, value: impl AsRef<str>) {
         self.fill_missing();
         self.inner.append_value(value);
         self.next_pos += 1;
@@ -78,7 +78,7 @@ impl StringBuilder {
     /// This method explicitly adds a null value to the array at the current logical position.
     /// Any gaps between the last set position and the current position are automatically
     /// filled with null values. After setting the null, the position is advanced by 1.
-    pub fn set_null(&mut self) {
+    pub fn push_null(&mut self) {
         self.fill_missing();
         self.inner.append_null();
         self.next_pos += 1;
@@ -145,12 +145,14 @@ impl ArrayBuilder for StringBuilder {
         self
     }
 
-    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+    fn try_push_raw_value(&mut self, value: Option<&[u8]>) -> Result<(), arrow_schema::ArrowError> {
         if let Some(value) = value {
-            self.set(std::str::from_utf8(value).expect("from_utf8"));
+            let s = std::str::from_utf8(value)?;
+            self.push(s);
         } else {
-            self.set_null();
+            self.push_null();
         }
+        Ok(())
     }
 
     /// Returns the current logical position where the next value will be placed.

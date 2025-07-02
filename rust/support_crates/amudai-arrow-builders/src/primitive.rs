@@ -87,7 +87,7 @@ impl<T: ArrowPrimitiveType> PrimitiveBuilder<T> {
     ///
     /// If the builder's position was moved beyond the current array length,
     /// gaps are filled with nulls.
-    pub fn set(&mut self, value: <T as ArrowPrimitiveType>::Native) {
+    pub fn push(&mut self, value: <T as ArrowPrimitiveType>::Native) {
         self.fill_missing();
         self.inner.append_value(value);
         self.next_pos += 1;
@@ -104,7 +104,7 @@ impl<T: ArrowPrimitiveType> PrimitiveBuilder<T> {
     /// This method explicitly sets a null value, which is different from simply
     /// skipping a position. Both approaches result in null values, but explicit
     /// nulls via this method are more intentional and clear in code.
-    pub fn set_null(&mut self) {
+    pub fn push_null(&mut self) {
         self.fill_missing();
         self.inner.append_null();
         self.next_pos += 1;
@@ -164,10 +164,14 @@ impl<T: ArrowPrimitiveType> ArrayBuilder for PrimitiveBuilder<T> {
         self
     }
 
-    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+    fn try_push_raw_value(&mut self, value: Option<&[u8]>) -> Result<(), arrow_schema::ArrowError> {
         use arrow_buffer::ArrowNativeType;
         if let Some(value) = value {
-            assert_eq!(value.len(), T::Native::get_byte_width());
+            if value.len() != T::Native::get_byte_width() {
+                return Err(arrow_schema::ArrowError::InvalidArgumentError(
+                    "raw value len".into(),
+                ));
+            }
             let mut v = T::Native::default();
             unsafe {
                 std::ptr::copy_nonoverlapping(
@@ -176,10 +180,11 @@ impl<T: ArrowPrimitiveType> ArrayBuilder for PrimitiveBuilder<T> {
                     value.len(),
                 );
             }
-            self.set(v);
+            self.push(v);
         } else {
-            self.set_null();
+            self.push_null();
         }
+        Ok(())
     }
 
     /// Returns the current logical position where the next value will be placed.

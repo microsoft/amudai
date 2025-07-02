@@ -40,16 +40,16 @@
 //!
 //! // Build a string array
 //! let mut string_builder = StringBuilder::default();
-//! string_builder.set("hello");
-//! string_builder.set("world");
-//! string_builder.set_null(); // Explicitly set null
+//! string_builder.push("hello");
+//! string_builder.push("world");
+//! string_builder.push_null(); // Explicitly set null
 //! let string_array = string_builder.build();
 //!
 //! // Build an integer array
 //! let mut int_builder = Int64Builder::default();
-//! int_builder.set(42);
-//! int_builder.set(-10);
-//! int_builder.set(100);
+//! int_builder.push(42);
+//! int_builder.push(-10);
+//! int_builder.push(100);
 //! let int_array = int_builder.build();
 //! ```
 //!
@@ -61,9 +61,9 @@
 //! let mut list_builder = ListBuilder::<Int64Builder>::default();
 //!
 //! // First list: [1, 2, 3]
-//! list_builder.item().set(1);
-//! list_builder.item().set(2);
-//! list_builder.item().set(3);
+//! list_builder.item().push(1);
+//! list_builder.item().push(2);
+//! list_builder.item().push(3);
 //! list_builder.finish_list();
 //!
 //! // Second list: [] (empty)
@@ -83,10 +83,10 @@
 //! let mut map_builder = MapBuilder::<StringBuilder, Int64Builder>::default();
 //!
 //! // Map: {"key1": 10, "key2": 20}
-//! map_builder.key().set("key1");
-//! map_builder.value().set(10);
-//! map_builder.key().set("key2");
-//! map_builder.value().set(20);
+//! map_builder.key().push("key1");
+//! map_builder.value().push(10);
+//! map_builder.key().push("key2");
+//! map_builder.value().push(20);
 //! map_builder.finish_map();
 //!
 //! // Null map
@@ -118,25 +118,25 @@
 //! let mut builder = PersonBuilder::default();
 //!
 //! // Build first person
-//! builder.id_field().set(1);
-//! builder.name_field().set("Alice");
+//! builder.id_field().push(1);
+//! builder.name_field().push("Alice");
 //! {
 //!     let scores = builder.scores_field();
-//!     scores.item().set(95.5);
-//!     scores.item().set(87.2);
+//!     scores.item().push(95.5);
+//!     scores.item().push(87.2);
 //!     scores.finish_list();
 //! }
 //! {
 //!     let metadata = builder.metadata_field();
-//!     metadata.key().set("department");
-//!     metadata.value().set("engineering");
+//!     metadata.key().push("department");
+//!     metadata.value().push("engineering");
 //!     metadata.finish_map();
 //! }
 //! builder.finish_struct();
 //!
 //! // Build second person (with some fields null)
-//! builder.id_field().set(2);
-//! builder.name_field().set("Bob");
+//! builder.id_field().push(2);
+//! builder.name_field().push("Bob");
 //! // scores and metadata will be null if not set
 //! builder.finish_struct();
 //!
@@ -164,12 +164,12 @@
 //!     let nested = builder.nested_lists_field();
 //!     
 //!     let inner1 = nested.item();
-//!     inner1.item().set("a");
-//!     inner1.item().set("b");
+//!     inner1.item().push("a");
+//!     inner1.item().push("b");
 //!     inner1.finish_list();
 //!     
 //!     let inner2 = nested.item();
-//!     inner2.item().set("c");
+//!     inner2.item().push("c");
 //!     inner2.finish_list();
 //!     
 //!     nested.finish_list();
@@ -178,11 +178,11 @@
 //! // Build map of lists: {"numbers": [1, 2, 3]}
 //! {
 //!     let map_field = builder.map_of_lists_field();
-//!     map_field.key().set("numbers");
+//!     map_field.key().push("numbers");
 //!     let list_value = map_field.value();
-//!     list_value.item().set(1);
-//!     list_value.item().set(2);
-//!     list_value.item().set(3);
+//!     list_value.item().push(1);
+//!     list_value.item().push(2);
+//!     list_value.item().push(3);
 //!     list_value.finish_list();
 //!     map_field.finish_map();
 //! }
@@ -210,12 +210,12 @@
 //! let mut batch_builder = RecordBatchBuilder::<PersonFields>::default();
 //!
 //! // Add multiple records
-//! batch_builder.id_field().set(1);
-//! batch_builder.name_field().set("Alice");
+//! batch_builder.id_field().push(1);
+//! batch_builder.name_field().push("Alice");
 //! batch_builder.finish_record();
 //!
-//! batch_builder.id_field().set(2);
-//! batch_builder.name_field().set("Bob");
+//! batch_builder.id_field().push(2);
+//! batch_builder.name_field().push("Bob");
 //! batch_builder.finish_record();
 //!
 //! let record_batch = batch_builder.build();
@@ -304,11 +304,63 @@ pub use structure::{FluidStructBuilder, FluidStructFields, StructBuilder, Struct
 /// - Values set after the current position automatically fill gaps with nulls
 /// - The `build()` method finalizes any remaining gaps and produces a valid Arrow array
 pub trait ArrayBuilder: Send + Sync + 'static {
+    /// Returns a reference to the builder as `Any` for dynamic type checking.
+    ///
+    /// This method enables downcasting the trait object to its concrete type when needed.
+    /// It's primarily used for type inspection and safe casting in generic contexts where
+    /// the specific builder type needs to be recovered.
+    ///
+    /// # Returns
+    ///
+    /// A reference to `dyn Any` that can be downcast to the concrete builder type.
     fn as_any(&self) -> &(dyn std::any::Any + 'static);
 
+    /// Returns a mutable reference to the builder as `Any` for dynamic type checking.
+    ///
+    /// This method enables downcasting the trait object to its concrete type when mutable
+    /// access is required. It's primarily used for type inspection and safe casting in
+    /// generic contexts where the specific builder type needs to be recovered for modification.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to `dyn Any` that can be downcast to the concrete builder type.
     fn as_any_mut(&mut self) -> &mut (dyn std::any::Any + 'static);
 
-    fn push_raw_value(&mut self, value: Option<&[u8]>);
+    /// Attempts to push a raw byte value to the builder.
+    ///
+    /// This method provides a low-level interface for adding values to the builder using
+    /// raw byte representations. The byte format and interpretation depend on the specific
+    /// builder type. This method is primarily used for generic value insertion when the
+    /// concrete type is not known at compile time.
+    ///
+    /// # Parameters
+    ///
+    /// * `value` - An optional byte slice containing the value to push:
+    ///   - `Some(bytes)` - The value encoded as bytes in the format expected by the builder
+    ///   - `None` - Represents a null value that should be inserted at the current position
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the value was successfully added to the builder
+    /// * `Err(ArrowError)` - If the value could not be parsed or added (e.g., invalid format,
+    ///   wrong byte length for fixed-size types, or other builder-specific constraints)
+    ///
+    /// # Byte Format Requirements
+    ///
+    /// The byte format varies by builder type:
+    /// - **Integer builders**: Little-endian encoded integers (e.g., `i64::to_le_bytes()`)
+    /// - **Float builders**: Little-endian encoded floats (e.g., `f64::to_le_bytes()`)
+    /// - **String builders**: UTF-8 encoded string bytes
+    /// - **Binary builders**: Raw binary data
+    /// - **Timestamp builders**: Nanoseconds since epoch as little-endian `i64`
+    ///
+    /// # Errors
+    ///
+    /// This method can return errors in several cases:
+    /// - Invalid byte length for fixed-size types (e.g., wrong number of bytes for an integer)
+    /// - Invalid UTF-8 encoding for string builders
+    /// - Builder-specific validation failures
+    fn try_push_raw_value(&mut self, value: Option<&[u8]>) -> Result<(), arrow_schema::ArrowError>;
 
     /// Returns the current logical position where the next value will be placed.
     ///
@@ -343,6 +395,40 @@ pub trait ArrayBuilder: Send + Sync + 'static {
     /// An `Arc<dyn Array>` containing the built Arrow array. The concrete type depends
     /// on the builder implementation (e.g., `LargeStringArray` for `StringBuilder`).
     fn build(&mut self) -> Arc<dyn Array>;
+}
+
+/// Extension trait providing convenience methods for array builders.
+///
+/// ## Automatic Implementation
+///
+/// This trait is automatically implemented for all types that implement [`ArrayBuilder`],
+/// so no manual implementation is required.
+pub trait ArrayBuilderExt {
+    /// Pushes a raw byte value to the builder, panicking on error.
+    ///
+    /// This is a convenience wrapper around [`ArrayBuilder::try_push_raw_value`] that
+    /// panics instead of returning an error. Use this method when you're confident
+    /// that the data is well-formed and errors represent programming bugs.
+    ///
+    /// # Parameters
+    ///
+    /// * `value` - An optional byte slice containing the value to push:
+    ///   - `Some(bytes)` - The value encoded as bytes in the format expected by the builder
+    ///   - `None` - Represents a null value
+    ///
+    /// # Panics
+    ///
+    /// Panics if the value cannot be added to the builder. Common panic scenarios include:
+    /// - Invalid byte length for fixed-size types
+    /// - Invalid UTF-8 encoding for string builders
+    /// - Builder-specific validation failures
+    fn push_raw_value(&mut self, value: Option<&[u8]>);
+}
+
+impl<T: ArrayBuilder + ?Sized> ArrayBuilderExt for T {
+    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+        self.try_push_raw_value(value).expect("try_push_raw_value")
+    }
 }
 
 /// Creates an appropriate builder for the given Arrow data type.
@@ -380,7 +466,7 @@ pub trait ArrayBuilder: Send + Sync + 'static {
 /// # Examples
 ///
 /// ```rust
-/// use amudai_arrow_builders::{create_builder, ArrayBuilder};
+/// use amudai_arrow_builders::{create_builder, ArrayBuilder, ArrayBuilderExt};
 /// use arrow_schema::DataType;
 ///
 /// // Create a string builder

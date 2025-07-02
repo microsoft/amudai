@@ -182,12 +182,13 @@ impl<T: ArrayBuilder> ArrayBuilder for ListBuilder<T> {
         self
     }
 
-    fn push_raw_value(&mut self, value: Option<&[u8]>) {
+    fn try_push_raw_value(&mut self, value: Option<&[u8]>) -> Result<(), arrow_schema::ArrowError> {
         if value.is_some() {
             self.finish_list();
         } else {
             self.finish_null_list();
         }
+        Ok(())
     }
 
     /// Returns the current logical position where the next list will be placed.
@@ -229,7 +230,10 @@ impl<T: ArrayBuilder> ArrayBuilder for ListBuilder<T> {
         ));
 
         let nulls = self.nulls.finish();
+
         self.next_pos = 0;
+        self.offsets.push(0);
+
         Arc::new(arrow_array::LargeListArray::new(
             field, offsets, values, nulls,
         ))
@@ -246,15 +250,15 @@ mod tests {
     fn test_list_builder() {
         let mut builder = ListBuilder::<StringBuilder>::default();
 
-        builder.item().set("1");
-        builder.item().set("2");
-        builder.item().set("3");
+        builder.item().push("1");
+        builder.item().push("2");
+        builder.item().push("3");
         builder.finish_list();
 
         builder.finish_null_list();
 
-        builder.item().set("4");
-        builder.item().set("5");
+        builder.item().push("4");
+        builder.item().push("5");
         builder.finish_list();
 
         let list = builder.build();
