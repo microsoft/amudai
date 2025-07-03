@@ -10,10 +10,10 @@ use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::error::Error;
 use std::collections::HashMap;
 
-/// Dictionary encoding for numeric values that embeds dictionary into encoded buffer.
-pub struct DictionaryEncoding<T>(std::marker::PhantomData<T>);
+/// Dictionary encoding for numeric values that embeds dictionary into each encoded block.
+pub struct BlockDictionaryEncoding<T>(std::marker::PhantomData<T>);
 
-impl<T> DictionaryEncoding<T>
+impl<T> BlockDictionaryEncoding<T>
 where
     T: NumericValue,
 {
@@ -47,12 +47,12 @@ where
     }
 }
 
-impl<T> NumericEncoding<T> for DictionaryEncoding<T>
+impl<T> NumericEncoding<T> for BlockDictionaryEncoding<T>
 where
     T: NumericValue,
 {
     fn kind(&self) -> EncodingKind {
-        EncodingKind::Dictionary
+        EncodingKind::BlockDictionary
     }
 
     fn is_suitable(&self, config: &EncodingConfig, stats: &NumericStats<T>) -> bool {
@@ -106,7 +106,7 @@ where
                 &NullMask::None,
                 &config
                     .make_cascading_config()
-                    .with_disallowed_encodings(&[EncodingKind::Dictionary]),
+                    .with_disallowed_encodings(&[EncodingKind::BlockDictionary]),
                 context,
             )? {
                 encoded_size += codes_outcome.encoded_size;
@@ -341,7 +341,8 @@ mod tests {
 
     #[test]
     fn test_round_trip() {
-        let config = EncodingConfig::default().with_allowed_encodings(&[EncodingKind::Dictionary]);
+        let config =
+            EncodingConfig::default().with_allowed_encodings(&[EncodingKind::BlockDictionary]);
         let context = EncodingContext::new();
         let data: Vec<i64> = (0..10000).map(|_| fastrand::i64(1..100)).collect();
         let outcome = context
@@ -351,7 +352,7 @@ mod tests {
             .unwrap();
         assert!(outcome.is_some());
         let outcome = outcome.unwrap();
-        assert_eq!(outcome.encoding, EncodingKind::Dictionary);
+        assert_eq!(outcome.encoding, EncodingKind::BlockDictionary);
         let encoded_size1 = outcome.encoded_size;
         let plan = outcome.into_plan();
 

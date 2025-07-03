@@ -64,25 +64,28 @@ where
         // Quickly validate that the values are all the same, and fallback
         // to RLE encoding in case they are not.
         if values.iter().skip(1).any(|v| *v != values[0]) {
-            let rle_plan = EncodingPlan {
-                encoding: EncodingKind::RunLength,
-                parameters: Default::default(),
-                cascading_encodings: vec![
-                    // No cascading encoding for values as the assumption is that there
-                    // aren't many.
-                    None,
-                    // Cascading encoding for lengths.
-                    Some(EncodingPlan {
-                        encoding: EncodingKind::FLBitPack,
-                        parameters: Default::default(),
-                        cascading_encodings: vec![],
-                    }),
-                ],
-            };
-            return context
-                .numeric_encoders
-                .get::<T>()
-                .encode(values, null_mask, target, &rle_plan, context);
+            // Fallback to RLE encoding.
+            return context.numeric_encoders.get::<T>().encode(
+                values,
+                null_mask,
+                target,
+                &EncodingPlan {
+                    encoding: EncodingKind::RunLength,
+                    parameters: Default::default(),
+                    cascading_encodings: vec![
+                        // No cascading encoding for values as the assumption is that
+                        // there aren't many.
+                        None,
+                        // Cascading encoding for lengths.
+                        Some(EncodingPlan {
+                            encoding: EncodingKind::FLBitPack,
+                            parameters: Default::default(),
+                            cascading_encodings: vec![],
+                        }),
+                    ],
+                },
+                context,
+            );
         }
 
         let initial_size = target.len();

@@ -8,7 +8,7 @@ use amudai_common::error::Error;
 use amudai_format::schema::BasicTypeDescriptor;
 use amudai_sequence::{presence::Presence, sequence::ValueSequence};
 use arrow_array::Array;
-use dictionary::{DictionaryEncoding, SharedDictionaryEncoding};
+use dictionary::BlockDictionaryEncoding;
 use fsst::FSSTEncoding;
 use generic::GenericEncoding;
 use itertools::Itertools;
@@ -139,8 +139,7 @@ pub struct BinaryEncodings {
 impl BinaryEncodings {
     pub fn new() -> Self {
         let encodings = vec![
-            Box::new(DictionaryEncoding::new()) as Box<dyn StringEncoding>,
-            Box::new(SharedDictionaryEncoding::new()) as Box<dyn StringEncoding>,
+            Box::new(BlockDictionaryEncoding::new()) as Box<dyn StringEncoding>,
             Box::new(FSSTEncoding::new()),
             Box::new(SingleValueEncoding::new()),
             Box::new(PlainEncoding::new()),
@@ -378,15 +377,37 @@ impl BinaryValuesSequence<'_> {
         }
     }
 
+    /// Returns `true` if the sequence is empty, otherwise `false`.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn iter(&self) -> BinaryValuesSequenceIter {
         BinaryValuesSequenceIter::new(self)
     }
 
     /// Returns concatenated values buffer.
     fn values(&self) -> &[u8] {
+        if self.is_empty() {
+            return &[];
+        }
         match self {
-            BinaryValuesSequence::ArrowBinaryArray(arr) => arr.value_data(),
-            BinaryValuesSequence::ArrowLargeBinaryArray(arr) => arr.value_data(),
+            BinaryValuesSequence::ArrowBinaryArray(arr) => {
+                let first_offset = *arr.offsets().first().unwrap() as usize;
+                let last_offset = *arr.offsets().last().unwrap() as usize;
+                let data = arr.value_data();
+                // Returning a slice is required in case the array is a slice of a larger array,
+                // in which case data is a slice of the original data.
+                &data[first_offset..last_offset]
+            }
+            BinaryValuesSequence::ArrowLargeBinaryArray(arr) => {
+                let first_offset = *arr.offsets().first().unwrap() as usize;
+                let last_offset = *arr.offsets().last().unwrap() as usize;
+                let data = arr.value_data();
+                // Returning a slice is required in case the array is a slice of a larger array,
+                // in which case data is a slice of the original data.
+                &data[first_offset..last_offset]
+            }
             BinaryValuesSequence::ArrowFixedSizeBinaryArray(arr) => arr.value_data(),
         }
     }
@@ -404,12 +425,41 @@ impl BinaryValuesSequence<'_> {
     /// If underlying offset type is i32, creates a new buffer containing translated to `u64` offsets.
     fn offsets(&self) -> Option<Cow<[u64]>> {
         match self {
-            BinaryValuesSequence::ArrowBinaryArray(arr) => Some(Cow::Owned(
-                arr.offsets().inner().iter().map(|&v| v as u64).collect(),
-            )),
-            BinaryValuesSequence::ArrowLargeBinaryArray(arr) => Some(Cow::Borrowed(unsafe {
-                std::mem::transmute::<&[i64], &[u64]>(arr.offsets().inner().as_ref())
-            })),
+            BinaryValuesSequence::ArrowBinaryArray(arr) => {
+                if arr.is_empty() {
+                    return Some(Cow::Borrowed(&[]));
+                }
+                let first_offset = *arr.offsets().first().unwrap() as u64;
+                // Subtracting the first offset from all offsets in case the array is a slice of another one.
+                Some(Cow::Owned(
+                    arr.offsets()
+                        .inner()
+                        .iter()
+                        .map(|&v| v as u64 - first_offset)
+                        .collect(),
+                ))
+            }
+            BinaryValuesSequence::ArrowLargeBinaryArray(arr) => {
+                if arr.is_empty() {
+                    return Some(Cow::Borrowed(&[]));
+                }
+                let first_offset = *arr.offsets().first().unwrap() as u64;
+                if first_offset > 0 {
+                    // Subtracting the first offset from all offsets because the array is a slice of another one.
+                    Some(Cow::Owned(
+                        arr.offsets()
+                            .inner()
+                            .iter()
+                            .map(|&v| v as u64 - first_offset)
+                            .collect(),
+                    ))
+                } else {
+                    // If the first offset is 0, we can return the offsets as is.
+                    Some(Cow::Borrowed(unsafe {
+                        std::mem::transmute::<&[i64], &[u64]>(arr.offsets().inner().as_ref())
+                    }))
+                }
+            }
             BinaryValuesSequence::ArrowFixedSizeBinaryArray(_) => None,
         }
     }
@@ -419,10 +469,10 @@ impl BinaryValuesSequence<'_> {
     fn data_size(&self) -> u32 {
         match self {
             BinaryValuesSequence::ArrowBinaryArray(arr) => {
-                (arr.offsets().inner().inner().len() + arr.value_data().len()) as u32
+                (arr.offsets().inner().inner().len() + self.values().len()) as u32
             }
             BinaryValuesSequence::ArrowLargeBinaryArray(arr) => {
-                (arr.offsets().inner().inner().len() + arr.value_data().len()) as u32
+                (arr.offsets().inner().inner().len() + self.values().len()) as u32
             }
             BinaryValuesSequence::ArrowFixedSizeBinaryArray(arr) => arr.value_data().len() as u32,
         }
@@ -532,7 +582,7 @@ mod tests {
 
         assert_eq!(
             EncodingPlan {
-                encoding: EncodingKind::Dictionary,
+                encoding: EncodingKind::BlockDictionary,
                 parameters: Default::default(),
                 cascading_encodings: vec![
                     Some(EncodingPlan {

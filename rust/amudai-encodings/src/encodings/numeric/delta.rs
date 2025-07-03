@@ -15,6 +15,9 @@ use amudai_common::error::Error;
 pub struct DeltaEncoding<T>(std::marker::PhantomData<T>);
 
 impl<T> DeltaEncoding<T> {
+    /// Minimum number of values required for delta encoding to be considered suitable.
+    const MIN_VALUES_COUNT: u32 = 8;
+
     pub fn new() -> Self {
         Self(std::marker::PhantomData)
     }
@@ -34,8 +37,13 @@ where
             // a cascading encoding scheme.
             return false;
         }
+        if stats.values_count < Self::MIN_VALUES_COUNT {
+            return false;
+        }
         if let Some(deltas_min_bits_count) = stats.deltas_min_bits_count {
-            if (T::BITS_COUNT as f64 / deltas_min_bits_count as f64) < config.min_compression_ratio
+            if deltas_min_bits_count == 0
+                || (T::BITS_COUNT as f64 / deltas_min_bits_count as f64)
+                    < config.min_compression_ratio
             {
                 return false;
             }
@@ -55,6 +63,9 @@ where
         stats: &NumericStats<T>,
         context: &EncodingContext,
     ) -> amudai_common::Result<Option<AnalysisOutcome>> {
+        if values.len() < Self::MIN_VALUES_COUNT as usize {
+            return Ok(None);
+        }
         let encoded_size = 2 + DeltaMetadata::<T>::size();
 
         let mut diffs = context.buffers.get_buffer();
@@ -90,6 +101,21 @@ where
         plan: &EncodingPlan,
         context: &EncodingContext,
     ) -> amudai_common::Result<usize> {
+        if values.len() < Self::MIN_VALUES_COUNT as usize {
+            // Fallback to plain encoding if there are not enough values.
+            return context.numeric_encoders.get::<T>().encode(
+                values,
+                null_mask,
+                target,
+                &EncodingPlan {
+                    encoding: EncodingKind::Plain,
+                    parameters: Default::default(),
+                    cascading_encodings: vec![],
+                },
+                context,
+            );
+        }
+
         let initial_size = target.len();
         target.write_value::<u16>(self.kind() as u16);
 

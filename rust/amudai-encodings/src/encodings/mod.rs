@@ -26,13 +26,12 @@ pub enum EncodingKind {
     TruncateU64 = 11,
     Alp = 12,
     AlpRd = 13,
-    Dictionary = 14,
-    SharedDictionary = 15,
-    Fsst = 16,
-    Zstd = 17,
-    Lz4 = 18,
-    ZigZag = 19,
-    Sparse = 20,
+    BlockDictionary = 14,
+    Fsst = 15,
+    Zstd = 16,
+    Lz4 = 17,
+    ZigZag = 18,
+    Sparse = 19,
 }
 
 impl TryFrom<u16> for EncodingKind {
@@ -53,13 +52,12 @@ impl TryFrom<u16> for EncodingKind {
             11 => Ok(EncodingKind::TruncateU64),
             12 => Ok(EncodingKind::Alp),
             13 => Ok(EncodingKind::AlpRd),
-            14 => Ok(EncodingKind::Dictionary),
-            15 => Ok(EncodingKind::SharedDictionary),
-            16 => Ok(EncodingKind::Fsst),
-            17 => Ok(EncodingKind::Zstd),
-            18 => Ok(EncodingKind::Lz4),
-            19 => Ok(EncodingKind::ZigZag),
-            20 => Ok(EncodingKind::Sparse),
+            14 => Ok(EncodingKind::BlockDictionary),
+            15 => Ok(EncodingKind::Fsst),
+            16 => Ok(EncodingKind::Zstd),
+            17 => Ok(EncodingKind::Lz4),
+            18 => Ok(EncodingKind::ZigZag),
+            19 => Ok(EncodingKind::Sparse),
             _ => Err(()),
         }
     }
@@ -238,7 +236,6 @@ pub struct EncodingPlan {
 pub enum EncodingParameters {
     Alp(AlpParameters),
     AlpRd(AlpRdParameters),
-    Dictionary(DictionaryParameters),
     Zstd(ZstdParameters),
     Lz4(Lz4Parameters),
 }
@@ -259,14 +256,6 @@ pub struct AlpRdParameters {
     /// The dictionary of the left parts.
     #[serde(skip_serializing)]
     pub left_parts_dict: ArrayVec<[u16; numeric::alprd::MAX_DICT_SIZE]>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
-pub struct DictionaryParameters {
-    /// Shared binary values dictionary containing values sorted by popularity.
-    /// The dictionary is a list of strings with their popularity count.
-    /// Value index plus one is a dictionary code (zero is reserved for null value).
-    pub shared_dict: Vec<(Vec<u8>, u32)>,
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]

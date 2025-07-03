@@ -8,7 +8,7 @@ use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::error::Error;
 use bitpacking::FlBitPackingEncoding;
 use delta::DeltaEncoding;
-use dictionary::DictionaryEncoding;
+use dictionary::BlockDictionaryEncoding;
 use frame_of_reference::{FFOREncoding, FOREncoding};
 use generic::{GenericEncoding, LZ4Encoder, ZSTDEncoder};
 use itertools::Itertools;
@@ -421,7 +421,7 @@ impl NumericEncodingsPool {
             Arc::new(DeltaEncoding::<T>::new()),
             Arc::new(RLEEncoding::<T>::new()),
             Arc::new(SingleValueEncoding::<T>::new()),
-            Arc::new(DictionaryEncoding::<T>::new()),
+            Arc::new(BlockDictionaryEncoding::<T>::new()),
             Arc::new(PlainEncoding::<T>::new()),
             Arc::new(GenericEncoding::<T, _>::new(ZSTDEncoder)),
             Arc::new(GenericEncoding::<T, _>::new(LZ4Encoder)),
@@ -460,7 +460,7 @@ impl NumericEncodingsPool {
             Arc::new(DeltaEncoding::<T>::new()),
             Arc::new(RLEEncoding::<T>::new()),
             Arc::new(SingleValueEncoding::<T>::new()),
-            Arc::new(DictionaryEncoding::<T>::new()),
+            Arc::new(BlockDictionaryEncoding::<T>::new()),
             Arc::new(PlainEncoding::<T>::new()),
             Arc::new(GenericEncoding::<T, _>::new(ZSTDEncoder)),
             Arc::new(GenericEncoding::<T, _>::new(LZ4Encoder)),
@@ -479,7 +479,7 @@ impl NumericEncodingsPool {
             Arc::new(ALPRDEncoding::<T>::new()),
             Arc::new(RLEEncoding::<T>::new()),
             Arc::new(SingleValueEncoding::<T>::new()),
-            Arc::new(DictionaryEncoding::<T>::new()),
+            Arc::new(BlockDictionaryEncoding::<T>::new()),
             Arc::new(PlainEncoding::<T>::new()),
             Arc::new(GenericEncoding::<T, _>::new(ZSTDEncoder)),
             Arc::new(GenericEncoding::<T, _>::new(LZ4Encoder)),

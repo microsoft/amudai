@@ -54,9 +54,9 @@ impl PrimitiveBlockEncoder {
     /// Default number of values to sample for encoding analysis.
     const DEFAULT_SAMPLE_VALUE_COUNT: usize = 1024;
     /// Default block size for numeric encodings (value count).
-    const NUMERIC_ENC_BLOCK_VALUE_COUNT: usize = 8000;
+    const NUMERIC_ENC_BLOCK_VALUE_COUNT: usize = 2048;
     /// Default block size for generic encodings (value count).
-    const GENERIC_ENC_BLOCK_VALUE_COUNT: usize = 64000;
+    const GENERIC_ENC_BLOCK_VALUE_COUNT: usize = 8192;
 
     /// Creates a new primitive block encoder.
     ///

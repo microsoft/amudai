@@ -83,7 +83,8 @@ where
             return false;
         }
         if let Some(min_bits) = stats.min_bits_count {
-            T::BITS_COUNT as f64 / min_bits as f64 > config.min_compression_ratio
+            (min_bits > 0)
+                && (T::BITS_COUNT as f64 / min_bits as f64 > config.min_compression_ratio)
         } else {
             false
         }
@@ -104,6 +105,9 @@ where
         let Some(width) = stats.min_bits_count else {
             return Ok(None);
         };
+        if width == 0 {
+            return Ok(None);
+        }
         let encoded_chunk_len = fastlanes::BLOCK_SIZE * width / T::BITS_COUNT;
         let encoded_size = 2
             + BitPackingMetadata::size()
@@ -122,7 +126,7 @@ where
     fn encode(
         &self,
         values: &[T],
-        _null_mask: &NullMask,
+        null_mask: &NullMask,
         target: &mut AlignedByteVec,
         _plan: &EncodingPlan,
         context: &EncodingContext,
@@ -133,6 +137,22 @@ where
             .min_by_key(|&v| v)
             .expect("Values sequence must not be empty");
         let width = T::BITS_COUNT - min_leading_zeroes as usize;
+
+        // Fallback to SingleValue encoding if the width is zero, which means that all values are 0.
+        if width == 0 {
+            return context.numeric_encoders.get::<T>().encode(
+                values,
+                null_mask,
+                target,
+                &EncodingPlan {
+                    encoding: EncodingKind::SingleValue,
+                    parameters: Default::default(),
+                    cascading_encodings: vec![],
+                },
+                context,
+            );
+        }
+
         let encoded_size = Self::encode_values(values, width, target, context)?;
         Ok(encoded_size)
     }

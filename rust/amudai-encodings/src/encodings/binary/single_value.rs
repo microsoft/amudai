@@ -64,23 +64,23 @@ impl StringEncoding for SingleValueEncoding {
         // and fallback to dictionary encoding in case they are not.
         let first = values.get(0);
         if values.iter().skip(1).any(|v| v != first) {
-            let dictionary_plan = EncodingPlan {
-                encoding: EncodingKind::Dictionary,
-                parameters: Default::default(),
-                cascading_encodings: vec![
-                    Some(EncodingPlan {
-                        encoding: EncodingKind::FLBitPack,
-                        parameters: Default::default(),
-                        cascading_encodings: vec![],
-                    }),
-                    None,
-                ],
-            };
+            // Fallback to dictionary encoding.
             return context.binary_encoders.encode(
                 values,
                 null_mask,
                 target,
-                &dictionary_plan,
+                &EncodingPlan {
+                    encoding: EncodingKind::BlockDictionary,
+                    parameters: Default::default(),
+                    cascading_encodings: vec![
+                        Some(EncodingPlan {
+                            encoding: EncodingKind::FLBitPack,
+                            parameters: Default::default(),
+                            cascading_encodings: vec![],
+                        }),
+                        None,
+                    ],
+                },
                 context,
             );
         }

@@ -59,11 +59,11 @@ impl BinaryBlockEncoder {
     /// Default sample size in bytes (128 values * 16 bytes average).
     const DEFAULT_SAMPLE_SIZE: usize = Self::DEFAULT_SAMPLE_VALUE_COUNT * 16;
     /// Default block size for binary encodings (value count).
-    const DEFAULT_BLOCK_VALUE_COUNT: usize = 8000;
-    /// Default block size in bytes (8000 values * 16 bytes average).
+    const DEFAULT_BLOCK_VALUE_COUNT: usize = 4096;
+    /// Default block size in bytes (8192 values * 16 bytes average).
     const DEFAULT_BLOCK_SIZE: usize = Self::DEFAULT_BLOCK_VALUE_COUNT * 16;
     /// Block size for minimal size profile (value count).
-    const MINIMAL_SIZE_BLOCK_VALUE_COUNT: usize = 64000;
+    const MINIMAL_SIZE_BLOCK_VALUE_COUNT: usize = 64 * 1024;
     /// Block size for minimal size profile in bytes.
     const MINIMAL_SIZE_BLOCK_SIZE: usize = Self::MINIMAL_SIZE_BLOCK_VALUE_COUNT * 16;
 
