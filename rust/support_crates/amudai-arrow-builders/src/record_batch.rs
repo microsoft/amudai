@@ -64,6 +64,11 @@ pub struct RecordBatchBuilder<S: StructFieldsBuilder> {
 }
 
 impl<S: StructFieldsBuilder> RecordBatchBuilder<S> {
+    /// Returns the [`arrow_schema::Schema`] of the record batch.
+    pub fn schema(&self) -> arrow_schema::Schema {
+        arrow_schema::Schema::new(self.fields.schema())
+    }
+
     /// Finishes the current record and advances to the next record position.
     ///
     /// This method should be called after all desired fields for the current record

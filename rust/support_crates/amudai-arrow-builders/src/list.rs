@@ -150,6 +150,14 @@ impl<T: ArrayBuilder> ListBuilder<T> {
         }
         assert_eq!(self.inner_pos(), self.next_pos);
     }
+
+    fn get_item_field(&self) -> Arc<arrow_schema::Field> {
+        Arc::new(arrow_schema::Field::new(
+            "item",
+            self.values.data_type(),
+            true,
+        ))
+    }
 }
 
 /// Creates a new, empty `ListBuilder` with default settings.
@@ -174,6 +182,10 @@ impl<T: ArrayBuilder + Default> Default for ListBuilder<T> {
 /// This implementation enables `ListBuilder` to be used anywhere an `ArrayBuilder` is expected,
 /// including as the element type for nested structures like lists of lists or maps with list values.
 impl<T: ArrayBuilder> ArrayBuilder for ListBuilder<T> {
+    fn data_type(&self) -> arrow_schema::DataType {
+        arrow_schema::DataType::LargeList(self.get_item_field())
+    }
+
     fn as_any(&self) -> &(dyn std::any::Any + 'static) {
         self
     }
@@ -215,20 +227,14 @@ impl<T: ArrayBuilder> ArrayBuilder for ListBuilder<T> {
     /// An `Arc<dyn Array>` containing the built `LargeListArray`. Cast to the specific
     /// type using Arrow's casting utilities if needed.
     fn build(&mut self) -> Arc<dyn Array> {
+        let field = self.get_item_field();
+
         self.fill_missing();
 
         let values = self.values.build();
-
-        let field = Arc::new(arrow_schema::Field::new(
-            "item",
-            values.data_type().clone(),
-            true,
-        ));
-
         let offsets = arrow_buffer::OffsetBuffer::new(arrow_buffer::ScalarBuffer::from(
             std::mem::take(&mut self.offsets),
         ));
-
         let nulls = self.nulls.finish();
 
         self.next_pos = 0;

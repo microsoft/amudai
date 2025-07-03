@@ -59,6 +59,23 @@ use crate::ArrayBuilder;
 /// This trait should rarely be implemented manually. The most convenient way to work with struct builders
 /// is using the [`struct_builder!`](amudai_arrow_builders_macros::struct_builder) macro.
 pub trait StructFieldsBuilder: Default + Send + Sync + 'static {
+    /// Returns the schema fields that define the structure of the struct array.
+    ///
+    /// This method provides the Apache Arrow schema definition for all fields that will be
+    /// present in the final struct array. The schema includes field names, data types, and
+    /// nullability information for each field in the struct.
+    ///
+    /// The returned [`arrow_schema::Fields`] contains the complete field definitions in the
+    /// same order that field arrays will be returned by [`build_fields()`](Self::build_fields).
+    /// This schema information is used when constructing the final [`StructArray`](arrow_array::StructArray)
+    /// to ensure proper type information and metadata.
+    ///
+    /// # Returns
+    ///
+    /// An [`arrow_schema::Fields`] collection containing the field definitions for all
+    /// fields in the struct, including their names, data types, and nullability constraints.
+    fn schema(&self) -> arrow_schema::Fields;
+
     /// Returns the current logical position in the struct array being built.
     ///
     /// This position represents the index of the next struct element to be added.
@@ -216,6 +233,10 @@ impl<FB: StructFieldsBuilder> Default for StructBuilder<FB> {
 /// This implementation delegates position management to the underlying fields builder
 /// and provides the logic to construct the final Apache Arrow `StructArray`.
 impl<FB: StructFieldsBuilder> ArrayBuilder for StructBuilder<FB> {
+    fn data_type(&self) -> arrow_schema::DataType {
+        arrow_schema::DataType::Struct(self.fields.schema())
+    }
+
     fn as_any(&self) -> &(dyn std::any::Any + 'static) {
         self
     }
@@ -266,20 +287,8 @@ impl<FB: StructFieldsBuilder> ArrayBuilder for StructBuilder<FB> {
             let len = self.next_pos() as usize;
             Arc::new(arrow_array::StructArray::new_empty_fields(len, nulls))
         } else {
-            let field_names = (0..self.fields.field_count())
-                .map(|i| self.fields.field_name(i).to_string())
-                .collect::<Vec<_>>();
-
+            let fields = self.fields.schema();
             let arrays = self.fields.build_fields();
-
-            let fields = field_names
-                .into_iter()
-                .enumerate()
-                .map(|(i, name)| {
-                    arrow_schema::Field::new(name, arrays[i].data_type().clone(), true)
-                })
-                .collect::<Vec<_>>();
-            let fields = arrow_schema::Fields::from(fields);
             Arc::new(arrow_array::StructArray::new(fields, arrays, nulls))
         }
     }
@@ -483,6 +492,17 @@ impl FluidStructFields {
 /// field registration system. It handles position tracking, field counting, field naming,
 /// and the final array building process.
 impl StructFieldsBuilder for FluidStructFields {
+    fn schema(&self) -> arrow_schema::Fields {
+        let fields = self
+            .fields
+            .iter()
+            .map(|(builder, name)| {
+                arrow_schema::Field::new(name.clone(), builder.data_type(), true)
+            })
+            .collect::<Vec<_>>();
+        arrow_schema::Fields::from(fields)
+    }
+
     /// Returns the current logical position in the struct array being built.
     ///
     /// This position represents the index of the next struct element that will be added.
@@ -660,6 +680,15 @@ mod tests {
     }
 
     impl StructFieldsBuilder for FooFields {
+        fn schema(&self) -> arrow_schema::Fields {
+            arrow_schema::Fields::from(vec![
+                arrow_schema::Field::new("name", self.name.data_type(), true),
+                arrow_schema::Field::new("value", self.value.data_type(), true),
+                arrow_schema::Field::new("blob", self.blob.data_type(), true),
+                arrow_schema::Field::new("measures", self.measures.data_type(), true),
+            ])
+        }
+
         #[inline]
         fn next_pos(&self) -> u64 {
             self.next_pos

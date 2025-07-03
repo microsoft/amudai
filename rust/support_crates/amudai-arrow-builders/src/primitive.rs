@@ -156,6 +156,10 @@ impl<T: ArrowPrimitiveType> Default for PrimitiveBuilder<T> {
 }
 
 impl<T: ArrowPrimitiveType> ArrayBuilder for PrimitiveBuilder<T> {
+    fn data_type(&self) -> arrow_schema::DataType {
+        T::DATA_TYPE.clone()
+    }
+
     fn as_any(&self) -> &(dyn std::any::Any + 'static) {
         self
     }

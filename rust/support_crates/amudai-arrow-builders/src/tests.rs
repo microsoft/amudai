@@ -86,6 +86,7 @@ fn test_basic_event_builder() {
     builder.finish_null_struct();
 
     let array = builder.build();
+    assert_eq!(array.data_type(), &builder.data_type());
     let json_output = array_to_ndjson(&array).unwrap();
     println!("Event JSON:\n{}", json_output);
 
@@ -150,6 +151,7 @@ fn test_person_builder_comprehensive() {
     builder.finish_struct();
 
     let array = builder.build();
+    assert_eq!(array.data_type(), &builder.data_type());
     let json_output = array_to_ndjson(&array).unwrap();
     println!("Person JSON:\n{}", json_output);
 
@@ -206,6 +208,7 @@ fn test_binary_record_builder() {
     builder.finish_struct();
 
     let array = builder.build();
+    assert_eq!(array.data_type(), &builder.data_type());
     let json_output = array_to_ndjson(&array).unwrap();
     println!("Binary Record JSON:\n{}", json_output);
 
@@ -306,6 +309,7 @@ fn test_nested_data_builder() {
     builder.finish_struct();
 
     let array = builder.build();
+    assert_eq!(array.data_type(), &builder.data_type());
     let json_output = array_to_ndjson(&array).unwrap();
     println!("Nested Data JSON:\n{}", json_output);
 
@@ -342,6 +346,7 @@ fn test_primitive_builders_standalone() {
     binary_builder.push(b"binary2");
     binary_builder.push_null();
     let binary_array = binary_builder.build();
+    assert_eq!(binary_array.data_type(), &binary_builder.data_type());
     assert_eq!(binary_array.len(), 3);
 }
 
@@ -367,6 +372,7 @@ fn test_list_builder_standalone() {
 
     let array = list_builder.build();
     let list_array = array.as_list::<i64>();
+    assert_eq!(array.data_type(), &list_builder.data_type());
     assert_eq!(list_array.len(), 4);
     assert!(list_array.is_null(2)); // Third list is null
 }
@@ -391,6 +397,7 @@ fn test_map_builder_standalone() {
     map_builder.finish_map();
 
     let array = map_builder.build();
+    assert_eq!(array.data_type(), &map_builder.data_type());
     let map_array = array.as_map();
     assert_eq!(map_array.len(), 3);
     assert!(map_array.is_null(1)); // Second map is null
@@ -406,6 +413,7 @@ fn test_fixed_size_binary_builder() {
     builder.push(b"ZYXWVUTS"); // Exactly 8 bytes
 
     let array = builder.build();
+    assert_eq!(array.data_type(), &builder.data_type());
     assert_eq!(array.len(), 4);
 }
 
@@ -440,6 +448,7 @@ fn test_mixed_null_handling() {
     builder.finish_struct();
 
     let array = builder.build();
+    assert_eq!(array.data_type(), &builder.data_type());
     let struct_array = array.as_struct();
     assert_eq!(struct_array.len(), 3);
     assert!(struct_array.is_null(1)); // Second record is completely null
@@ -482,6 +491,7 @@ fn test_large_dataset() {
     }
 
     let array = builder.build();
+    assert_eq!(array.data_type(), &builder.data_type());
     let struct_array = array.as_struct();
     assert_eq!(struct_array.len(), 1000);
 
@@ -562,6 +572,7 @@ fn test_deeply_nested_structures() {
     builder.finish_struct();
 
     let array = builder.build();
+    assert_eq!(array.data_type(), &builder.data_type());
     let json_output = array_to_ndjson(&array).unwrap();
     println!("Deep Nested JSON:\n{}", json_output);
 
@@ -590,6 +601,7 @@ fn test_record_batch() {
     }
 
     let record_batch = builder.build();
+    assert_eq!(record_batch.schema().as_ref(), &builder.schema());
     let json_output = record_batch_to_ndjson(&record_batch).unwrap();
     println!("Record batch JSON:\n{}", json_output);
     assert_eq!(record_batch.num_rows(), 5);
@@ -625,6 +637,7 @@ fn test_fluid_struct_builder() {
     }
 
     let arr = builder.build();
+    assert_eq!(arr.data_type(), &builder.data_type());
     assert_eq!(arr.len(), 3);
     let c = arr
         .as_struct()
@@ -649,6 +662,7 @@ fn test_fluid_struct_builder_no_fields() {
     }
 
     let arr = builder.build();
+    assert_eq!(arr.data_type(), &builder.data_type());
     assert_eq!(arr.len(), 3);
     let s = amudai_arrow_processing::array_to_json::array_to_ndjson(&arr).unwrap();
     assert!(s.contains(r#""properties":{}"#));
@@ -667,6 +681,7 @@ fn test_bool_builder() {
     }
 
     let batch = builder.build();
+    assert_eq!(batch.schema().as_ref(), &builder.schema());
     let s = amudai_arrow_processing::array_to_json::record_batch_to_ndjson(&batch).unwrap();
     assert!(s.contains(r#""flag":true"#));
     assert!(s.contains(r#""flag":false"#));

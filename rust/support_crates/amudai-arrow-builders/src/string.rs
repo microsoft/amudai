@@ -137,6 +137,10 @@ impl Default for StringBuilder {
 /// used by all builders in this crate. It enables sparse value setting and
 /// automatic gap filling with null values.
 impl ArrayBuilder for StringBuilder {
+    fn data_type(&self) -> arrow_schema::DataType {
+        arrow_schema::DataType::LargeUtf8
+    }
+
     fn as_any(&self) -> &(dyn std::any::Any + 'static) {
         self
     }

@@ -195,8 +195,26 @@ fn generate_struct_fields_builder_impl(
             }
         })
         .collect();
+    let schema_fields: Vec<_> = fields
+        .iter()
+        .map(|field| {
+            let field_name = &field.ident;
+            let field_name_str = field_name.as_ref().unwrap().to_string();
+            quote! {
+                arrow_schema::Field::new(#field_name_str, self.#field_name.data_type(), true)
+            }
+        })
+        .collect();
+
     quote! {
         impl #crate_path::StructFieldsBuilder for #fields_name {
+            fn schema(&self) -> arrow_schema::Fields {
+                use #crate_path::ArrayBuilder;
+                arrow_schema::Fields::from(vec![
+                    #(#schema_fields,)*
+                ])
+            }
+
             #[inline]
             fn next_pos(&self) -> u64 {
                 self.next_pos

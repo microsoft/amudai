@@ -204,6 +204,38 @@ impl<K: ArrayBuilder, V: ArrayBuilder> MapBuilder<K, V> {
         }
         assert_eq!(self.inner_pos(), self.next_pos);
     }
+
+    fn get_key_field(&self) -> Arc<arrow_schema::Field> {
+        Arc::new(arrow_schema::Field::new(
+            "key",
+            self.keys.data_type().clone(),
+            false,
+        ))
+    }
+
+    fn get_value_field(&self) -> Arc<arrow_schema::Field> {
+        Arc::new(arrow_schema::Field::new(
+            "value",
+            self.values.data_type().clone(),
+            true,
+        ))
+    }
+
+    fn get_entry_struct_fields(&self) -> arrow_schema::Fields {
+        arrow_schema::Fields::from(vec![self.get_key_field(), self.get_value_field()])
+    }
+
+    fn get_struct_type(&self) -> arrow_schema::DataType {
+        arrow_schema::DataType::Struct(self.get_entry_struct_fields())
+    }
+
+    fn get_entries_field(&self) -> Arc<arrow_schema::Field> {
+        Arc::new(arrow_schema::Field::new(
+            "entries",
+            self.get_struct_type(),
+            false,
+        ))
+    }
 }
 
 impl<K: ArrayBuilder + Default, V: ArrayBuilder + Default> Default for MapBuilder<K, V> {
@@ -226,6 +258,10 @@ impl<K: ArrayBuilder + Default, V: ArrayBuilder + Default> Default for MapBuilde
 }
 
 impl<K: ArrayBuilder, V: ArrayBuilder> ArrayBuilder for MapBuilder<K, V> {
+    fn data_type(&self) -> arrow_schema::DataType {
+        arrow_schema::DataType::Map(self.get_entries_field(), false)
+    }
+
     fn as_any(&self) -> &(dyn std::any::Any + 'static) {
         self
     }
@@ -285,37 +321,19 @@ impl<K: ArrayBuilder, V: ArrayBuilder> ArrayBuilder for MapBuilder<K, V> {
     ///
     /// [`MapArray`]: arrow_array::MapArray
     fn build(&mut self) -> Arc<dyn Array> {
+        let struct_fields = self.get_entry_struct_fields();
+        let entries_field = self.get_entries_field();
+
         self.fill_missing();
 
         let keys = self.keys.build();
         let values = self.values.build();
-
         assert_eq!(keys.len(), values.len());
 
-        let key_field = Arc::new(arrow_schema::Field::new(
-            "key",
-            keys.data_type().clone(),
-            false,
-        ));
-        let value_field = Arc::new(arrow_schema::Field::new(
-            "value",
-            values.data_type().clone(),
-            true,
-        ));
-
-        let struct_fields = arrow_schema::Fields::from(vec![key_field, value_field]);
         let struct_array = arrow_array::StructArray::new(struct_fields, vec![keys, values], None);
-
-        let entries_field = Arc::new(arrow_schema::Field::new(
-            "entries",
-            struct_array.data_type().clone(),
-            false,
-        ));
-
         let offsets = arrow_buffer::OffsetBuffer::new(arrow_buffer::ScalarBuffer::from(
             std::mem::take(&mut self.offsets),
         ));
-
         let nulls = self.nulls.finish();
 
         self.next_pos = 0;

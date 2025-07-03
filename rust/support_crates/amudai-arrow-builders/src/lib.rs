@@ -308,6 +308,20 @@ pub use structure::{FluidStructBuilder, FluidStructFields, StructBuilder, Struct
 /// - Values set after the current position automatically fill gaps with nulls
 /// - The `build()` method finalizes any remaining gaps and produces a valid Arrow array
 pub trait ArrayBuilder: Send + Sync + 'static {
+    /// Provides the schema information for the array that will be produced
+    /// when [`build()`] is called. The returned data type describes the structure
+    /// of the array elements.
+    ///
+    /// # Returns
+    ///
+    /// An [`arrow_schema::DataType`] that specifies:
+    /// - The logical type of array elements (e.g., `Int64`, `LargeUtf8`, `List`, etc.)
+    /// - For nested types, the complete schema including child field definitions
+    /// - Any associated metadata such as timezone information for timestamps
+    ///
+    /// [`build()`]: ArrayBuilder::build
+    fn data_type(&self) -> arrow_schema::DataType;
+
     /// Returns a reference to the builder as `Any` for dynamic type checking.
     ///
     /// This method enables downcasting the trait object to its concrete type when needed.

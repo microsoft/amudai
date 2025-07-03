@@ -126,6 +126,10 @@ impl Default for BinaryBuilder {
 /// is expected, including as an element type for nested structures like lists of
 /// binary data or maps with binary values.
 impl ArrayBuilder for BinaryBuilder {
+    fn data_type(&self) -> arrow_schema::DataType {
+        arrow_schema::DataType::LargeBinary
+    }
+
     fn as_any(&self) -> &(dyn std::any::Any + 'static) {
         self
     }
@@ -299,6 +303,10 @@ impl<const S: usize> Default for FixedSizeBinaryBuilder<S> {
 /// `ArrayBuilder` is expected, including as an element type for nested structures
 /// like lists of fixed-size binary data.
 impl<const S: usize> ArrayBuilder for FixedSizeBinaryBuilder<S> {
+    fn data_type(&self) -> arrow_schema::DataType {
+        arrow_schema::DataType::FixedSizeBinary(self.value_size as i32)
+    }
+
     fn as_any(&self) -> &(dyn std::any::Any + 'static) {
         self
     }

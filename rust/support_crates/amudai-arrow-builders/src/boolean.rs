@@ -112,6 +112,10 @@ impl Default for BooleanBuilder {
 }
 
 impl ArrayBuilder for BooleanBuilder {
+    fn data_type(&self) -> arrow_schema::DataType {
+        arrow_schema::DataType::Boolean
+    }
+
     fn as_any(&self) -> &(dyn std::any::Any + 'static) {
         self
     }
