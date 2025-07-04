@@ -1,9 +1,13 @@
 //! Ingest command implementation
 
 use anyhow::{Context, Result};
-use arrow::csv::ReaderBuilder;
+use arrow::{
+    array::{Array, FixedSizeBinaryArray, NullBufferBuilder, RecordBatch, StringArray},
+    buffer::Buffer,
+    csv::ReaderBuilder,
+};
 use arrow_json::ReaderBuilder as JsonReaderBuilder;
-use arrow_schema::Schema;
+use arrow_schema::{DataType, Field, Schema};
 use serde_json;
 use std::{
     fs,
@@ -123,19 +127,27 @@ fn ingest_csv_file(
         .build_stripe()
         .with_context(|| format!("Failed to create stripe builder for {}", file_path))?;
 
+    // Create a modified schema for CSV reading (convert GUID fields to strings)
+    let (csv_schema, guid_field_indices) = create_arrow_compatible_schema(arrow_schema)?;
+
     // Open and read CSV file
     let file = fs::File::open(file_path)
         .with_context(|| format!("Failed to open CSV file: {}", file_path))?;
 
-    let csv_reader = ReaderBuilder::new(Arc::new(arrow_schema.clone()))
-        .with_header(false)
+    let csv_reader = ReaderBuilder::new(Arc::new(csv_schema))
+        .with_header(true)
         .build(file)
         .with_context(|| format!("Failed to create CSV reader for {}", file_path))?;
 
     let mut batch_count = 0;
     for batch_result in csv_reader {
-        let batch =
+        let mut batch =
             batch_result.with_context(|| format!("Failed to read batch from {}", file_path))?;
+
+        // Convert GUID string fields to binary fields
+        if !guid_field_indices.is_empty() {
+            batch = convert_guid_fields_to_binary(&batch, &guid_field_indices, arrow_schema)?;
+        }
 
         stripe_builder
             .push_batch(&batch)
@@ -286,19 +298,27 @@ fn ingest_json_file(
         .build_stripe()
         .with_context(|| format!("Failed to create stripe builder for {}", file_path))?;
 
+    // Create a modified schema for JSON reading (convert GUID fields to strings)
+    let (json_schema, guid_field_indices) = create_arrow_compatible_schema(arrow_schema)?;
+
     // Open and read JSON file
     let file = fs::File::open(file_path)
         .with_context(|| format!("Failed to open JSON file: {}", file_path))?;
 
-    let json_reader = JsonReaderBuilder::new(Arc::new(arrow_schema.clone()))
+    let json_reader = JsonReaderBuilder::new(Arc::new(json_schema))
         .with_coerce_primitive(true)
         .build(BufReader::new(file))
         .with_context(|| format!("Failed to create JSON reader for {}", file_path))?;
 
     let mut batch_count = 0;
     for batch_result in json_reader {
-        let batch =
+        let mut batch =
             batch_result.with_context(|| format!("Failed to read batch from {}", file_path))?;
+
+        // Convert GUID string fields to binary fields
+        if !guid_field_indices.is_empty() {
+            batch = convert_guid_fields_to_binary(&batch, &guid_field_indices, arrow_schema)?;
+        }
 
         stripe_builder
             .push_batch(&batch)
@@ -327,4 +347,111 @@ fn ingest_json_file(
     println!("  Added stripe to shard for {}", file_path);
 
     Ok(())
+}
+
+/// Create an Arrow-compatible schema by converting GUID fields to string fields
+/// This allows reading GUID data as strings from JSON/CSV files before converting to binary
+fn create_arrow_compatible_schema(schema: &Schema) -> Result<(Schema, Vec<usize>)> {
+    let mut compatible_fields = Vec::new();
+    let mut guid_field_indices = Vec::new();
+
+    for (i, field) in schema.fields().iter().enumerate() {
+        if is_guid_field(field) {
+            // Convert GUID field to string for reading from text formats
+            let string_field = Field::new(field.name(), DataType::Utf8, field.is_nullable());
+            compatible_fields.push(string_field);
+            guid_field_indices.push(i);
+        } else {
+            compatible_fields.push(field.as_ref().clone());
+        }
+    }
+
+    Ok((Schema::new(compatible_fields), guid_field_indices))
+}
+
+/// Check if a field is a GUID field
+fn is_guid_field(field: &Field) -> bool {
+    matches!(field.data_type(), DataType::FixedSizeBinary(16))
+        && field.metadata().get("ARROW:extension:name") == Some(&"arrow.uuid".to_string())
+}
+
+/// Convert GUID string fields to binary fields in a record batch
+fn convert_guid_fields_to_binary(
+    batch: &RecordBatch,
+    guid_field_indices: &[usize],
+    target_schema: &Schema,
+) -> Result<RecordBatch> {
+    let mut new_columns = Vec::new();
+
+    for (i, column) in batch.columns().iter().enumerate() {
+        if guid_field_indices.contains(&i) {
+            // Convert string array to FixedSizeBinary array
+            let string_array = column
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .with_context(|| format!("Expected string array for GUID field at index {}", i))?;
+
+            let mut binary_data = Vec::new();
+            let mut null_buffer = NullBufferBuilder::new(string_array.len());
+
+            for j in 0..string_array.len() {
+                if string_array.is_null(j) {
+                    null_buffer.append_null();
+                    binary_data.extend_from_slice(&[0u8; 16]); // Zero bytes for null values
+                } else {
+                    let guid_str = string_array.value(j);
+                    match parse_guid_string(guid_str) {
+                        Ok(guid_bytes) => {
+                            null_buffer.append_non_null();
+                            binary_data.extend_from_slice(&guid_bytes);
+                        }
+                        Err(_) => {
+                            return Err(anyhow::anyhow!(
+                                "Invalid GUID format in field {}: {}",
+                                target_schema.field(i).name(),
+                                guid_str
+                            ));
+                        }
+                    }
+                }
+            }
+
+            let binary_array =
+                FixedSizeBinaryArray::new(16, Buffer::from_vec(binary_data), null_buffer.finish());
+            new_columns.push(Arc::new(binary_array) as Arc<dyn Array>);
+        } else {
+            new_columns.push(column.clone());
+        }
+    }
+
+    Ok(RecordBatch::try_new(
+        Arc::new(target_schema.clone()),
+        new_columns,
+    )?)
+}
+
+/// Parse a GUID string into a 16-byte array
+fn parse_guid_string(guid_str: &str) -> Result<[u8; 16]> {
+    // Remove braces and hyphens
+    let clean_guid = guid_str
+        .trim()
+        .trim_start_matches('{')
+        .trim_end_matches('}')
+        .replace('-', "");
+
+    if clean_guid.len() != 32 {
+        return Err(anyhow::anyhow!("GUID string must be 32 hex characters"));
+    }
+
+    let mut bytes = [0u8; 16];
+    for (i, chunk) in clean_guid.as_bytes().chunks(2).enumerate() {
+        if i >= 16 {
+            break;
+        }
+        let hex_str = std::str::from_utf8(chunk)?;
+        bytes[i] = u8::from_str_radix(hex_str, 16)
+            .with_context(|| format!("Invalid hex in GUID: {}", hex_str))?;
+    }
+
+    Ok(bytes)
 }

@@ -14,6 +14,7 @@ use std::collections::HashMap;
 /// - long, int64, i64 -> Int64
 /// - double, float64, f64 -> Float64
 /// - datetime -> Timestamp(Nanosecond, None)
+/// - guid, uuid -> FixedSizeBinary(16) with arrow.uuid extension
 ///
 /// All fields are nullable by default.
 pub fn parse_schema_string(schema_str: &str) -> Result<Schema> {
@@ -85,13 +86,26 @@ fn parse_field_definition(field_def: &str, type_map: &HashMap<&str, DataType>) -
 
     let data_type = type_map.get(type_name)
         .ok_or_else(|| anyhow!(
-            "Unsupported type '{}'. Supported types: string, int/int32/i32, long/int64/i64, double/float64/f64, datetime",
+            "Unsupported type '{}'. Supported types: string, int/int32/i32, long/int64/i64, double/float64/f64, datetime, guid/uuid",
             type_name
         ))?
         .clone();
 
-    // All fields are nullable by default
-    Ok(Field::new(field_name, data_type, true))
+    // Create field with metadata for GUID types
+    let mut field = Field::new(field_name, data_type.clone(), true);
+
+    // Add UUID extension metadata for GUID types
+    if matches!(data_type, DataType::FixedSizeBinary(16))
+        && (type_name == "guid" || type_name == "uuid")
+    {
+        use std::collections::HashMap;
+        field.set_metadata(HashMap::from([(
+            "ARROW:extension:name".to_string(),
+            "arrow.uuid".to_string(),
+        )]));
+    }
+
+    Ok(field)
 }
 
 fn build_type_mapping() -> HashMap<&'static str, DataType> {
@@ -117,6 +131,10 @@ fn build_type_mapping() -> HashMap<&'static str, DataType> {
 
     // Datetime type
     map.insert("datetime", DataType::Timestamp(TimeUnit::Nanosecond, None));
+
+    // GUID/UUID type
+    map.insert("guid", DataType::FixedSizeBinary(16));
+    map.insert("uuid", DataType::FixedSizeBinary(16));
 
     map
 }
@@ -164,6 +182,35 @@ mod tests {
 
         assert_eq!(schema.field(2).name(), "score");
         assert_eq!(schema.field(2).data_type(), &DataType::Float64);
+    }
+
+    #[test]
+    fn test_parse_with_guid_types() {
+        let schema_str = "(id: guid, uuid_field: uuid, name: string)";
+        let schema = parse_schema_string(schema_str).unwrap();
+
+        assert_eq!(schema.fields().len(), 3);
+
+        // Check GUID field
+        assert_eq!(schema.field(0).name(), "id");
+        assert_eq!(schema.field(0).data_type(), &DataType::FixedSizeBinary(16));
+        assert_eq!(
+            schema.field(0).metadata().get("ARROW:extension:name"),
+            Some(&"arrow.uuid".to_string())
+        );
+
+        // Check UUID field
+        assert_eq!(schema.field(1).name(), "uuid_field");
+        assert_eq!(schema.field(1).data_type(), &DataType::FixedSizeBinary(16));
+        assert_eq!(
+            schema.field(1).metadata().get("ARROW:extension:name"),
+            Some(&"arrow.uuid".to_string())
+        );
+
+        // Check regular string field
+        assert_eq!(schema.field(2).name(), "name");
+        assert_eq!(schema.field(2).data_type(), &DataType::Utf8);
+        assert!(schema.field(2).metadata().is_empty());
     }
 
     #[test]
