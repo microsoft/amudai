@@ -294,7 +294,7 @@ impl DataTypeBuilder {
     }
 
     pub fn new_guid() -> DataTypeBuilder {
-        DataTypeBuilder::new("", BasicType::Guid, false, 0, vec![])
+        DataTypeBuilder::new("", BasicType::Guid, false, 16, vec![])
     }
 
     pub fn new_timespan() -> DataTypeBuilder {

@@ -432,26 +432,7 @@ fn convert_guid_fields_to_binary(
 
 /// Parse a GUID string into a 16-byte array
 fn parse_guid_string(guid_str: &str) -> Result<[u8; 16]> {
-    // Remove braces and hyphens
-    let clean_guid = guid_str
-        .trim()
-        .trim_start_matches('{')
-        .trim_end_matches('}')
-        .replace('-', "");
-
-    if clean_guid.len() != 32 {
-        return Err(anyhow::anyhow!("GUID string must be 32 hex characters"));
-    }
-
-    let mut bytes = [0u8; 16];
-    for (i, chunk) in clean_guid.as_bytes().chunks(2).enumerate() {
-        if i >= 16 {
-            break;
-        }
-        let hex_str = std::str::from_utf8(chunk)?;
-        bytes[i] = u8::from_str_radix(hex_str, 16)
-            .with_context(|| format!("Invalid hex in GUID: {}", hex_str))?;
-    }
-
-    Ok(bytes)
+    Ok(uuid::Uuid::parse_str(guid_str)
+        .map(|uuid| uuid.as_bytes().clone())
+        .map_err(|_| anyhow::anyhow!("Invalid GUID format: {}", guid_str))?)
 }

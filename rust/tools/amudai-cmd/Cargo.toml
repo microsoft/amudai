@@ -18,6 +18,7 @@ fastrand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 url = { workspace = true }
+uuid = { workspace = true }
 
 amudai-arrow = { workspace = true }
 amudai-arrow-compat = { workspace = true }
