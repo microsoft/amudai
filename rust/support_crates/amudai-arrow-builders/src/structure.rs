@@ -44,6 +44,7 @@ use std::sync::Arc;
 
 use ahash::AHashMap;
 use arrow_array::Array;
+use arrow_schema::Field;
 
 use crate::ArrayBuilder;
 
@@ -322,8 +323,8 @@ impl<FB: StructFieldsBuilder> ArrayBuilder for StructBuilder<FB> {
 /// let mut builder = StructBuilder::<FluidStructFields>::default();
 ///
 /// // Register fields dynamically
-/// builder.register_field("name", &DataType::Utf8);
-/// builder.register_field("age", &DataType::Int32);
+/// builder.register_field_type("name", &DataType::LargeUtf8);
+/// builder.register_field_type("age", &DataType::Int32);
 ///
 /// // Access and populate fields
 /// builder.field("name").push_raw_value(Some(b"Alice"));
@@ -338,7 +339,7 @@ pub struct FluidStructFields {
     /// Each element contains a boxed array builder for the field's data type
     /// and the field's name as a string. The index in this vector serves as
     /// the field's identifier for efficient access.
-    fields: Vec<(Box<dyn ArrayBuilder>, String)>,
+    fields: Vec<(Box<dyn ArrayBuilder>, Field)>,
 
     /// Hash map providing fast field name-to-index lookups.
     ///
@@ -354,6 +355,30 @@ pub struct FluidStructFields {
 }
 
 impl FluidStructFields {
+    /// Registers a new field with the struct builder using an Apache Arrow
+    /// field definition.
+    ///
+    /// This method takes a complete [`Field`] definition (including name, data type,
+    /// and metadata) and creates an appropriate array builder for the field's data type.
+    /// The field is then registered with the struct builder, making it available for
+    /// data insertion.
+    ///
+    /// The data type from the field definition is used to create the most appropriate
+    /// builder type via [`crate::create_builder`], which handles the mapping from Arrow
+    /// data types to their corresponding builder implementations.
+    ///
+    /// If a field with the same name already exists, the registration is ignored to prevent
+    /// duplicate fields and maintain consistency in the struct schema.
+    ///
+    /// # Arguments
+    ///
+    /// * `field` - An Apache Arrow [`Field`] definition containing the field name, data type,
+    ///   and nullability information
+    pub fn register_field(&mut self, field: Field) {
+        let builder = crate::create_builder(field.data_type());
+        self.register_field_builder(field, builder);
+    }
+
     /// Registers a new field with the specified name and data type.
     ///
     /// This method creates an appropriate array builder for the given data type and
@@ -368,8 +393,11 @@ impl FluidStructFields {
     ///
     /// * `name` - The name of the field to register
     /// * `data_type` - The Arrow data type for the field
-    pub fn register_field(&mut self, name: &str, data_type: &arrow_schema::DataType) {
-        self.register_field_builder(name, crate::create_builder(data_type));
+    pub fn register_field_type(&mut self, name: &str, data_type: &arrow_schema::DataType) {
+        self.register_field_builder(
+            Field::new(name, data_type.clone(), true),
+            crate::create_builder(data_type),
+        );
     }
 
     /// Registers a new field with a pre-created array builder.
@@ -386,13 +414,13 @@ impl FluidStructFields {
     ///
     /// * `name` - The name of the field to register
     /// * `builder` - A boxed array builder for the field
-    pub fn register_field_builder(&mut self, name: &str, builder: Box<dyn ArrayBuilder>) {
-        if self.field_map.contains_key(name) {
+    pub fn register_field_builder(&mut self, field: Field, builder: Box<dyn ArrayBuilder>) {
+        if self.field_map.contains_key(field.name()) {
             return;
         }
         let index = self.fields.len();
-        self.field_map.insert(name.to_string(), index);
-        self.fields.push((builder, name.to_string()));
+        self.field_map.insert(field.name().clone(), index);
+        self.fields.push((builder, field));
     }
 
     /// Checks whether a field with the specified name has been registered.
@@ -496,9 +524,7 @@ impl StructFieldsBuilder for FluidStructFields {
         let fields = self
             .fields
             .iter()
-            .map(|(builder, name)| {
-                arrow_schema::Field::new(name.clone(), builder.data_type(), true)
-            })
+            .map(|(_builder, field)| field.clone())
             .collect::<Vec<_>>();
         arrow_schema::Fields::from(fields)
     }
@@ -553,7 +579,7 @@ impl StructFieldsBuilder for FluidStructFields {
     ///
     /// Panics if the index is out of bounds (>= [`field_count()`](Self::field_count))
     fn field_name(&self, index: usize) -> &str {
-        self.fields[index].1.as_str()
+        self.fields[index].1.name()
     }
 
     /// Consumes the builder and returns the built field arrays.

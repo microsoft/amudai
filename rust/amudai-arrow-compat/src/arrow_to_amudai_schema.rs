@@ -31,6 +31,7 @@
 //! the conversion functions return a `Result` with an `Error` indicating the specific issue.
 
 use amudai_common::{Result, error::Error};
+use amudai_format::defs::schema_ext::KnownExtendedType;
 
 /// A trait for converting an Apache Arrow schema into a corresponding type.
 pub trait FromArrowSchema {
@@ -206,9 +207,8 @@ impl FromArrowField for amudai_format::schema_builder::DataTypeBuilder {
 
         let arrow_data_type = field.data_type();
         let amudai_data_type: DataTypeBuilder;
-        let metadata_map = field.metadata();
-        if let Some(extension_name) = metadata_map.get("ARROW:extension:name") {
-            match (extension_name.as_str(), arrow_data_type) {
+        if let Some(extension_name) = field.extension_type_name() {
+            match (extension_name, arrow_data_type) {
                 (
                     "arrow.json",
                     ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View,
@@ -218,8 +218,20 @@ impl FromArrowField for amudai_format::schema_builder::DataTypeBuilder {
                 ("arrow.uuid", ArrowDataType::FixedSizeBinary(16)) => {
                     amudai_data_type = DataTypeBuilder::new_guid();
                 }
-                ("KustoDecimal", ArrowDataType::FixedSizeBinary(16)) => {
+                (KnownExtendedType::KUSTO_DECIMAL_LABEL, ArrowDataType::FixedSizeBinary(16)) => {
                     amudai_data_type = DataTypeBuilder::new_decimal();
+                }
+                (
+                    KnownExtendedType::KUSTO_DYNAMIC_LABEL,
+                    ArrowDataType::Binary | ArrowDataType::LargeBinary,
+                ) => {
+                    amudai_data_type = DataTypeBuilder::new_dynamic();
+                }
+                (KnownExtendedType::KUSTO_TIMESPAN_LABEL, ArrowDataType::Int64) => {
+                    amudai_data_type = DataTypeBuilder::new_timespan();
+                }
+                (KnownExtendedType::KUSTO_DATETIME_LABEL, ArrowDataType::UInt64) => {
+                    amudai_data_type = DataTypeBuilder::new_datetime();
                 }
                 _ => {
                     amudai_data_type = DataTypeBuilder::from_arrow_data_type(arrow_data_type)?;

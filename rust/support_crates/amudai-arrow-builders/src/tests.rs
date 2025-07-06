@@ -612,13 +612,13 @@ fn test_fluid_struct_builder() {
     let mut builder = NodeRecordBuilder::default();
     builder
         .properties
-        .register_field("a", &arrow_schema::DataType::Int64);
+        .register_field_type("a", &arrow_schema::DataType::Int64);
     builder
         .properties
-        .register_field("b", &arrow_schema::DataType::LargeUtf8);
+        .register_field_type("b", &arrow_schema::DataType::LargeUtf8);
     builder
         .properties
-        .register_field("c", &arrow_schema::DataType::FixedSizeBinary(10));
+        .register_field_type("c", &arrow_schema::DataType::FixedSizeBinary(10));
 
     for i in 0..3 {
         builder.id_field().push(i.to_string());

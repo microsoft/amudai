@@ -432,7 +432,7 @@ fn convert_guid_fields_to_binary(
 
 /// Parse a GUID string into a 16-byte array
 fn parse_guid_string(guid_str: &str) -> Result<[u8; 16]> {
-    Ok(uuid::Uuid::parse_str(guid_str)
-        .map(|uuid| uuid.as_bytes().clone())
-        .map_err(|_| anyhow::anyhow!("Invalid GUID format: {}", guid_str))?)
+    uuid::Uuid::parse_str(guid_str)
+        .map(|uuid| *uuid.as_bytes())
+        .map_err(|_| anyhow::anyhow!("Invalid GUID format: {}", guid_str))
 }

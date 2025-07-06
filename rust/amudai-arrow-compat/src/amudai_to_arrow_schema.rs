@@ -13,12 +13,15 @@ use amudai_format::{
         BasicType as AmudaiBasicType, DataType as AmudaiDataType, Field as AmudaiField,
         Schema as AmudaiSchema,
     },
+    schema_builder::DataTypeBuilder,
 };
 use arrow_schema::{
     DataType as ArrowDataType, Field as ArrowField, Fields as ArrowFields, Schema as ArrowSchema,
     TimeUnit, UnionMode,
 };
 use std::{collections::HashMap, sync::Arc};
+
+use crate::arrow_fields::set_extension_type_name;
 
 /// A trait for converting an Amudai data type into an `arrow_schema::DataType`.
 pub trait ToArrowDataType {
@@ -236,12 +239,12 @@ impl ToArrowField for AmudaiField {
 
         if amudai_data_type.basic_type()? == AmudaiBasicType::Guid {
             field.set_metadata(HashMap::from([(
-                "ARROW:extension:name".to_string(),
+                arrow_schema::extension::EXTENSION_TYPE_NAME_KEY.to_string(),
                 "arrow.uuid".to_string(),
             )]));
         } else if desc.extended_type == KnownExtendedType::KustoDynamic {
             field.set_metadata(HashMap::from([(
-                "ARROW:extension:name".to_string(),
+                arrow_schema::extension::EXTENSION_TYPE_NAME_KEY.to_string(),
                 "arrow.json".to_string(),
             )]));
         }
@@ -260,6 +263,171 @@ impl ToArrowSchema for AmudaiSchema {
             fields.push(amudai_field.to_arrow_field()?);
         }
         Ok(ArrowSchema::new(fields))
+    }
+}
+
+impl ToArrowDataType for DataTypeBuilder {
+    fn to_arrow_data_type(&self) -> Result<ArrowDataType> {
+        let arrow_dt = match self.basic_type() {
+            AmudaiBasicType::Boolean => ArrowDataType::Boolean,
+            AmudaiBasicType::Int8 => {
+                if self.is_signed() {
+                    ArrowDataType::Int8
+                } else {
+                    ArrowDataType::UInt8
+                }
+            }
+            AmudaiBasicType::Int16 => {
+                if self.is_signed() {
+                    ArrowDataType::Int16
+                } else {
+                    ArrowDataType::UInt16
+                }
+            }
+            AmudaiBasicType::Int32 => {
+                if self.is_signed() {
+                    ArrowDataType::Int32
+                } else {
+                    ArrowDataType::UInt32
+                }
+            }
+            AmudaiBasicType::Int64 => {
+                if self.is_signed() {
+                    ArrowDataType::Int64
+                } else {
+                    ArrowDataType::UInt64
+                }
+            }
+            AmudaiBasicType::Float32 => ArrowDataType::Float32,
+            AmudaiBasicType::Float64 => ArrowDataType::Float64,
+            AmudaiBasicType::Binary => ArrowDataType::LargeBinary,
+            AmudaiBasicType::FixedSizeBinary => {
+                ArrowDataType::FixedSizeBinary(self.fixed_size().unwrap_or_default() as i32)
+            }
+            AmudaiBasicType::String => ArrowDataType::LargeUtf8,
+            AmudaiBasicType::DateTime => ArrowDataType::UInt64,
+            AmudaiBasicType::Guid => ArrowDataType::FixedSizeBinary(16),
+            AmudaiBasicType::List => {
+                let child_count = self.children().len();
+                if child_count != 1 {
+                    return Err(Error::invalid_format(format!(
+                        "List type must have exactly one child, got {}",
+                        child_count
+                    )));
+                }
+                let child_builder = &self.children()[0];
+                let child_field = Arc::new(child_builder.to_arrow_field()?);
+                ArrowDataType::LargeList(child_field)
+            }
+            AmudaiBasicType::FixedSizeList => {
+                let child_count = self.children().len();
+                if child_count != 1 {
+                    return Err(Error::invalid_format(format!(
+                        "FixedSizeList type must have exactly one child, got {}",
+                        child_count
+                    )));
+                }
+                let child_builder = &self.children()[0];
+                let child_field = Arc::new(child_builder.to_arrow_field()?.with_name("item"));
+                ArrowDataType::FixedSizeList(
+                    child_field,
+                    self.fixed_size().unwrap_or_default() as i32,
+                )
+            }
+            AmudaiBasicType::Struct => {
+                let mut arrow_fields = Vec::new();
+                for child_builder in self.children() {
+                    let child_arrow_field = child_builder.to_arrow_field()?;
+                    arrow_fields.push(child_arrow_field);
+                }
+                ArrowDataType::Struct(ArrowFields::from(arrow_fields))
+            }
+            AmudaiBasicType::Map => {
+                let child_count = self.children().len();
+                if child_count != 2 {
+                    return Err(Error::invalid_format(format!(
+                        "Map type must have exactly two children, got {}",
+                        child_count
+                    )));
+                }
+                let key_builder = &self.children()[0];
+                let value_builder = &self.children()[1];
+                let key_arrow_field = key_builder
+                    .to_arrow_field()?
+                    .with_name("key")
+                    .with_nullable(false);
+                let value_arrow_field = value_builder
+                    .to_arrow_field()?
+                    .with_name("value")
+                    .with_nullable(true);
+
+                let entry_struct = ArrowDataType::Struct(ArrowFields::from(vec![
+                    key_arrow_field,
+                    value_arrow_field,
+                ]));
+
+                ArrowDataType::Map(
+                    Arc::new(ArrowField::new("entries", entry_struct, false)),
+                    false, // keys_sorted
+                )
+            }
+            AmudaiBasicType::Union => {
+                let mut arrow_fields = Vec::new();
+                let mut type_ids = Vec::new();
+                for (i, child_builder) in self.children().iter().enumerate() {
+                    let child_arrow_field = child_builder.to_arrow_field()?;
+                    let child_arrow_field = if child_builder.field_name().is_empty() {
+                        child_arrow_field.with_name(format!("field_{}", i))
+                    } else {
+                        child_arrow_field
+                    };
+                    arrow_fields.push(child_arrow_field);
+                    type_ids.push(i as i8);
+                }
+                ArrowDataType::Union(
+                    arrow_schema::UnionFields::new(type_ids, arrow_fields),
+                    UnionMode::Dense,
+                )
+            }
+            AmudaiBasicType::Unit => {
+                return Err(Error::invalid_arg(
+                    "self",
+                    "Unit type cannot be directly converted to an Arrow schema type.",
+                ));
+            }
+        };
+        Ok(arrow_dt)
+    }
+}
+
+impl ToArrowField for DataTypeBuilder {
+    fn to_arrow_field(&self) -> Result<ArrowField> {
+        let arrow_dt = self.to_arrow_data_type()?;
+        let mut field = ArrowField::new(self.field_name(), arrow_dt, true);
+        let ext_type = self.known_extended_type();
+        match ext_type {
+            KnownExtendedType::None => (),
+            KnownExtendedType::Other => {
+                if let Some(name) = self.extended_type_name() {
+                    set_extension_type_name(&mut field, name);
+                }
+            }
+            KnownExtendedType::KustoDecimal
+            | KnownExtendedType::KustoTimeSpan
+            | KnownExtendedType::KustoDynamic => {
+                set_extension_type_name(&mut field, ext_type.as_str()?);
+            }
+        }
+        match self.basic_type() {
+            AmudaiBasicType::Guid => {
+                set_extension_type_name(&mut field, "arrow.uuid");
+            }
+            AmudaiBasicType::DateTime => {
+                set_extension_type_name(&mut field, KnownExtendedType::KUSTO_DATETIME_LABEL);
+            }
+            _ => (),
+        }
+        Ok(field)
     }
 }
 

@@ -97,6 +97,11 @@ impl KnownExtendedType {
     /// extension type labels from external sources.
     pub const KUSTO_DYNAMIC_LABEL: &'static str = "KustoDynamic";
 
+    /// Designates Kusto DateTime data type in the Arrow Field metadata.
+    /// When present, the corresponding array should have `UInt64` data type, with values
+    /// representing 100-ns `DateTime` ticks.
+    pub const KUSTO_DATETIME_LABEL: &'static str = "KustoDateTime";
+
     /// Returns the canonical string representation of this extension type.
     ///
     /// This method provides the standard string label used to identify the extension

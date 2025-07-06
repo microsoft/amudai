@@ -13,6 +13,7 @@
 pub mod amudai_to_arrow_error;
 pub mod amudai_to_arrow_schema;
 pub mod any_value_support;
+pub mod arrow_fields;
 pub mod arrow_to_amudai_schema;
 pub mod buffers;
 pub mod datetime_conversions;
