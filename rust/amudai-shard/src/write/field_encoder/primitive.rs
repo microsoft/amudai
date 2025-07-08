@@ -16,6 +16,7 @@ use amudai_format::defs::schema_ext::BasicTypeDescriptor;
 use arrow_array::{Array, Float32Array, Float64Array};
 
 use crate::write::field_encoder::FieldEncoderParams;
+use crate::write::numeric_index::NumericIndexBuilder;
 
 use super::{EncodedField, EncodedFieldStatistics, FieldEncoderOps};
 
@@ -49,6 +50,8 @@ pub struct PrimitiveFieldEncoder {
     buffer_encoder: PrimitiveBufferEncoder,
     /// Optional statistics collector for gathering field statistics
     stats_collector: Option<StatsCollector>,
+    /// Optional numeric index collector for building indexes during encoding
+    index_builder: Option<Box<dyn NumericIndexBuilder>>,
 }
 
 impl PrimitiveFieldEncoder {
@@ -74,6 +77,19 @@ impl PrimitiveFieldEncoder {
             ))),
         };
 
+        // Create index collector for supported numeric types (disabled for Plain profile)
+        let index_builder = if params.encoding_profile
+            != amudai_encodings::block_encoder::BlockEncodingProfile::Plain
+        {
+            Some(crate::write::numeric_index::create_builder(
+                params.basic_type,
+                params.encoding_profile,
+                params.temp_store.clone(),
+            )?)
+        } else {
+            None
+        };
+
         Ok(Box::new(PrimitiveFieldEncoder {
             staging: PrimitiveStagingBuffer::new(normalized_arrow_type.clone()),
             params: params.clone(),
@@ -91,6 +107,7 @@ impl PrimitiveFieldEncoder {
                 params.temp_store.clone(),
             )?,
             stats_collector,
+            index_builder,
         }))
     }
 }
@@ -216,7 +233,9 @@ impl PrimitiveFieldEncoder {
 
 impl FieldEncoderOps for PrimitiveFieldEncoder {
     fn push_array(&mut self, array: Arc<dyn Array>) -> Result<()> {
-        let array = Self::convert_array(array, self.params.basic_type)?; // Collect statistics if enabled
+        let array = Self::convert_array(array, self.params.basic_type)?;
+
+        // Collect statistics if enabled
         if let Some(ref mut stats_collector) = self.stats_collector {
             match stats_collector {
                 StatsCollector::Primitive(collector) => {
@@ -228,14 +247,22 @@ impl FieldEncoderOps for PrimitiveFieldEncoder {
             }
         }
 
+        // Collect index statistics if enabled
+        if let Some(ref mut index_builder) = self.index_builder {
+            index_builder.process_array(array.as_ref())?;
+        }
+
         self.staging.append(array);
         if self.may_flush() {
             self.flush(false)?;
         }
         Ok(())
     }
+
     fn push_nulls(&mut self, count: usize) -> Result<()> {
-        let null_array = arrow_array::new_null_array(&self.normalized_arrow_type, count); // Collect statistics for null values efficiently
+        let null_array = arrow_array::new_null_array(&self.normalized_arrow_type, count);
+
+        // Collect statistics for null values efficiently
         if let Some(ref mut stats_collector) = self.stats_collector {
             match stats_collector {
                 StatsCollector::Primitive(collector) => {
@@ -245,6 +272,11 @@ impl FieldEncoderOps for PrimitiveFieldEncoder {
                     collector.process_nulls(count);
                 }
             }
+        }
+
+        // Collect index statistics for null values efficiently
+        if let Some(ref mut index_builder) = self.index_builder {
+            index_builder.process_invalid(count)?;
         }
 
         self.staging.append(null_array);
@@ -258,7 +290,9 @@ impl FieldEncoderOps for PrimitiveFieldEncoder {
         if !self.staging.is_empty() {
             self.flush(true)?;
         }
-        let encoded_buffer = self.buffer_encoder.finish()?; // Finalize statistics if enabled
+        let encoded_buffer = self.buffer_encoder.finish()?;
+
+        // Finalize statistics if enabled
         let statistics = if let Some(stats_collector) = self.stats_collector {
             match stats_collector {
                 StatsCollector::Primitive(collector) => {
@@ -274,8 +308,17 @@ impl FieldEncoderOps for PrimitiveFieldEncoder {
             None
         };
 
+        // Create index buffer if enabled
+        let mut buffers = vec![encoded_buffer];
+        if let Some(index_builder) = self.index_builder {
+            if let Some(index_buffer) = index_builder.finish()? {
+                // Add the complete index buffer
+                buffers.push(index_buffer);
+            }
+        }
+
         Ok(EncodedField {
-            buffers: vec![encoded_buffer],
+            buffers,
             statistics,
         })
     }
@@ -286,6 +329,7 @@ mod tests {
     use super::*;
     use amudai_blockstream::read::block_stream::BlockReaderPrefetch;
     use amudai_blockstream::read::primitive_buffer::PrimitiveBufferDecoder;
+    use amudai_encodings::block_encoder::BlockEncodingProfile;
     use amudai_format::defs::schema_ext::KnownExtendedType;
     use amudai_format::schema::BasicType;
     use amudai_io_impl::temp_file_store;
@@ -334,9 +378,22 @@ mod tests {
         }
 
         let encoded_field = encoder.finish()?;
-        assert_eq!(encoded_field.buffers.len(), 1);
-        let prepared_buffer = encoded_field.buffers.into_iter().next().unwrap();
-        let decoder = PrimitiveBufferDecoder::from_prepared_buffer(&prepared_buffer, basic_type)?;
+        assert_eq!(encoded_field.buffers.len(), 2); // data + 1 combined index buffer
+
+        // The first buffer should be the data buffer
+        assert_eq!(
+            encoded_field.buffers[0].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
+
+        // The second buffer should be the combined index buffer
+        assert_eq!(
+            encoded_field.buffers[1].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::RangeIndex as i32
+        );
+
+        let prepared_buffer = &encoded_field.buffers[0]; // Use the data buffer for decoding
+        let decoder = PrimitiveBufferDecoder::from_prepared_buffer(prepared_buffer, basic_type)?;
         let mut reader =
             decoder.create_reader(std::iter::empty(), BlockReaderPrefetch::Disabled)?;
         let seq = reader.read(1000..2000).unwrap();
@@ -479,7 +536,6 @@ mod tests {
             signed: true,
             extended_type: KnownExtendedType::None,
         };
-
         let mut encoder = PrimitiveFieldEncoder::create(
             &FieldEncoderParams {
                 basic_type,
@@ -551,6 +607,507 @@ mod tests {
         } else {
             panic!("Expected primitive statistics");
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_field_encoder_with_range_index_enabled() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            fixed_size: 0,
+            signed: true,
+            extended_type: KnownExtendedType::None,
+        };
+
+        let mut encoder = PrimitiveFieldEncoder::create(
+            &FieldEncoderParams {
+                basic_type,
+                temp_store: temp_store.clone(),
+                encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable indexing
+            },
+            arrow_schema::DataType::Int32,
+        )?;
+
+        // Push test data with known values across multiple blocks
+        // Since we can't control exactly how the encoder batches data,
+        // let's push enough data to ensure multiple blocks and verify the overall structure
+
+        let array1 = Arc::new(Int32Array::from(vec![1, 5, 3, 8]));
+        encoder.push_array(array1)?;
+
+        let array2 = Arc::new(Int32Array::from(vec![Some(10), None, Some(15), None]));
+        encoder.push_array(array2)?;
+
+        let array3 = Arc::new(Int32Array::from(vec![20, 25, 22, 30]));
+        encoder.push_array(array3)?;
+
+        // Push more data to ensure we exceed block size thresholds
+        let array4 = Arc::new(Int32Array::from(vec![100, 105, 103, 108]));
+        encoder.push_array(array4)?;
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify basic properties - should now have 2 buffers (data + 1 combined index buffer) when indexing is enabled
+        assert_eq!(encoded_field.buffers.len(), 2);
+        assert!(encoded_field.statistics.is_some());
+
+        // The first buffer should be the data buffer
+        assert_eq!(
+            encoded_field.buffers[0].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
+
+        // The second buffer should be the combined index buffer
+        assert_eq!(
+            encoded_field.buffers[1].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::RangeIndex as i32
+        );
+
+        // Verify one of the index buffers has data
+        assert!(encoded_field.buffers[1].data_size > 0); // Should have data
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_field_encoder_index_with_all_null_blocks() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            fixed_size: 0,
+            signed: true,
+            extended_type: KnownExtendedType::None,
+        };
+
+        let mut encoder = PrimitiveFieldEncoder::create(
+            &FieldEncoderParams {
+                basic_type,
+                temp_store: temp_store.clone(),
+                encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+            },
+            arrow_schema::DataType::Int32,
+        )?;
+
+        // Push data with one all-null block and one mixed block
+        let array1 = Arc::new(Int32Array::from(vec![Some(10), None, Some(20)])); // Block 1: min=10, max=20, nulls=1
+        encoder.push_array(array1)?;
+
+        // Push all nulls
+        encoder.push_nulls(3)?; // Block 2: all nulls
+
+        let array2 = Arc::new(Int32Array::from(vec![Some(30), Some(40), None])); // Block 3: min=30, max=40, nulls=1
+        encoder.push_array(array2)?;
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify that index buffers are included in the encoded field
+        // Should have 2 buffers: data + 1 combined index buffer
+        assert_eq!(encoded_field.buffers.len(), 2);
+
+        // The first buffer should be the data buffer
+        assert_eq!(
+            encoded_field.buffers[0].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
+
+        // The second buffer should be the combined index buffer
+        assert_eq!(
+            encoded_field.buffers[1].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::RangeIndex as i32
+        );
+        assert!(encoded_field.buffers[1].data_size > 0); // Should have data
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_range_index_with_float32_values() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Float32,
+            fixed_size: 0,
+            signed: true,
+            extended_type: KnownExtendedType::None,
+        };
+
+        let mut encoder = PrimitiveFieldEncoder::create(
+            &FieldEncoderParams {
+                basic_type,
+                temp_store: temp_store.clone(),
+                encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+            },
+            arrow_schema::DataType::Float32,
+        )?;
+
+        // Push float data with some edge cases
+        let array = Arc::new(Float32Array::from(vec![
+            Some(1.5),
+            Some(3.7),
+            Some(2.1),
+            Some(8.9), // Block 1: min=1.5, max=8.9, nulls=0
+            Some(-5.2),
+            None,
+            Some(0.0),
+            Some(10.5), // Block 2: min=-5.2, max=10.5, nulls=1
+        ]));
+        encoder.push_array(array)?;
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify that index buffers are included in the encoded field
+        // Should have 2 buffers: data + 1 combined index buffer
+        assert_eq!(encoded_field.buffers.len(), 2);
+
+        // The first buffer should be the data buffer
+        assert_eq!(
+            encoded_field.buffers[0].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
+
+        // The second buffer should be the combined index buffer
+        assert_eq!(
+            encoded_field.buffers[1].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::RangeIndex as i32
+        );
+        assert!(encoded_field.buffers[1].data_size > 0); // Should have data
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_range_index_with_datetime_values() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::DateTime,
+            fixed_size: 0,
+            signed: false,
+            extended_type: Default::default(),
+        };
+
+        let mut encoder = PrimitiveFieldEncoder::create(
+            &FieldEncoderParams {
+                basic_type,
+                temp_store: temp_store.clone(),
+                encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+            },
+            arrow_schema::DataType::UInt64,
+        )?;
+
+        // Create timestamp data (DateTime is stored as Int64 internally)
+        let base_millis = datetime_conversions::now_unix_milliseconds();
+        let mut ts_builder = TimestampMillisecondBuilder::with_capacity(6);
+
+        // Add timestamps in chronological order
+        for i in 0..6 {
+            let ts = base_millis + (i * 1000); // 1 second apart
+            ts_builder.append_value(ts);
+        }
+        let ts_array = Arc::new(ts_builder.finish());
+        encoder.push_array(ts_array)?;
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify that index buffers are included in the encoded field
+        // Should have 2 buffers: data + 1 index buffer
+        assert_eq!(encoded_field.buffers.len(), 2);
+
+        // The first buffer should be the data buffer
+        assert_eq!(
+            encoded_field.buffers[0].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
+
+        // The second buffer should be the index buffer
+        assert_eq!(
+            encoded_field.buffers[1].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::RangeIndex as i32
+        );
+        assert!(encoded_field.buffers[1].data_size > 0); // Should have data
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_range_index_enabled_by_default() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            fixed_size: 0,
+            signed: true,
+            extended_type: KnownExtendedType::None,
+        };
+
+        let mut encoder = PrimitiveFieldEncoder::create(
+            &FieldEncoderParams {
+                basic_type,
+                temp_store: temp_store.clone(),
+                encoding_profile: Default::default(), // Default is Balanced profile - indexing enabled
+            },
+            arrow_schema::DataType::Int32,
+        )?;
+
+        let array = Arc::new(Int32Array::from(vec![1, 2, 3, 4, 5, 6, 7, 8]));
+        encoder.push_array(array)?;
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify that index buffers are included in the encoded field for default profile
+        // Should have 2 buffers: data + 1 index buffer (indexing enabled by default)
+        assert_eq!(encoded_field.buffers.len(), 2);
+
+        // The first buffer should be the data buffer
+        assert_eq!(
+            encoded_field.buffers[0].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
+
+        // The second buffer should be the index buffer
+        assert_eq!(
+            encoded_field.buffers[1].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::RangeIndex as i32
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_range_index_with_default_block_size() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            fixed_size: 0,
+            signed: true,
+            extended_type: KnownExtendedType::None,
+        };
+
+        // Test with default block size
+        let mut encoder = PrimitiveFieldEncoder::create(
+            &FieldEncoderParams {
+                basic_type,
+                temp_store: temp_store.clone(),
+                encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+            },
+            arrow_schema::DataType::Int32,
+        )?;
+
+        // 6 values should be processed with default block size
+        let array = Arc::new(Int32Array::from(vec![10, 20, 30, 40, 50, 60]));
+        encoder.push_array(array)?;
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify that index buffers are included in the encoded field
+        // Should have 2 buffers: data + 1 index buffer
+        assert_eq!(encoded_field.buffers.len(), 2);
+
+        // The first buffer should be the data buffer
+        assert_eq!(
+            encoded_field.buffers[0].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
+
+        // The second buffer should be the index buffer
+        assert_eq!(
+            encoded_field.buffers[1].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::RangeIndex as i32
+        );
+        assert!(encoded_field.buffers[1].data_size > 0); // Should have data
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_range_index_roundtrip_with_checksum() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Int64,
+            fixed_size: 0,
+            signed: true,
+            extended_type: KnownExtendedType::None,
+        };
+
+        let mut encoder = PrimitiveFieldEncoder::create(
+            &FieldEncoderParams {
+                basic_type,
+                temp_store: temp_store.clone(),
+                encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+            },
+            arrow_schema::DataType::Int64,
+        )?;
+
+        // Add larger integer values to test Int64 specifically
+        let array = Arc::new(arrow_array::Int64Array::from(vec![
+            1000000000i64,
+            2000000000i64,
+            3000000000i64,
+            4000000000i64,
+            5000000000i64,
+            6000000000i64,
+        ]));
+        encoder.push_array(array)?;
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify that index buffers are included in the encoded field
+        // Should have 2 buffers: data + 1 index buffer
+        assert_eq!(encoded_field.buffers.len(), 2);
+
+        // The first buffer should be the data buffer
+        assert_eq!(
+            encoded_field.buffers[0].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
+
+        // The second buffer should be the index buffer
+        assert_eq!(
+            encoded_field.buffers[1].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::RangeIndex as i32
+        );
+        assert!(encoded_field.buffers[1].data_size > 0); // Should have data
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_range_index_disabled_for_plain_profile() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            fixed_size: 0,
+            signed: true,
+            extended_type: KnownExtendedType::None,
+        };
+
+        let mut encoder = PrimitiveFieldEncoder::create(
+            &FieldEncoderParams {
+                basic_type,
+                temp_store: temp_store.clone(),
+                encoding_profile: BlockEncodingProfile::Plain, // Plain profile should NOT create indexes
+            },
+            arrow_schema::DataType::Int32,
+        )?;
+
+        let array = Arc::new(Int32Array::from(vec![1, 2, 3, 4, 5, 6, 7, 8]));
+        encoder.push_array(array)?;
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify that NO index buffers are included for Plain profile
+        // Should have only 1 buffer: data (no index buffer for Plain profile)
+        assert_eq!(encoded_field.buffers.len(), 1);
+
+        // The only buffer should be the data buffer
+        assert_eq!(
+            encoded_field.buffers[0].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_field_encoder_no_index_when_all_values_invalid() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            fixed_size: 0,
+            signed: true,
+            extended_type: KnownExtendedType::None,
+        };
+
+        let mut encoder = PrimitiveFieldEncoder::create(
+            &FieldEncoderParams {
+                basic_type,
+                temp_store: temp_store.clone(),
+                encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+            },
+            arrow_schema::DataType::Int32,
+        )?;
+
+        // Push only null values - should not create an index
+        encoder.push_nulls(100)?; // All nulls
+
+        // Push more null arrays
+        let null_array = Arc::new(Int32Array::from(vec![None, None, None, None, None]));
+        encoder.push_array(null_array)?;
+
+        encoder.push_nulls(50)?; // More nulls
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify that NO index buffer is created when all values are null
+        // Should have only 1 buffer: data buffer (no index buffer)
+        assert_eq!(encoded_field.buffers.len(), 1);
+
+        // The only buffer should be the data buffer
+        assert_eq!(
+            encoded_field.buffers[0].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
+
+        // Verify statistics are still collected (null count should be tracked)
+        assert!(encoded_field.statistics.is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_primitive_field_encoder_no_index_when_all_float_values_nan() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Float32,
+            fixed_size: 0,
+            signed: true,
+            extended_type: KnownExtendedType::None,
+        };
+
+        let mut encoder = PrimitiveFieldEncoder::create(
+            &FieldEncoderParams {
+                basic_type,
+                temp_store: temp_store.clone(),
+                encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+            },
+            arrow_schema::DataType::Float32,
+        )?;
+
+        // Push only NaN and null values - should not create an index
+        let nan_array = Arc::new(Float32Array::from(vec![
+            Some(f32::NAN),
+            Some(f32::NAN),
+            None,
+            Some(f32::NAN),
+        ]));
+        encoder.push_array(nan_array)?;
+
+        encoder.push_nulls(10)?; // More nulls
+
+        // More NaN values
+        let more_nan_array = Arc::new(Float32Array::from(vec![Some(f32::NAN), Some(f32::NAN)]));
+        encoder.push_array(more_nan_array)?;
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify that NO index buffer is created when all values are NaN/null
+        // Should have only 1 buffer: data buffer (no index buffer)
+        assert_eq!(encoded_field.buffers.len(), 1);
+
+        // The only buffer should be the data buffer
+        assert_eq!(
+            encoded_field.buffers[0].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
 
         Ok(())
     }

@@ -13,6 +13,7 @@ arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true }
+bytemuck = { workspace = true }
 decimal = { workspace = true }
 fastrand = { workspace = true }
 prost = { workspace = true }

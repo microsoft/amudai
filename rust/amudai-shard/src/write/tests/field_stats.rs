@@ -237,7 +237,7 @@ fn test_string_statistics_aggregation_across_stripes() -> Result<()> {
     let mut field_descriptors = Vec::new();
 
     // Create multiple stripes with different string characteristics
-    let stripe_data = vec![
+    let stripe_data = [
         vec!["a", "bb", "ccc"],        // Stripe 1: min=1, max=3, ascii_count=3
         vec!["dddd", "eeeee"],         // Stripe 2: min=4, max=5, ascii_count=2
         vec!["", "ffffff", "ggggggg"], // Stripe 3: min=0, max=7, ascii_count=3
@@ -379,7 +379,7 @@ fn test_boolean_statistics_aggregation_across_stripes() -> Result<()> {
     let schema = schema_message.schema()?;
 
     let mut field_descriptors = Vec::new(); // Create multiple stripes with different boolean distributions
-    let stripe_data = vec![
+    let stripe_data = [
         vec![Some(true), Some(false), None], // Stripe 1: 1 true, 1 false, 1 null
         vec![Some(false), Some(false)],      // Stripe 2: 2 false
         vec![Some(true), None],              // Stripe 3: 1 true, 1 null

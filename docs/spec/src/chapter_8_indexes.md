@@ -194,9 +194,118 @@ For the inverted term index outlined in this section, the `IndexDescriptor` must
 
 ## Basic Numeric Range Index
 
-```admonish todo title="TODO"
-Specify numeric range index
+The **Basic Numeric Range Index** provides efficient filtering capabilities for numeric data types by maintaining minimum and maximum values for consecutive blocks of data. This index type supports all Amudai numeric types, including:
+
+- **Integers**: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`
+- **Floating-point types**: `f32`, `f64`
+- **Temporal types**: `DateTime`, `TimeSpan`
+- **Decimal types**
+
+### Index Structure
+
+The index covers fixed-size logical blocks of a single numeric column within a shard's stripe. Each logical block of the index typically covers **256 values** of the column, irrespective of the policy chosen for data encoding. For each covered block, the index maintains:
+
+- **Minimum Value (`min_value`)**: The smallest value in the block
+- **Maximum Value (`max_value`)**: The largest value in the block
+- **Invalid Count (`invalid_counts`)**: The number of invalid values in the block (e.g. null values or NaN for floats)
+
+The index data is stored as a dedicated encoded buffer of kind `RANGE_INDEX` in the stripe field encoding area. The buffer contains three encoded sections:
+
+```json
+{
+    "min_values": [10.5, 15.2, 12.8, 0.0, ...],
+    "max_values": [14.8, 18.7, 16.4, 0.0, ...],
+    "invalid_counts": [0, 2, 1, 256, ...]
+}
 ```
+
+All three arrays have the same length, with each position corresponding to one logical block. When `invalid_counts` equals the block size (e.g., 256 for non-last blocks or the actual size of the last block), the corresponding `min_value` and `max_value` entries are ignored during query evaluation.
+
+### Storage Format
+
+The numeric range index appears as an encoded buffer of the relevant field and uses the following binary storage format:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Header (40 bytes)                         │
+├────────────────────┬────────────────────────────────────────┤
+│  version (u16)     │   basic_type (u8) | has_checksum (u8)  │
+├────────────────────┴────────────────────────────────────────┤
+│                logical_position_span (u64)                  │
+├─────────────────────────────────────────────────────────────┤
+│              payload0_size (u64) (min_values)               │
+├─────────────────────────────────────────────────────────────┤
+│              payload1_size (u64) (max_values)               │
+├─────────────────────────────────────────────────────────────┤
+│              payload2_size (u64) (invalid_counts)           │
+├─────────────────────────────────────────────────────────────┤
+│         logical_block_size (u16)  | padding (u16)           │
+├============================================================─┤
+│               Encoded Block 0 (min_values[])                │
+│              (follows standard specification)               │
+├─────────────────────────────────────────────────────────────┤
+│      Checksum of Encoded Block 0 (optional, 4 bytes)        │
+├─────────────────────────────────────────────────────────────┤
+│               Encoded Block 1 (max_values[])                │
+│              (follows standard specification)               │
+├─────────────────────────────────────────────────────────────┤
+│      Checksum of Encoded Block 1 (optional, 4 bytes)        │
+├─────────────────────────────────────────────────────────────┤
+│          Encoded Block 2 (invalid_counts[]) (optional)      │
+│              (follows standard specification)               │
+├─────────────────────────────────────────────────────────────┤
+│      Checksum of Encoded Block 2 (optional, 4 bytes)        │
+├─────────────────────────────────────────────────────────────┤
+│                    Padding (optional)                       │
+│              (to align to 64-byte boundary)                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Note**: Each encoded block follows the standard Amudai encoded block specification, allowing for optional compression when beneficial. See [Chapter 7](./chapter_7_data_encoding.md) for details.
+
+#### Structure of the Header
+
+- **`version` (u16)**: Format version of the index for future compatibility (current version: 1)
+- **`basic_type` (u8)**: The Amudai BasicType identifier for the indexed numeric type
+- **`has_checksum` (u8)**: Boolean flag indicating whether a checksum is present (1 = present, 0 = absent)
+- **`logical_position_span` (u64)**: Total number of values covered by this index
+- **`payload0_size` (u64)**: Total size of the encoded block for `min_values` and optional checksum
+- **`payload1_size` (u64)**: Total size of the encoded block for `max_values` and optional checksum
+- **`payload2_size` (u64)**: Total size of the encoded block for `invalid_counts` and optional checksum. The block is optional (if all values are valid, this value will be zero).
+- **`logical_block_size` (u16)**: Number of values per index block (typically 256)
+- **`padding` (u16)**: Reserved for future use, must be set to 0
+
+### Query Evaluation
+
+When evaluating a range query `[query_min, query_max]`, the index performs the following for each block:
+
+1. **Skip Invalid Blocks**: If `block.invalid_counts` equals the number of values in the block, skip the block (all values in the block are invalid). Note: for most blocks this will be `logical_block_size`, but the last block may contain fewer values.
+2. **Skip Too Small Blocks**: If `block.max_value < query_min`, skip the block (all values too small).
+3. **Skip Too Large Blocks**: If `block.min_value > query_max`, skip the block (all values too large).
+4. **Scan Matching Blocks**: Otherwise, the block might contain matching values and must be scanned.
+
+This approach is particularly effective for:
+
+- **Time-series data** with natural ordering
+- **Sorted or partially sorted columns**
+- **Data with locality patterns**
+
+### Limitations and Considerations
+
+The numeric range index is designed with the following characteristics:
+
+- **False Positives**: The index may indicate that a block contains values in the query range when it doesn't (if values are not uniformly distributed within the block).
+- **No False Negatives**: If the index indicates a block can be skipped, it definitely contains no matching values.
+- **Block Granularity**: The effectiveness depends on the block size and data distribution.
+- **Type Specific**: Each numeric type requires its own index due to type-specific comparisons.
+- **Immutable**: Like all Amudai indexes, updates require rebuilding.
+
+The index is most effective when:
+
+- Data has some natural ordering or clustering.
+- Queries frequently filter on numeric ranges.
+- The indexed column has good selectivity.
+- Values within blocks have relatively narrow ranges.
 
 ## Vector Similarity Index
 

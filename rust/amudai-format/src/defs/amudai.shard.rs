@@ -472,6 +472,8 @@ pub enum BufferKind {
     /// dictionary across multiple blocks. A block that uses this dictionary will reference
     /// the corresponding dictionary buffer in its header.
     OpaqueDictionary = 4,
+    /// Stores numeric range index data for numeric fields.
+    RangeIndex = 5,
 }
 impl BufferKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -485,6 +487,7 @@ impl BufferKind {
             Self::Offsets => "OFFSETS",
             Self::ValueDictionary => "VALUE_DICTIONARY",
             Self::OpaqueDictionary => "OPAQUE_DICTIONARY",
+            Self::RangeIndex => "RANGE_INDEX",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -495,6 +498,7 @@ impl BufferKind {
             "OFFSETS" => Some(Self::Offsets),
             "VALUE_DICTIONARY" => Some(Self::ValueDictionary),
             "OPAQUE_DICTIONARY" => Some(Self::OpaqueDictionary),
+            "RANGE_INDEX" => Some(Self::RangeIndex),
             _ => None,
         }
     }

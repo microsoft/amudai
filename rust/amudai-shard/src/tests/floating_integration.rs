@@ -9,6 +9,7 @@ use amudai_io_impl::temp_file_store;
 use arrow_array::{Float32Array, Float64Array};
 
 #[test]
+#[allow(clippy::approx_constant)]
 fn test_floating_statistics_integration_f32() -> Result<()> {
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
 
@@ -123,6 +124,7 @@ fn test_floating_statistics_integration_f64() -> Result<()> {
 }
 
 #[test]
+#[allow(clippy::approx_constant)]
 fn test_floating_stats_collector_directly() {
     let mut collector = FloatingStatsCollector::new();
 

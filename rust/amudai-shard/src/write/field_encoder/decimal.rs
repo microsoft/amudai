@@ -18,6 +18,7 @@ use arrow_schema::DataType;
 use decimal::d128;
 
 use super::{EncodedField, EncodedFieldStatistics, FieldEncoderOps, FieldEncoderParams};
+use crate::write::numeric_index::NumericIndexBuilder;
 
 /// Encoder for decimal fields that stores values in their native d128 representation.
 pub struct DecimalFieldEncoder {
@@ -27,6 +28,8 @@ pub struct DecimalFieldEncoder {
     buffer_encoder: BytesBufferEncoder,
     /// Statistics collector for decimal values
     stats_collector: DecimalStatsCollector,
+    /// Optional decimal index collector for building indexes during encoding
+    index_builder: Option<Box<dyn NumericIndexBuilder>>,
 }
 
 impl DecimalFieldEncoder {
@@ -41,6 +44,20 @@ impl DecimalFieldEncoder {
 
         // Use FixedSizeBinary(16) as the normalized type for d128 storage
         let normalized_arrow_type = DataType::FixedSizeBinary(16);
+
+        // Create index collector for decimal type (disabled for Plain profile)
+        let index_builder = if params.encoding_profile
+            != amudai_encodings::block_encoder::BlockEncodingProfile::Plain
+        {
+            crate::write::numeric_index::create_builder(
+                basic_type,
+                params.encoding_profile,
+                params.temp_store.clone(),
+            )
+            .ok()
+        } else {
+            None
+        };
 
         Ok(Box::new(DecimalFieldEncoder {
             staging: BytesStagingBuffer::new(normalized_arrow_type),
@@ -57,6 +74,7 @@ impl DecimalFieldEncoder {
                 params.temp_store.clone(),
             )?,
             stats_collector: DecimalStatsCollector::new(),
+            index_builder,
         }))
     }
     /// Converts an Arrow array to d128 representation and creates a FixedSizeBinary array.
@@ -237,6 +255,11 @@ impl FieldEncoderOps for DecimalFieldEncoder {
         // Convert to d128 binary format and collect statistics in a single pass
         let binary_array = self.convert_to_d128_array(array.as_ref())?;
 
+        // Collect index statistics if enabled
+        if let Some(ref mut index_builder) = self.index_builder {
+            index_builder.process_array(binary_array.as_ref())?;
+        }
+
         // Stage the converted array
         self.staging.append(binary_array);
 
@@ -255,6 +278,11 @@ impl FieldEncoderOps for DecimalFieldEncoder {
 
         // Update statistics for null values
         self.stats_collector.process_nulls(count);
+
+        // Collect index statistics for null values if enabled
+        if let Some(ref mut index_builder) = self.index_builder {
+            index_builder.process_invalid(count)?;
+        }
 
         // Create null array in FixedSizeBinary(16) format
         let null_array = arrow_array::new_null_array(&DataType::FixedSizeBinary(16), count);
@@ -282,8 +310,16 @@ impl FieldEncoderOps for DecimalFieldEncoder {
             self.stats_collector.finalize(),
         ));
 
+        // Create index buffer if enabled
+        let mut buffers = vec![encoded_buffer];
+        if let Some(index_builder) = self.index_builder {
+            if let Some(index_buffer) = index_builder.finish()? {
+                buffers.push(index_buffer);
+            }
+        }
+
         Ok(EncodedField {
-            buffers: vec![encoded_buffer],
+            buffers,
             statistics,
         })
     }
@@ -517,11 +553,18 @@ mod tests {
         // Now decode the buffer and validate the binary representation
         assert_eq!(
             encoded_field.buffers.len(),
-            1,
-            "Should have exactly one buffer"
+            2,
+            "Should have data buffer + index buffer"
         );
 
+        // Use the first buffer (data buffer) for validation
         let prepared_buffer = &encoded_field.buffers[0];
+
+        // Verify the first buffer is the data buffer
+        assert_eq!(
+            prepared_buffer.descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
 
         // Get the artifact reader from the prepared buffer
         let artifact_reader = prepared_buffer.data.clone();
@@ -654,9 +697,8 @@ mod tests {
         assert_eq!(sequence.len(), 3);
 
         // Validate that the stored bytes exactly match our expected d128 bytes
-        for i in 0..3 {
+        for (i, expected) in expected_bytes.iter().enumerate() {
             let actual_bytes = sequence.binary_at(i);
-            let expected = &expected_bytes[i];
 
             assert_eq!(
                 actual_bytes, expected,
@@ -675,6 +717,114 @@ mod tests {
                 i
             );
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_field_encoder_no_index_when_all_values_null() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::FixedSizeBinary,
+            fixed_size: 16,
+            signed: false,
+            extended_type: KnownExtendedType::KustoDecimal,
+        };
+
+        let params = FieldEncoderParams {
+            basic_type,
+            temp_store,
+            encoding_profile: amudai_encodings::block_encoder::BlockEncodingProfile::Balanced, // Use Balanced to enable index
+        };
+
+        let mut encoder = DecimalFieldEncoder::create(&params)?;
+
+        // Push only null values - should not create an index
+        encoder.push_nulls(100)?; // All nulls
+
+        // Push more null values using push_nulls which is the correct way
+        encoder.push_nulls(5)?; // More nulls
+
+        encoder.push_nulls(50)?; // More nulls
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify that NO index buffer is created when all values are null
+        // Should have only 1 buffer: data buffer (no index buffer)
+        assert_eq!(encoded_field.buffers.len(), 1);
+
+        // The only buffer should be the data buffer
+        assert_eq!(
+            encoded_field.buffers[0].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
+
+        // Verify statistics are still collected (null count should be tracked)
+        assert!(encoded_field.statistics.is_some());
+        if let Some(EncodedFieldStatistics::Decimal(stats)) = encoded_field.statistics {
+            assert_eq!(stats.total_count, 155); // 100 + 5 + 50
+            assert_eq!(stats.null_count, 155); // All are null
+        } else {
+            panic!("Expected decimal statistics");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_field_encoder_no_index_when_all_values_nan() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::FixedSizeBinary,
+            fixed_size: 16,
+            signed: false,
+            extended_type: KnownExtendedType::KustoDecimal,
+        };
+
+        let params = FieldEncoderParams {
+            basic_type,
+            temp_store,
+            encoding_profile: amudai_encodings::block_encoder::BlockEncodingProfile::Balanced, // Use Balanced to enable index
+        };
+
+        let mut encoder = DecimalFieldEncoder::create(&params)?;
+
+        // Create NaN decimal values (zero / zero creates NaN)
+        let zero = decimal::d128::from(0);
+        let nan_decimal = (zero / zero).to_raw_bytes();
+
+        // Push only NaN and null values - should not create an index
+        let nan_array = Arc::new(FixedSizeBinaryArray::from(vec![
+            Some(&nan_decimal[..]),
+            Some(&nan_decimal[..]),
+            None,
+            Some(&nan_decimal[..]),
+        ]));
+        encoder.push_array(nan_array)?;
+
+        encoder.push_nulls(10)?; // More nulls
+
+        // More NaN values
+        let more_nan_array = Arc::new(FixedSizeBinaryArray::from(vec![
+            Some(&nan_decimal[..]),
+            Some(&nan_decimal[..]),
+        ]));
+        encoder.push_array(more_nan_array)?;
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify that NO index buffer is created when all values are NaN/null
+        // Should have only 1 buffer: data buffer (no index buffer)
+        assert_eq!(encoded_field.buffers.len(), 1);
+
+        // The only buffer should be the data buffer
+        assert_eq!(
+            encoded_field.buffers[0].descriptor.kind,
+            amudai_format::defs::shard::BufferKind::Data as i32
+        );
+
+        // Verify statistics are still collected
+        assert!(encoded_field.statistics.is_some());
 
         Ok(())
     }

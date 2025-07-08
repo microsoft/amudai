@@ -59,27 +59,16 @@ impl BytesFieldDecoder {
     pub(crate) fn from_field(field: &FieldContext) -> Result<BytesFieldDecoder> {
         let basic_type = field.data_type().describe()?;
 
-        let encoded_buffers = field.get_encoded_buffers()?;
-        if encoded_buffers.len() > 1 {
-            return Err(Error::not_implemented("More than one encoding buffer"));
-        }
-
-        let encoded_buffer = encoded_buffers
-            .first()
-            .ok_or_else(|| Error::invalid_format("No encoded buffer found for bytes field"))?;
-
+        let data_buffer = field.get_encoded_buffer(amudai_format::defs::shard::BufferKind::Data)?;
         let reader = field.open_data_ref(
-            encoded_buffer
+            data_buffer
                 .buffer
                 .as_ref()
                 .ok_or_else(|| Error::invalid_format("Missing buffer reference"))?,
         )?;
 
-        let bytes_buffer = BytesBufferDecoder::from_encoded_buffer(
-            reader.into_inner(),
-            encoded_buffer,
-            basic_type,
-        )?;
+        let bytes_buffer =
+            BytesBufferDecoder::from_encoded_buffer(reader.into_inner(), data_buffer, basic_type)?;
 
         Ok(BytesFieldDecoder::new(bytes_buffer))
     }

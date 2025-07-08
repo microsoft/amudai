@@ -305,6 +305,8 @@ enum BufferKind {
     // dictionary across multiple blocks. A block that uses this dictionary will reference
     // the corresponding dictionary buffer in its header.
     OPAQUE_DICTIONARY = 4;
+    // Stores numeric range index data for numeric fields.
+    RANGE_INDEX = 5;
 }
 
 message ValueDictionaryHeader {
