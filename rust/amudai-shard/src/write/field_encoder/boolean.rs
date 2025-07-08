@@ -234,18 +234,15 @@ mod tests {
             // null_ratio is relative to total count (12)
             assert!(
                 (true_ratio - 5.0 / 8.0).abs() < 0.001,
-                "True ratio should be ~0.625, got {}",
-                true_ratio
+                "True ratio should be ~0.625, got {true_ratio}"
             );
             assert!(
                 (false_ratio - 3.0 / 8.0).abs() < 0.001,
-                "False ratio should be ~0.375, got {}",
-                false_ratio
+                "False ratio should be ~0.375, got {false_ratio}"
             );
             assert!(
                 (null_ratio - 4.0 / 12.0).abs() < 0.001,
-                "Null ratio should be ~0.333, got {}",
-                null_ratio
+                "Null ratio should be ~0.333, got {null_ratio}"
             );
         } else {
             panic!("Expected boolean statistics but got different type or None");

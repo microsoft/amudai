@@ -948,9 +948,7 @@ mod tests {
             let logical_size = block.descriptor.logical_size();
             assert!(
                 (100..300).contains(&logical_size),
-                "Block {} has unexpected logical size: {}",
-                i,
-                logical_size
+                "Block {i} has unexpected logical size: {logical_size}"
             );
         }
 

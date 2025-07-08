@@ -26,7 +26,7 @@ pub fn convert_i128_to_decimal(value: i128, scale: i8) -> Result<d128> {
         // Fall back to string conversion for values outside i64 range
         let value_str = value.to_string();
         let decimal = d128::from_str(&value_str).map_err(|e| {
-            Error::invalid_operation(format!("Failed to parse i128 as decimal: {:?}", e))
+            Error::invalid_operation(format!("Failed to parse i128 as decimal: {e:?}"))
         })?;
         apply_decimal_scale(decimal, scale)
     }
@@ -46,9 +46,8 @@ pub fn convert_i128_to_decimal(value: i128, scale: i8) -> Result<d128> {
 pub fn convert_i256_to_decimal(value: arrow_buffer::i256, scale: i8) -> Result<d128> {
     // For i256, use string conversion since it's likely to exceed d128's range
     let value_str = value.to_string();
-    let decimal = d128::from_str(&value_str).map_err(|e| {
-        Error::invalid_operation(format!("Failed to parse i256 as decimal: {:?}", e))
-    })?;
+    let decimal = d128::from_str(&value_str)
+        .map_err(|e| Error::invalid_operation(format!("Failed to parse i256 as decimal: {e:?}")))?;
 
     apply_decimal_scale(decimal, scale)
 }
@@ -72,9 +71,8 @@ fn create_decimal_scale_factor(scale: i8) -> Result<d128> {
     if let Ok(power_i64) = i64::try_from(power_of_10) {
         Ok(d128::from(power_i64))
     } else {
-        d128::from_str(&power_of_10.to_string()).map_err(|e| {
-            Error::invalid_operation(format!("Failed to create scale factor: {:?}", e))
-        })
+        d128::from_str(&power_of_10.to_string())
+            .map_err(|e| Error::invalid_operation(format!("Failed to create scale factor: {e:?}")))
     }
 }
 

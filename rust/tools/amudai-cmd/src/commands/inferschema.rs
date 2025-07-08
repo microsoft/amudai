@@ -22,11 +22,11 @@ pub fn run(source_files: Vec<String>, output_path: Option<String>) -> Result<()>
     match output_path {
         Some(output_file) => {
             fs::write(&output_file, &schema_json)
-                .with_context(|| format!("Failed to write schema to file: {}", output_file))?;
-            println!("Schema written to: {}", output_file);
+                .with_context(|| format!("Failed to write schema to file: {output_file}"))?;
+            println!("Schema written to: {output_file}");
         }
         None => {
-            println!("{}", schema_json);
+            println!("{schema_json}");
         }
     }
     Ok(())
@@ -35,15 +35,15 @@ pub fn run(source_files: Vec<String>, output_path: Option<String>) -> Result<()>
 pub fn infer_schema<'a>(source_files: impl Iterator<Item = &'a str> + Clone) -> Result<Schema> {
     for file in source_files.clone() {
         utils::validate_file_exists(file)
-            .with_context(|| format!("Invalid source file: {}", file))?;
-        println!("  Analyzing file: {}", file);
+            .with_context(|| format!("Invalid source file: {file}"))?;
+        println!("  Analyzing file: {file}");
     }
 
     let mut inferred_schemas = Vec::new();
 
     for file in source_files {
         let schema = infer_file_schema(file)
-            .with_context(|| format!("Failed to infer schema for file: {}", file))?;
+            .with_context(|| format!("Failed to infer schema for file: {file}"))?;
         inferred_schemas.push(schema);
     }
 
@@ -78,20 +78,20 @@ fn infer_file_schema(file_path: &str) -> Result<Schema> {
 }
 
 fn infer_json_schema(file_path: &str) -> Result<Schema> {
-    let file = File::open(file_path)
-        .with_context(|| format!("Failed to open JSON file: {}", file_path))?;
+    let file =
+        File::open(file_path).with_context(|| format!("Failed to open JSON file: {file_path}"))?;
 
     let mut buf_reader = BufReader::new(file);
 
     let (schema, _records_read) = infer_json_schema_from_seekable(&mut buf_reader, Some(100))
-        .with_context(|| format!("Failed to infer JSON schema from file: {}", file_path))?;
+        .with_context(|| format!("Failed to infer JSON schema from file: {file_path}"))?;
 
     Ok(schema)
 }
 
 fn infer_csv_schema(file_path: &str) -> Result<Schema> {
     let file =
-        File::open(file_path).with_context(|| format!("Failed to open CSV file: {}", file_path))?;
+        File::open(file_path).with_context(|| format!("Failed to open CSV file: {file_path}"))?;
 
     let mut reader = BufReader::new(file);
 
@@ -104,7 +104,7 @@ fn infer_csv_schema(file_path: &str) -> Result<Schema> {
     // Use arrow-csv to infer the schema
     let (schema, _) = format
         .infer_schema(&mut reader, Some(100)) // Sample first 100 rows for inference
-        .with_context(|| format!("Failed to infer CSV schema from file: {}", file_path))?;
+        .with_context(|| format!("Failed to infer CSV schema from file: {file_path}"))?;
 
     Ok(schema)
 }

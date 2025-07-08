@@ -86,8 +86,7 @@ pub fn run(
             processed_count += 1;
         } else {
             println!(
-                "Skipping unsupported file: {} (only .csv, .json, .mdjson, .ndjson, .jsonl are supported)",
-                file_path
+                "Skipping unsupported file: {file_path} (only .csv, .json, .mdjson, .ndjson, .jsonl are supported)"
             );
         }
     }
@@ -120,29 +119,29 @@ fn ingest_csv_file(
     arrow_schema: &Schema,
     shard_builder: &mut ShardBuilder,
 ) -> Result<()> {
-    println!("Processing CSV file: {}", file_path);
+    println!("Processing CSV file: {file_path}");
 
     // Create stripe builder for this file
     let mut stripe_builder = shard_builder
         .build_stripe()
-        .with_context(|| format!("Failed to create stripe builder for {}", file_path))?;
+        .with_context(|| format!("Failed to create stripe builder for {file_path}"))?;
 
     // Create a modified schema for CSV reading (convert GUID fields to strings)
     let (csv_schema, guid_field_indices) = create_arrow_compatible_schema(arrow_schema)?;
 
     // Open and read CSV file
     let file = fs::File::open(file_path)
-        .with_context(|| format!("Failed to open CSV file: {}", file_path))?;
+        .with_context(|| format!("Failed to open CSV file: {file_path}"))?;
 
     let csv_reader = ReaderBuilder::new(Arc::new(csv_schema))
         .with_header(true)
         .build(file)
-        .with_context(|| format!("Failed to create CSV reader for {}", file_path))?;
+        .with_context(|| format!("Failed to create CSV reader for {file_path}"))?;
 
     let mut batch_count = 0;
     for batch_result in csv_reader {
         let mut batch =
-            batch_result.with_context(|| format!("Failed to read batch from {}", file_path))?;
+            batch_result.with_context(|| format!("Failed to read batch from {file_path}"))?;
 
         // Convert GUID string fields to binary fields
         if !guid_field_indices.is_empty() {
@@ -151,29 +150,26 @@ fn ingest_csv_file(
 
         stripe_builder
             .push_batch(&batch)
-            .with_context(|| format!("Failed to push batch to stripe for {}", file_path))?;
+            .with_context(|| format!("Failed to push batch to stripe for {file_path}"))?;
 
         batch_count += 1;
         if batch_count % 100 == 0 {
-            println!("  Processed {} batches from {}", batch_count, file_path);
+            println!("  Processed {batch_count} batches from {file_path}");
         }
     }
 
-    println!(
-        "  Finished processing {} batches from {}",
-        batch_count, file_path
-    );
+    println!("  Finished processing {batch_count} batches from {file_path}");
 
     // Finish the stripe and add it to the shard
     let stripe = stripe_builder
         .finish()
-        .with_context(|| format!("Failed to finish stripe for {}", file_path))?;
+        .with_context(|| format!("Failed to finish stripe for {file_path}"))?;
 
     shard_builder
         .add_stripe(stripe)
-        .with_context(|| format!("Failed to add stripe to shard for {}", file_path))?;
+        .with_context(|| format!("Failed to add stripe to shard for {file_path}"))?;
 
-    println!("  Added stripe to shard for {}", file_path);
+    println!("  Added stripe to shard for {file_path}");
 
     Ok(())
 }
@@ -187,20 +183,20 @@ fn validate_inputs(
     // Validate input files exist
     for file in source_files {
         utils::validate_file_exists(file)
-            .with_context(|| format!("Invalid source file: {}", file))?;
-        println!("  Source file: {}", file);
+            .with_context(|| format!("Invalid source file: {file}"))?;
+        println!("  Source file: {file}");
     }
 
     // Validate schema file if provided
     if let Some(schema) = schema_path {
         utils::validate_file_exists(schema)
-            .with_context(|| format!("Invalid schema file: {}", schema))?;
-        println!("  Schema file: {}", schema);
+            .with_context(|| format!("Invalid schema file: {schema}"))?;
+        println!("  Schema file: {schema}");
     }
 
     // Handle schema string if provided
     if let Some(schema_str) = schema_string {
-        println!("  Schema string: {}", schema_str);
+        println!("  Schema string: {schema_str}");
     }
 
     Ok(())
@@ -216,13 +212,13 @@ fn establish_schema(
     if let Some(schema_str) = schema_string {
         // Priority 1: Parse schema from string
         let schema = schema_parser::parse_schema_string(&schema_str)
-            .with_context(|| format!("Failed to parse schema string: {}", schema_str))?;
+            .with_context(|| format!("Failed to parse schema string: {schema_str}"))?;
         println!("Schema parsed from string successfully");
         Ok(schema)
     } else if let Some(schema_path) = schema_path {
         // Priority 2: Load schema from file
         let schema_content = fs::read_to_string(&schema_path)
-            .with_context(|| format!("Failed to read schema file: {}", schema_path))?;
+            .with_context(|| format!("Failed to read schema file: {schema_path}"))?;
 
         let schema = serde_json::from_str::<Schema>(&schema_content)
             .with_context(|| format!("Failed to deserialize schema from {schema_path}"))?;
@@ -237,18 +233,17 @@ fn establish_schema(
 
 /// Check if a file contains valid multi-line JSON by sampling the first few lines
 fn validate_multiline_json(file_path: &str) -> Result<()> {
-    println!("Validating multi-line JSON format for: {}", file_path);
+    println!("Validating multi-line JSON format for: {file_path}");
 
     let file = fs::File::open(file_path)
-        .with_context(|| format!("Failed to open file for validation: {}", file_path))?;
+        .with_context(|| format!("Failed to open file for validation: {file_path}"))?;
 
     let reader = BufReader::new(file);
     let mut line_count = 0;
     let max_lines_to_check = 5; // Sample first 5 lines
 
     for line_result in reader.lines() {
-        let line =
-            line_result.with_context(|| format!("Failed to read line from {}", file_path))?;
+        let line = line_result.with_context(|| format!("Failed to read line from {file_path}"))?;
 
         // Skip empty lines
         if line.trim().is_empty() {
@@ -278,7 +273,7 @@ fn validate_multiline_json(file_path: &str) -> Result<()> {
         ));
     }
 
-    println!("  Validated {} lines as valid JSON", line_count);
+    println!("  Validated {line_count} lines as valid JSON");
     Ok(())
 }
 
@@ -288,7 +283,7 @@ fn ingest_json_file(
     arrow_schema: &Schema,
     shard_builder: &mut ShardBuilder,
 ) -> Result<()> {
-    println!("Processing multi-line JSON file: {}", file_path);
+    println!("Processing multi-line JSON file: {file_path}");
 
     // First validate that it's actually multi-line JSON
     validate_multiline_json(file_path)?;
@@ -296,24 +291,24 @@ fn ingest_json_file(
     // Create stripe builder for this file
     let mut stripe_builder = shard_builder
         .build_stripe()
-        .with_context(|| format!("Failed to create stripe builder for {}", file_path))?;
+        .with_context(|| format!("Failed to create stripe builder for {file_path}"))?;
 
     // Create a modified schema for JSON reading (convert GUID fields to strings)
     let (json_schema, guid_field_indices) = create_arrow_compatible_schema(arrow_schema)?;
 
     // Open and read JSON file
     let file = fs::File::open(file_path)
-        .with_context(|| format!("Failed to open JSON file: {}", file_path))?;
+        .with_context(|| format!("Failed to open JSON file: {file_path}"))?;
 
     let json_reader = JsonReaderBuilder::new(Arc::new(json_schema))
         .with_coerce_primitive(true)
         .build(BufReader::new(file))
-        .with_context(|| format!("Failed to create JSON reader for {}", file_path))?;
+        .with_context(|| format!("Failed to create JSON reader for {file_path}"))?;
 
     let mut batch_count = 0;
     for batch_result in json_reader {
         let mut batch =
-            batch_result.with_context(|| format!("Failed to read batch from {}", file_path))?;
+            batch_result.with_context(|| format!("Failed to read batch from {file_path}"))?;
 
         // Convert GUID string fields to binary fields
         if !guid_field_indices.is_empty() {
@@ -322,29 +317,26 @@ fn ingest_json_file(
 
         stripe_builder
             .push_batch(&batch)
-            .with_context(|| format!("Failed to push batch to stripe for {}", file_path))?;
+            .with_context(|| format!("Failed to push batch to stripe for {file_path}"))?;
 
         batch_count += 1;
         if batch_count % 100 == 0 {
-            println!("  Processed {} batches from {}", batch_count, file_path);
+            println!("  Processed {batch_count} batches from {file_path}");
         }
     }
 
-    println!(
-        "  Finished processing {} batches from {}",
-        batch_count, file_path
-    );
+    println!("  Finished processing {batch_count} batches from {file_path}");
 
     // Finish the stripe and add it to the shard
     let stripe = stripe_builder
         .finish()
-        .with_context(|| format!("Failed to finish stripe for {}", file_path))?;
+        .with_context(|| format!("Failed to finish stripe for {file_path}"))?;
 
     shard_builder
         .add_stripe(stripe)
-        .with_context(|| format!("Failed to add stripe to shard for {}", file_path))?;
+        .with_context(|| format!("Failed to add stripe to shard for {file_path}"))?;
 
-    println!("  Added stripe to shard for {}", file_path);
+    println!("  Added stripe to shard for {file_path}");
 
     Ok(())
 }
@@ -389,7 +381,7 @@ fn convert_guid_fields_to_binary(
             let string_array = column
                 .as_any()
                 .downcast_ref::<StringArray>()
-                .with_context(|| format!("Expected string array for GUID field at index {}", i))?;
+                .with_context(|| format!("Expected string array for GUID field at index {i}"))?;
 
             let mut binary_data = Vec::new();
             let mut null_buffer = NullBufferBuilder::new(string_array.len());

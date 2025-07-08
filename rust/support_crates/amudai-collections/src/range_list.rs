@@ -1122,7 +1122,7 @@ mod tests {
         }
         for i in 0..list.len() {
             let r = list.get(i).unwrap();
-            assert!(r.start < r.end, "range at index {} is empty: {:?}", i, r);
+            assert!(r.start < r.end, "range at index {i} is empty: {r:?}");
             if i + 1 < list.len() {
                 let next = list.get(i + 1).unwrap();
                 assert!(
@@ -1146,8 +1146,7 @@ mod tests {
             let owned: Vec<_> = rl.clone().into_iter().collect();
             assert_eq!(
                 borrowed, owned,
-                "Owned iterator did not match borrowed for {:?}",
-                ranges
+                "Owned iterator did not match borrowed for {ranges:?}"
             );
         }
 

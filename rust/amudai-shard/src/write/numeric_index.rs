@@ -1038,8 +1038,7 @@ impl NumericRangeIndexHeader {
         let version = u16::from_le_bytes([bytes[0], bytes[1]]);
         if version != 1 {
             return Err(Error::invalid_format(format!(
-                "Unsupported index version: {}",
-                version
+                "Unsupported index version: {version}"
             )));
         }
 

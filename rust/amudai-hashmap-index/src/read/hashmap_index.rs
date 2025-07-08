@@ -118,8 +118,7 @@ impl HashmapIndexOptions {
         let partitions_count = descriptor.artifacts.len();
         if !partitions_count.is_power_of_two() {
             return Err(amudai_common::error::Error::invalid_format(format!(
-                "Partition count must be power of 2, got: {}",
-                partitions_count
+                "Partition count must be power of 2, got: {partitions_count}"
             )));
         }
 
@@ -177,8 +176,7 @@ impl HashmapIndex {
         let mut reader_builder = ArrowReaderBuilder::try_new(partition.shard.url().as_str())
             .map_err(|e| {
                 amudai_common::error::Error::invalid_operation(format!(
-                    "Failed to create reader: {}",
-                    e
+                    "Failed to create reader: {e}"
                 ))
             })?
             .with_object_store(self.object_store.clone())
@@ -189,11 +187,11 @@ impl HashmapIndex {
         }
 
         let mut reader = reader_builder.build().map_err(|e| {
-            amudai_common::error::Error::invalid_operation(format!("Failed to build reader: {}", e))
+            amudai_common::error::Error::invalid_operation(format!("Failed to build reader: {e}"))
         })?;
 
         if let Some(batch) = reader.next().transpose().map_err(|e| {
-            amudai_common::error::Error::invalid_operation(format!("Failed to read batch: {}", e))
+            amudai_common::error::Error::invalid_operation(format!("Failed to read batch: {e}"))
         })? {
             return self.extract_positions_from_batch(&batch, hash);
         }
@@ -318,7 +316,7 @@ mod tests {
                 assert_eq!(positions, test_positions);
             }
             LookupResult::NotFound => {
-                panic!("Expected to find positions for hash {}", test_hash);
+                panic!("Expected to find positions for hash {test_hash}");
             }
         }
 

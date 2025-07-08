@@ -399,14 +399,11 @@ impl DirectFileWriter {
     /// Returns `InvalidInput` error if any alignment requirements are violated.
     pub fn write_aligned_buffer(&self, pos: u64, buffer: &[u8]) -> std::io::Result<()> {
         if !self.buffer.is_empty() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!(
-                    "write_aligned_buffer unexpected (buffer_pos = {}, buffer len = {})",
-                    self.buffer_pos,
-                    self.buffer.len()
-                ),
-            ));
+            return Err(std::io::Error::other(format!(
+                "write_aligned_buffer unexpected (buffer_pos = {}, buffer len = {})",
+                self.buffer_pos,
+                self.buffer.len()
+            )));
         }
 
         // Verify alignment requirements

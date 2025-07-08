@@ -10,6 +10,14 @@ This repository contains an implementation of the Amudai storage format along wi
 
 Please refer to [Amudai book](./docs/spec/) (under `docs/spec/`) for details.
 
+
+> ### **⚠️ Important Notice: Development in Progress**
+>
+> This project is currently under **active development**. **APIs, data formats, and other interfaces are subject to frequent breaking changes** as we iterate on features and architecture. We do not recommend relying on this project's API or data format for production use at this time.
+>
+> **Use at your own risk** and expect things to break or change without notice until we reach a stable release. Contributions and feedback are very welcome!
+
+
 # Development
 
 ## Prerequisites

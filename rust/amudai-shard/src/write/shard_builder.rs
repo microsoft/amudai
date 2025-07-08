@@ -248,7 +248,7 @@ impl PreparedShard {
     }
 
     fn initialize_directory(stripes: &[SealedStripe]) -> shard::ShardDirectory {
-        let directory = shard::ShardDirectory {
+        shard::ShardDirectory {
             total_record_count: stripes.iter().map(|stripe| stripe.total_record_count).sum(),
             deleted_record_count: stripes
                 .iter()
@@ -256,8 +256,7 @@ impl PreparedShard {
                 .sum(),
             stripe_count: stripes.len() as u64,
             ..Default::default()
-        };
-        directory
+        }
     }
 
     fn prepare_url_list(stripes: &[SealedStripe], shard_url: &ObjectUrl) -> shard::UrlList {

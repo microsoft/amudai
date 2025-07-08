@@ -77,6 +77,6 @@ mod tests {
     #[test]
     fn test_get_py_cmd() {
         let cmd = super::get_cmd().unwrap();
-        println!("{:?}", cmd);
+        println!("{cmd:?}");
     }
 }

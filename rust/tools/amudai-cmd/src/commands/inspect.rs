@@ -207,7 +207,7 @@ pub fn run(verbose: u8, shard_path: String) -> Result<()> {
     for stripe_index in 0..stripe_count {
         let stripe = shard
             .open_stripe(stripe_index)
-            .with_context(|| format!("Failed to open stripe {}", stripe_index))?;
+            .with_context(|| format!("Failed to open stripe {stripe_index}"))?;
         let stripe_info = create_stripe_info(&shard, &stripe, stripe_index, verbose)?;
         stripes_info.push(stripe_info);
     }
@@ -265,10 +265,7 @@ fn create_field_descriptor_info(
     FieldDescriptorInfo {
         position_count: field_desc.position_count,
         null_count: field_desc.null_count,
-        constant_value: field_desc
-            .constant_value
-            .as_ref()
-            .map(|v| format!("{:?}", v)),
+        constant_value: field_desc.constant_value.as_ref().map(|v| format!("{v:?}")),
         dictionary_size: field_desc.dictionary_size,
         stored_data_size: field_desc.stored_data_size,
         stored_index_size: field_desc.stored_index_size,
@@ -305,10 +302,7 @@ fn create_stripe_field_descriptor_info(
         .map(|field_desc| FieldDescriptorInfo {
             position_count: field_desc.position_count,
             null_count: field_desc.null_count,
-            constant_value: field_desc
-                .constant_value
-                .as_ref()
-                .map(|v| format!("{:?}", v)),
+            constant_value: field_desc.constant_value.as_ref().map(|v| format!("{v:?}")),
             dictionary_size: field_desc.dictionary_size,
             stored_data_size: field_desc.stored_data_size,
             stored_index_size: field_desc.stored_index_size,
@@ -334,9 +328,9 @@ fn create_stripe_field_descriptor_info(
 /// Creates a `RangeStatsInfo` from a `RangeStats`.
 fn create_range_stats_info(range_stats: &amudai_format::defs::shard::RangeStats) -> RangeStatsInfo {
     RangeStatsInfo {
-        min_value: range_stats.min_value.as_ref().map(|v| format!("{:?}", v)),
+        min_value: range_stats.min_value.as_ref().map(|v| format!("{v:?}")),
         min_inclusive: range_stats.min_inclusive,
-        max_value: range_stats.max_value.as_ref().map(|v| format!("{:?}", v)),
+        max_value: range_stats.max_value.as_ref().map(|v| format!("{v:?}")),
         max_inclusive: range_stats.max_inclusive,
     }
 }
@@ -345,7 +339,7 @@ fn create_range_stats_info(range_stats: &amudai_format::defs::shard::RangeStats)
 fn create_property_info(nvp: &amudai_format::defs::common::NameValuePair) -> PropertyInfo {
     PropertyInfo {
         name: nvp.name.clone(),
-        value: nvp.value.as_ref().map(|v| format!("{:?}", v)),
+        value: nvp.value.as_ref().map(|v| format!("{v:?}")),
     }
 }
 

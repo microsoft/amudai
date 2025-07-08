@@ -79,7 +79,7 @@ pub fn datetime_sequence_to_array(
         )),
         _ => Err(Error::invalid_arg(
             "arrow_type",
-            format!("Cannot convert DateTime to Arrow {}", arrow_type),
+            format!("Cannot convert DateTime to Arrow {arrow_type}"),
         )),
     }
 }
@@ -414,8 +414,7 @@ mod tests {
                     assert_eq!(
                         back_to_seconds,
                         Some(seconds),
-                        "Round-trip failed for {} seconds",
-                        seconds
+                        "Round-trip failed for {seconds} seconds"
                     );
                 }
             }
@@ -431,8 +430,7 @@ mod tests {
                     assert_eq!(
                         back_to_milliseconds,
                         Some(milliseconds),
-                        "Round-trip failed for {} milliseconds",
-                        milliseconds
+                        "Round-trip failed for {milliseconds} milliseconds"
                     );
                 }
             }
@@ -448,8 +446,7 @@ mod tests {
                     assert_eq!(
                         back_to_microseconds,
                         Some(microseconds),
-                        "Round-trip failed for {} microseconds",
-                        microseconds
+                        "Round-trip failed for {microseconds} microseconds"
                     );
                 }
             }
@@ -465,8 +462,7 @@ mod tests {
                     assert_eq!(
                         back_to_nanoseconds,
                         Some(nanoseconds),
-                        "Round-trip failed for {} nanoseconds",
-                        nanoseconds
+                        "Round-trip failed for {nanoseconds} nanoseconds"
                     );
                 }
             }
@@ -579,18 +575,14 @@ mod tests {
 
             assert!(
                 second_micro >= first_micro - 1000,
-                "Time went backwards: {} -> {}",
-                first_micro,
-                second_micro
+                "Time went backwards: {first_micro} -> {second_micro}"
             );
 
             let first_nano = now_unix_nanoseconds();
             let second_nano = now_unix_nanoseconds();
             assert!(
                 second_nano >= first_nano - 100000,
-                "Nanosecond time went backwards: {} -> {}",
-                first_nano,
-                second_nano
+                "Nanosecond time went backwards: {first_nano} -> {second_nano}"
             );
         }
     }

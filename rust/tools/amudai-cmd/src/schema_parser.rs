@@ -47,7 +47,7 @@ pub fn parse_schema_string(schema_str: &str) -> Result<Schema> {
         }
 
         let field = parse_field_definition(field_def, &type_map)
-            .with_context(|| format!("Failed to parse field definition: '{}'", field_def))?;
+            .with_context(|| format!("Failed to parse field definition: '{field_def}'"))?;
 
         fields.push(field);
     }

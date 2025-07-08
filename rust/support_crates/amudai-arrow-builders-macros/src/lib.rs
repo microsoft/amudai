@@ -56,8 +56,8 @@ pub fn struct_builder(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as StructBuilderInput);
 
     let struct_name = &input.struct_def.ident;
-    let fields_name = syn::Ident::new(&format!("{}Fields", struct_name), struct_name.span());
-    let builder_name = syn::Ident::new(&format!("{}Builder", struct_name), struct_name.span());
+    let fields_name = syn::Ident::new(&format!("{struct_name}Fields"), struct_name.span());
+    let builder_name = syn::Ident::new(&format!("{struct_name}Builder"), struct_name.span());
 
     // Determine the crate path to use
     let crate_path = if let Some(path) = &input.crate_path {
@@ -127,7 +127,7 @@ fn generate_field_accessors(
             let field_name = &field.ident;
             let field_name_ident = field_name.as_ref().unwrap();
             let accessor_name = syn::Ident::new(
-                &format!("{}_field", field_name_ident),
+                &format!("{field_name_ident}_field"),
                 field_name_ident.span(),
             );
             let builder_type = map_type_to_builder(&field.ty, crate_path);

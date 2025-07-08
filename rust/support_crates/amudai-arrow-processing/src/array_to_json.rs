@@ -19,7 +19,7 @@ pub fn record_batch_to_ndjson(record_batch: &RecordBatch) -> Result<String, Arro
     writer.finish()?;
 
     let output = String::from_utf8(writer.into_inner())
-        .map_err(|e| ArrowError::ComputeError(format!("Failed to convert to UTF-8: {}", e)))?;
+        .map_err(|e| ArrowError::ComputeError(format!("Failed to convert to UTF-8: {e}")))?;
 
     Ok(output)
 }

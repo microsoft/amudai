@@ -88,7 +88,7 @@ fn test_basic_event_builder() {
     let array = builder.build();
     assert_eq!(array.data_type(), &builder.data_type());
     let json_output = array_to_ndjson(&array).unwrap();
-    println!("Event JSON:\n{}", json_output);
+    println!("Event JSON:\n{json_output}");
 
     // Verify array structure
     let struct_array = array.as_struct();
@@ -153,7 +153,7 @@ fn test_person_builder_comprehensive() {
     let array = builder.build();
     assert_eq!(array.data_type(), &builder.data_type());
     let json_output = array_to_ndjson(&array).unwrap();
-    println!("Person JSON:\n{}", json_output);
+    println!("Person JSON:\n{json_output}");
 
     // Verify array structure
     let struct_array = array.as_struct();
@@ -210,7 +210,7 @@ fn test_binary_record_builder() {
     let array = builder.build();
     assert_eq!(array.data_type(), &builder.data_type());
     let json_output = array_to_ndjson(&array).unwrap();
-    println!("Binary Record JSON:\n{}", json_output);
+    println!("Binary Record JSON:\n{json_output}");
 
     // Verify array structure
     let struct_array = array.as_struct();
@@ -311,7 +311,7 @@ fn test_nested_data_builder() {
     let array = builder.build();
     assert_eq!(array.data_type(), &builder.data_type());
     let json_output = array_to_ndjson(&array).unwrap();
-    println!("Nested Data JSON:\n{}", json_output);
+    println!("Nested Data JSON:\n{json_output}");
 
     // Verify array structure
     let struct_array = array.as_struct();
@@ -461,11 +461,9 @@ fn test_large_dataset() {
     // Generate a larger dataset to test performance and correctness
     for i in 0..1000 {
         builder.id_field().push(i as i64);
-        builder.name_field().push(format!("Person {}", i));
+        builder.name_field().push(format!("Person {i}"));
         builder.age_field().push(20 + (i % 60));
-        builder
-            .email_field()
-            .push(format!("person{}@example.com", i));
+        builder.email_field().push(format!("person{i}@example.com"));
 
         // Add some scores
         {
@@ -574,7 +572,7 @@ fn test_deeply_nested_structures() {
     let array = builder.build();
     assert_eq!(array.data_type(), &builder.data_type());
     let json_output = array_to_ndjson(&array).unwrap();
-    println!("Deep Nested JSON:\n{}", json_output);
+    println!("Deep Nested JSON:\n{json_output}");
 
     let struct_array = array.as_struct();
     assert_eq!(struct_array.len(), 1);
@@ -603,7 +601,7 @@ fn test_record_batch() {
     let record_batch = builder.build();
     assert_eq!(record_batch.schema().as_ref(), &builder.schema());
     let json_output = record_batch_to_ndjson(&record_batch).unwrap();
-    println!("Record batch JSON:\n{}", json_output);
+    println!("Record batch JSON:\n{json_output}");
     assert_eq!(record_batch.num_rows(), 5);
 }
 

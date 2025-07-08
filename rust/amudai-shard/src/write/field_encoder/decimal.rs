@@ -131,8 +131,7 @@ impl DecimalFieldEncoder {
                 let raw_bytes = d128_value.to_raw_bytes();
                 builder.append_value(raw_bytes).map_err(|e| {
                     amudai_common::error::Error::invalid_operation(format!(
-                        "Failed to append d128 bytes: {}",
-                        e
+                        "Failed to append d128 bytes: {e}"
                     ))
                 })?;
             }
@@ -153,8 +152,7 @@ impl DecimalFieldEncoder {
                 let raw_bytes = d128_value.to_raw_bytes();
                 builder.append_value(raw_bytes).map_err(|e| {
                     amudai_common::error::Error::invalid_operation(format!(
-                        "Failed to append d128 bytes: {}",
-                        e
+                        "Failed to append d128 bytes: {e}"
                     ))
                 })?;
             }
@@ -602,9 +600,8 @@ mod tests {
 
                 assert_eq!(
                     actual_bytes, expected_bytes,
-                    "Binary representation mismatch for value {} at index {}. \
-                     Expected d128 bytes: {:?}, but got: {:?}",
-                    value, i, expected_bytes, actual_bytes
+                    "Binary representation mismatch for value {value} at index {i}. \
+                     Expected d128 bytes: {expected_bytes:?}, but got: {actual_bytes:?}"
                 );
 
                 // Also verify we can reconstruct the d128 from the stored bytes
@@ -618,8 +615,7 @@ mod tests {
 
                 assert_eq!(
                     reconstructed_d128, expected_d128,
-                    "Reconstructed d128 doesn't match expected for value {} at index {}",
-                    value, i
+                    "Reconstructed d128 doesn't match expected for value {value} at index {i}"
                 );
             } else {
                 // For null values, we should get 16 zero bytes (or the system's null representation)
@@ -702,9 +698,8 @@ mod tests {
 
             assert_eq!(
                 actual_bytes, expected,
-                "Binary representation mismatch at index {}. \
-                 Expected: {:?}, got: {:?}",
-                i, expected, actual_bytes
+                "Binary representation mismatch at index {i}. \
+                 Expected: {expected:?}, got: {actual_bytes:?}"
             );
 
             // Verify round-trip: bytes -> d128 -> bytes
@@ -713,8 +708,7 @@ mod tests {
 
             assert_eq!(
                 reconstructed_bytes, *expected,
-                "Round-trip conversion failed for d128 at index {}",
-                i
+                "Round-trip conversion failed for d128 at index {i}"
             );
         }
 

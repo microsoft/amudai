@@ -22,7 +22,7 @@ pub fn run(count: Option<u64>, iterations: Option<u64>, shard_path: String) -> R
 }
 
 pub fn run_single(count: Option<u64>, shard_path: &str) -> Result<()> {
-    println!("Consuming shard: {}", shard_path);
+    println!("Consuming shard: {shard_path}");
 
     // Start timing
     let start_time = Instant::now();
@@ -32,7 +32,7 @@ pub fn run_single(count: Option<u64>, shard_path: &str) -> Result<()> {
 
     // Create the arrow reader builder
     let mut builder = ArrowReaderBuilder::try_new(shard_path)
-        .with_context(|| format!("Failed to create reader for shard: {}", shard_path))?
+        .with_context(|| format!("Failed to create reader for shard: {shard_path}"))?
         .with_object_store(object_store)
         .with_batch_size(1024);
 
@@ -68,17 +68,17 @@ pub fn run_single(count: Option<u64>, shard_path: &str) -> Result<()> {
     // Print statistics
     println!("Consumption completed:");
     println!("  Total time: {:.3} seconds", elapsed.as_secs_f64());
-    println!("  Total batches: {}", batch_count);
-    println!("  Total records: {}", total_records);
+    println!("  Total batches: {batch_count}");
+    println!("  Total records: {total_records}");
     println!("  Total data size: {}", utils::format_size(total_data_size));
 
     if elapsed.as_millis() > 0 {
         let throughput_mb_per_sec =
             (total_data_size as f64) / (1024.0 * 1024.0) / elapsed.as_secs_f64();
-        println!("  Throughput: {:.2} MB/s", throughput_mb_per_sec);
+        println!("  Throughput: {throughput_mb_per_sec:.2} MB/s");
 
         let records_per_sec = (total_records as f64) / elapsed.as_secs_f64();
-        println!("  Records/sec: {:.0}", records_per_sec);
+        println!("  Records/sec: {records_per_sec:.0}");
     }
 
     Ok(())

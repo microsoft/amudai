@@ -233,7 +233,7 @@ fn test_decimal_index_large_dataset() -> Result<()> {
         if i % 10 == 0 {
             test_decimals.push(None); // Add some nulls
         } else {
-            let decimal_str = format!("{}.00", i);
+            let decimal_str = format!("{i}.00");
             test_decimals.push(Some(d128::from_str(&decimal_str).unwrap()));
         }
     }
@@ -930,8 +930,7 @@ fn test_all_numeric_types_comprehensive() -> Result<()> {
     for i in 0..12 {
         assert!(
             validate_numeric_index_buffer_exists(&prepared_stripe, i),
-            "Field {} should have a numeric index",
-            i
+            "Field {i} should have a numeric index"
         );
     }
 
@@ -1042,7 +1041,7 @@ fn test_encoding_profiles_index_behavior() -> Result<()> {
     ];
 
     for (profile_name, profile) in profiles {
-        println!("Testing with {} profile", profile_name);
+        println!("Testing with {profile_name} profile");
 
         let arrow_schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
             "int32_field",
@@ -1090,8 +1089,8 @@ fn test_encoding_profiles_index_behavior() -> Result<()> {
             | BlockEncodingProfile::Balanced
             | BlockEncodingProfile::HighCompression
             | BlockEncodingProfile::MinimalSize => {
-                assert!(has_index, "{} profile should have indexes", profile_name);
-                println!("  ✓ {} profile correctly has index", profile_name);
+                assert!(has_index, "{profile_name} profile should have indexes");
+                println!("  ✓ {profile_name} profile correctly has index");
             }
         }
 
@@ -1232,8 +1231,8 @@ fn test_numeric_index_builder_creation() -> Result<()> {
             encoding_profile,
             temp_store.clone(),
         );
-        assert!(result.is_ok(), "Should create builder for {}", type_name);
-        println!("✓ Created builder for signed {}", type_name);
+        assert!(result.is_ok(), "Should create builder for {type_name}");
+        println!("✓ Created builder for signed {type_name}");
     }
 
     // Test unsigned integer types (represented as signed in BasicType, differentiated by signed field)
@@ -1257,8 +1256,8 @@ fn test_numeric_index_builder_creation() -> Result<()> {
             encoding_profile,
             temp_store.clone(),
         );
-        assert!(result.is_ok(), "Should create builder for {}", type_name);
-        println!("✓ Created builder for unsigned {}", type_name);
+        assert!(result.is_ok(), "Should create builder for {type_name}");
+        println!("✓ Created builder for unsigned {type_name}");
     }
 
     // Test floating-point and DateTime types
@@ -1281,8 +1280,8 @@ fn test_numeric_index_builder_creation() -> Result<()> {
             encoding_profile,
             temp_store.clone(),
         );
-        assert!(result.is_ok(), "Should create builder for {}", type_name);
-        println!("✓ Created builder for {}", type_name);
+        assert!(result.is_ok(), "Should create builder for {type_name}");
+        println!("✓ Created builder for {type_name}");
     }
 
     // Test unsupported type (should fail)
@@ -1315,7 +1314,7 @@ fn test_nan_values_large_dataset_invalid_count() -> Result<()> {
 
     // Test Float32 with all NaN values
     {
-        println!("Testing Float32 with {} NaN values...", test_size);
+        println!("Testing Float32 with {test_size} NaN values...");
 
         let arrow_schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
             "float32_nan_field",
@@ -1371,7 +1370,7 @@ fn test_nan_values_large_dataset_invalid_count() -> Result<()> {
 
     // Test Float64 with all NaN values
     {
-        println!("Testing Float64 with {} NaN values...", test_size);
+        println!("Testing Float64 with {test_size} NaN values...");
 
         let arrow_schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
             "float64_nan_field",
@@ -1423,18 +1422,12 @@ fn test_nan_values_large_dataset_invalid_count() -> Result<()> {
         let _prepared_shard = shard_builder.finish().unwrap();
 
         println!("  ✓ Float64 NaN dataset processed successfully");
-        println!(
-            "  ✓ All {} float64 values are NaN and should be tracked as invalid",
-            test_size
-        );
+        println!("  ✓ All {test_size} float64 values are NaN and should be tracked as invalid");
     }
 
     // Test Decimal with invalid values (equivalent to NaN for decimal types)
     {
-        println!(
-            "Testing Decimal with {} invalid/NaN-equivalent values...",
-            test_size
-        );
+        println!("Testing Decimal with {test_size} invalid/NaN-equivalent values...");
 
         // For decimals, we can create NaN values by dividing zero by zero
         // This creates proper decimal NaN values that should be counted as invalid
@@ -1478,18 +1471,12 @@ fn test_nan_values_large_dataset_invalid_count() -> Result<()> {
         assert_eq!(field_descriptor.position_count, test_size as u64);
         assert_eq!(field_descriptor.null_count, Some(0)); // No actual nulls
 
-        println!(
-            "  ✓ All {} decimal values are NaN and should be tracked as invalid",
-            test_size
-        );
+        println!("  ✓ All {test_size} decimal values are NaN and should be tracked as invalid");
     }
 
     println!("✓ NaN/Invalid values large dataset test completed");
     println!("✓ This test now verifies invalid count tracking is working properly");
-    println!(
-        "✓ All {} values per type were processed across multiple logical blocks",
-        test_size
-    );
+    println!("✓ All {test_size} values per type were processed across multiple logical blocks");
 
     Ok(())
 }
@@ -1577,14 +1564,13 @@ fn test_mixed_nan_and_valid_values_invalid_count() -> Result<()> {
         assert_eq!(field_descriptor.null_count, Some(null_count as u64));
 
         println!(
-            "  Field {}: {} total, {} nulls, {} NaN, {} valid",
-            field_idx, test_size, null_count, nan_count, valid_count
+            "  Field {field_idx}: {test_size} total, {null_count} nulls, {nan_count} NaN, {valid_count} valid"
         );
     }
 
     // Validate index content using NumericIndexReader for both fields
     for field_idx in 0..2 {
-        println!("  Validating index content for field {}...", field_idx);
+        println!("  Validating index content for field {field_idx}...");
 
         let field_info = &prepared_stripe.fields[field_idx];
         let mut index_buffer = None;
@@ -1618,17 +1604,14 @@ fn test_mixed_nan_and_valid_values_invalid_count() -> Result<()> {
             let expected_invalid_count = null_count + nan_count; // Both nulls and NaN are invalid
             assert_eq!(
                 total_invalid_count, expected_invalid_count as u32,
-                "Field {} total invalid_count should equal null + NaN count ({} vs {})",
-                field_idx, total_invalid_count, expected_invalid_count
+                "Field {field_idx} total invalid_count should equal null + NaN count ({total_invalid_count} vs {expected_invalid_count})"
             );
             println!(
-                "    ✓ Field {}: Total invalid_count {} matches null + NaN count {} ({}+{})",
-                field_idx, total_invalid_count, expected_invalid_count, null_count, nan_count
+                "    ✓ Field {field_idx}: Total invalid_count {total_invalid_count} matches null + NaN count {expected_invalid_count} ({null_count}+{nan_count})"
             );
         } else if null_count > 0 || nan_count > 0 {
             panic!(
-                "Field {}: Expected invalid_counts to be present with {} null and {} NaN values",
-                field_idx, null_count, nan_count
+                "Field {field_idx}: Expected invalid_counts to be present with {null_count} null and {nan_count} NaN values"
             );
         }
     }
@@ -1638,8 +1621,7 @@ fn test_mixed_nan_and_valid_values_invalid_count() -> Result<()> {
 
     println!("✓ Mixed NaN/valid/null dataset processed successfully");
     println!(
-        "✓ Processed: {} total ({} valid, {} NaN, {} null)",
-        test_size, valid_count, nan_count, null_count
+        "✓ Processed: {test_size} total ({valid_count} valid, {nan_count} NaN, {null_count} null)"
     );
 
     Ok(())

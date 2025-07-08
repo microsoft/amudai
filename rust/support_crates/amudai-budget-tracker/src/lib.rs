@@ -222,7 +222,7 @@ impl std::error::Error for AllocationError {}
 
 impl From<AllocationError> for std::io::Error {
     fn from(e: AllocationError) -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, e)
+        std::io::Error::other(e)
     }
 }
 

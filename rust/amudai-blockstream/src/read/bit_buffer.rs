@@ -114,7 +114,7 @@ impl BitBufferDecoder {
             BitBufferDecoder::Blocks(decoder) => {
                 let byte_ranges = bit_ranges_to_byte_ranges(bit_ranges);
                 let reader = decoder.create_reader(byte_ranges, prefetch)?;
-                Ok(BitBufferReader::Blocks(reader))
+                Ok(BitBufferReader::Blocks(Box::new(reader)))
             }
             BitBufferDecoder::Constant(value) => Ok(BitBufferReader::Constant(*value)),
         }
@@ -139,7 +139,7 @@ impl BitBufferDecoder {
 /// supporting both block-based and constant representations. It is typically constructed
 /// via [`BitBufferDecoder::create_reader`].
 pub enum BitBufferReader {
-    Blocks(PrimitiveBufferReader),
+    Blocks(Box<PrimitiveBufferReader>),
     Constant(bool),
 }
 

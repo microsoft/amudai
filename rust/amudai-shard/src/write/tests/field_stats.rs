@@ -28,7 +28,7 @@ fn test_end_to_end_statistics_integration() -> Result<()> {
     let test_data = vec![10, 5, 20, 15, 30]; // min=5, max=30, count=5
     let array = Arc::new(Int32Array::from(test_data));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?; // Create stripe builder with statistics enabled
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?; // Create stripe builder with statistics enabled
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let stripe_params = StripeBuilderParams {
         schema: schema.clone(),
@@ -100,7 +100,7 @@ fn test_statistics_aggregation_across_stripes() -> Result<()> {
     {
         let array = Arc::new(Int32Array::from(data.clone()));
         let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array]).map_err(|e| {
-            Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e))
+            Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}"))
         })?;
 
         let stripe_params = StripeBuilderParams {
@@ -181,7 +181,7 @@ fn test_string_statistics_integration() -> Result<()> {
     ];
     let array = Arc::new(arrow_array::StringArray::from(test_strings.clone()));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     // Create stripe builder
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
@@ -246,7 +246,7 @@ fn test_string_statistics_aggregation_across_stripes() -> Result<()> {
     for (i, strings) in stripe_data.iter().enumerate() {
         let array = Arc::new(arrow_array::StringArray::from(strings.clone()));
         let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array]).map_err(|e| {
-            Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e))
+            Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}"))
         })?;
 
         let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
@@ -325,7 +325,7 @@ fn test_boolean_statistics_integration() -> Result<()> {
     ];
     let array = Arc::new(BooleanArray::from(test_data));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     // Create stripe builder
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
@@ -388,7 +388,7 @@ fn test_boolean_statistics_aggregation_across_stripes() -> Result<()> {
     for (i, bools) in stripe_data.iter().enumerate() {
         let array = Arc::new(BooleanArray::from(bools.clone()));
         let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array]).map_err(|e| {
-            Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e))
+            Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}"))
         })?;
 
         let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
@@ -470,7 +470,7 @@ fn test_datetime_statistics_integration() -> Result<()> {
     ];
     let array = Arc::new(TimestampNanosecondArray::from(test_data.clone()));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let stripe_params = StripeBuilderParams {
@@ -544,7 +544,7 @@ fn test_datetime_statistics_aggregation_across_stripes() -> Result<()> {
     for (i, data) in stripe_data.iter().enumerate() {
         let array = Arc::new(TimestampNanosecondArray::from(data.clone()));
         let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array]).map_err(|e| {
-            Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e))
+            Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}"))
         })?;
 
         let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
@@ -634,7 +634,7 @@ fn test_float64_statistics_integration_with_edge_cases() -> Result<()> {
     ];
     let array = Arc::new(Float64Array::from(test_data.clone()));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let stripe_params = StripeBuilderParams {
@@ -706,7 +706,7 @@ fn test_float64_statistics_aggregation_across_stripes() -> Result<()> {
     for (i, data) in stripe_data.iter().enumerate() {
         let array = Arc::new(Float64Array::from(data.clone()));
         let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array]).map_err(|e| {
-            Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e))
+            Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}"))
         })?;
 
         let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
@@ -788,7 +788,7 @@ fn test_binary_statistics_integration_and_edge_cases() -> Result<()> {
     ];
     let array = Arc::new(BinaryArray::from(test_data.clone()));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let stripe_params = StripeBuilderParams {
@@ -846,7 +846,7 @@ fn test_binary_statistics_aggregation_across_stripes() -> Result<()> {
     for (i, data) in stripe_data.iter().enumerate() {
         let array = Arc::new(BinaryArray::from(data.clone()));
         let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array]).map_err(|e| {
-            Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e))
+            Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}"))
         })?;
 
         let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
@@ -911,7 +911,7 @@ fn test_int64_statistics_integration() -> Result<()> {
     let test_data = vec![Some(i64::MAX), Some(i64::MIN), Some(0), None, Some(42)];
     let array = Arc::new(Int64Array::from(test_data));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let stripe_params = StripeBuilderParams {
@@ -965,7 +965,7 @@ fn test_float32_statistics_with_nan() -> Result<()> {
     let test_data = vec![Some(1.0f32), Some(f32::NAN), Some(-1.0f32), None];
     let array = Arc::new(Float32Array::from(test_data));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let stripe_params = StripeBuilderParams {
@@ -1013,7 +1013,7 @@ fn test_edge_case_all_null_batch() -> Result<()> {
     let test_data = vec![None, None, None];
     let array = Arc::new(Int32Array::from(test_data));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let stripe_params = StripeBuilderParams {
@@ -1058,7 +1058,7 @@ fn test_edge_case_single_value_batch() -> Result<()> {
     let test_data = vec![42];
     let array = Arc::new(Int32Array::from(test_data));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let stripe_params = StripeBuilderParams {
@@ -1115,7 +1115,7 @@ fn test_string_statistics_with_unicode() -> Result<()> {
     ];
     let array = Arc::new(arrow_array::StringArray::from(test_strings.clone()));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let stripe_params = StripeBuilderParams {
@@ -1168,7 +1168,7 @@ fn test_int8_statistics_integration() -> Result<()> {
     let test_data = vec![Some(i8::MAX), Some(i8::MIN), Some(0), None, Some(42)];
     let array = Arc::new(arrow_array::Int8Array::from(test_data));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let stripe_params = StripeBuilderParams {
@@ -1223,7 +1223,7 @@ fn test_uint32_statistics_integration() -> Result<()> {
     let test_data = vec![u32::MAX, u32::MIN, 0, 42, 1000];
     let array = Arc::new(arrow_array::UInt32Array::from(test_data));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let stripe_params = StripeBuilderParams {
@@ -1284,7 +1284,7 @@ fn test_mixed_nullable_non_nullable_aggregation() -> Result<()> {
     let stripe1_data = vec![Some(1), Some(2), Some(3)];
     let array1 = Arc::new(Int32Array::from(stripe1_data));
     let batch1 = RecordBatch::try_new(arrow_schema.clone(), vec![array1])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let stripe_params1 = StripeBuilderParams {
         schema: schema.clone(),
@@ -1312,7 +1312,7 @@ fn test_mixed_nullable_non_nullable_aggregation() -> Result<()> {
     let stripe2_data = vec![Some(4), None, Some(5)];
     let array2 = Arc::new(Int32Array::from(stripe2_data));
     let batch2 = RecordBatch::try_new(arrow_schema.clone(), vec![array2])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let stripe_params2 = StripeBuilderParams {
         schema: schema.clone(),
@@ -1378,7 +1378,7 @@ fn test_large_batch_statistics() -> Result<()> {
     let test_data: Vec<i64> = (0..1000).map(|i| i * 2).collect(); // Even numbers 0, 2, 4, ..., 1998
     let array = Arc::new(Int64Array::from(test_data.clone()));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let stripe_params = StripeBuilderParams {
@@ -1430,7 +1430,7 @@ fn test_empty_batch_statistics() -> Result<()> {
     let test_data: Vec<Option<i32>> = vec![];
     let array = Arc::new(Int32Array::from(test_data));
     let batch = RecordBatch::try_new(arrow_schema.clone(), vec![array])
-        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {}", e)))?;
+        .map_err(|e| Error::invalid_arg("batch", format!("Failed to create RecordBatch: {e}")))?;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let stripe_params = StripeBuilderParams {

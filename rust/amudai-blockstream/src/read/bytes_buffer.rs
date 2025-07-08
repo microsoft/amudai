@@ -279,7 +279,7 @@ mod tests {
             let expected_idx = (mid_point as i32 - 25) + i;
             assert!(
                 seq.binary_at(i as usize)
-                    .ends_with(format!("_{}", expected_idx).as_bytes())
+                    .ends_with(format!("_{expected_idx}").as_bytes())
             );
         }
     }
@@ -342,7 +342,7 @@ mod tests {
 
         // Verify all values are present and correctly ordered
         for i in 0..1000 {
-            assert!(seq.binary_at(i).ends_with(format!("_{}", i).as_bytes()));
+            assert!(seq.binary_at(i).ends_with(format!("_{i}").as_bytes()));
         }
     }
 
@@ -445,7 +445,7 @@ mod tests {
                 let expected_idx = start + i as u64;
                 assert!(
                     seq.binary_at(i)
-                        .ends_with(format!("_{}", expected_idx).as_bytes())
+                        .ends_with(format!("_{expected_idx}").as_bytes())
                 );
             }
         }
@@ -455,7 +455,7 @@ mod tests {
         for &pos in &positions {
             let seq = reader.read(pos..pos + 1).unwrap();
             assert_eq!(seq.len(), 1);
-            assert!(seq.binary_at(0).ends_with(format!("_{}", pos).as_bytes()));
+            assert!(seq.binary_at(0).ends_with(format!("_{pos}").as_bytes()));
         }
     }
 
@@ -599,7 +599,7 @@ mod tests {
             for i in 0..value_count {
                 // Create 8-byte fixed size binary values
                 let value_idx = value_offset + i;
-                let mut padded = format!("f{:07}", value_idx).into_bytes();
+                let mut padded = format!("f{value_idx:07}").into_bytes();
                 padded.truncate(8);
                 builder.append_value(&padded).unwrap();
             }

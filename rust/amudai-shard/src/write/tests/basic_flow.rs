@@ -299,12 +299,12 @@ fn test_decimal_encoding() {
     for i in 0..std::cmp::min(5, 100) {
         if !original_amount.is_null(i) {
             if let Ok(decimal_val) = bytes_to_d128_safe(original_amount.value(i)) {
-                println!("  amount[{}] = {}", i, decimal_val);
+                println!("  amount[{i}] = {decimal_val}");
             }
         }
         if !original_price.is_null(i) {
             if let Ok(decimal_val) = bytes_to_d128_safe(original_price.value(i)) {
-                println!("  price[{}] = {}", i, decimal_val);
+                println!("  price[{i}] = {decimal_val}");
             }
         }
     }
@@ -366,8 +366,7 @@ fn test_decimal_encoding() {
             // Validate binary representation matches
             assert_eq!(
                 decoded_slice, original_slice,
-                "Amount decimal value mismatch at position {}",
-                i
+                "Amount decimal value mismatch at position {i}"
             );
 
             // Also validate we can parse both as decimal values and they match
@@ -377,8 +376,7 @@ fn test_decimal_encoding() {
             ) {
                 assert_eq!(
                     decoded_decimal, original_decimal,
-                    "Parsed decimal value mismatch at position {}: decoded={}, original={}",
-                    i, decoded_decimal, original_decimal
+                    "Parsed decimal value mismatch at position {i}: decoded={decoded_decimal}, original={original_decimal}"
                 );
             }
 
@@ -426,8 +424,7 @@ fn test_decimal_encoding() {
             // Validate binary representation matches
             assert_eq!(
                 decoded_slice, original_slice,
-                "Price decimal value mismatch at position {}",
-                i
+                "Price decimal value mismatch at position {i}"
             );
 
             // Also validate we can parse both as decimal values and they match
@@ -437,8 +434,7 @@ fn test_decimal_encoding() {
             ) {
                 assert_eq!(
                     decoded_decimal, original_decimal,
-                    "Parsed price decimal value mismatch at position {}: decoded={}, original={}",
-                    i, decoded_decimal, original_decimal
+                    "Parsed price decimal value mismatch at position {i}: decoded={decoded_decimal}, original={original_decimal}"
                 );
             }
 
@@ -591,7 +587,7 @@ fn generate_struct_data(count: usize) -> arrow_array::RecordBatch {
         simple_struct_builder
             .field_builder::<StringBuilder>(1)
             .unwrap()
-            .append_value(format!("name_{}", i));
+            .append_value(format!("name_{i}"));
         simple_struct_builder.append(true);
 
         // Nested struct data

@@ -311,8 +311,7 @@ impl ToArrowDataType for DataTypeBuilder {
                 let child_count = self.children().len();
                 if child_count != 1 {
                     return Err(Error::invalid_format(format!(
-                        "List type must have exactly one child, got {}",
-                        child_count
+                        "List type must have exactly one child, got {child_count}"
                     )));
                 }
                 let child_builder = &self.children()[0];
@@ -323,8 +322,7 @@ impl ToArrowDataType for DataTypeBuilder {
                 let child_count = self.children().len();
                 if child_count != 1 {
                     return Err(Error::invalid_format(format!(
-                        "FixedSizeList type must have exactly one child, got {}",
-                        child_count
+                        "FixedSizeList type must have exactly one child, got {child_count}"
                     )));
                 }
                 let child_builder = &self.children()[0];
@@ -346,8 +344,7 @@ impl ToArrowDataType for DataTypeBuilder {
                 let child_count = self.children().len();
                 if child_count != 2 {
                     return Err(Error::invalid_format(format!(
-                        "Map type must have exactly two children, got {}",
-                        child_count
+                        "Map type must have exactly two children, got {child_count}"
                     )));
                 }
                 let key_builder = &self.children()[0];
@@ -377,7 +374,7 @@ impl ToArrowDataType for DataTypeBuilder {
                 for (i, child_builder) in self.children().iter().enumerate() {
                     let child_arrow_field = child_builder.to_arrow_field()?;
                     let child_arrow_field = if child_builder.field_name().is_empty() {
-                        child_arrow_field.with_name(format!("field_{}", i))
+                        child_arrow_field.with_name(format!("field_{i}"))
                     } else {
                         child_arrow_field
                     };

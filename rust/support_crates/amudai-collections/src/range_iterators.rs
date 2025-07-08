@@ -80,11 +80,7 @@ where
 
         let range_remainder = std::mem::replace(&mut self.range_remainder, 0..0);
 
-        let current_len = if range_remainder.start >= range_remainder.end {
-            0
-        } else {
-            range_remainder.end - range_remainder.start
-        };
+        let current_len = range_remainder.end.saturating_sub(range_remainder.start);
 
         if current_len <= self.chunk_size {
             Some(range_remainder)

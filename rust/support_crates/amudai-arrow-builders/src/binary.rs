@@ -13,10 +13,10 @@
 //! # Building Strategy
 //!
 //! Both builders follow a position-based approach:
-//! 1. Set binary values using [`set()`] with byte slices or arrays
-//! 2. Set explicit nulls using [`set_null()`] when needed
+//! 1. Push binary values using `push()` with byte slices or arrays
+//! 2. Push explicit nulls using `push_null()` when needed
 //! 3. Skip positions to automatically insert nulls for sparse arrays
-//! 4. Build the final array with [`build()`]
+//! 4. Build the final array with `build()`
 //!
 //! # Memory Considerations
 //!
@@ -45,13 +45,18 @@ use crate::ArrayBuilder;
 ///
 /// # Core Operations
 ///
-/// - [`set()`](Self::set) - Sets a binary value at the current position and advances
-/// - [`set_null()`](Self::set_null) - Sets an explicit null at the current position and advances
+/// - [`push()`](Self::push) - Sets a binary value at the current position and advances
+/// - [`push_null()`](Self::push_null) - Sets an explicit null at the current position and advances
 pub struct BinaryBuilder {
     /// The current logical position where the next binary value will be placed.
     next_pos: u64,
-    /// The underlying Apache Arrow large binary builder that handles data storage.
-    inner: arrow_array::builder::LargeBinaryBuilder,
+    /// In-progress list of offsets for each binary item in `data`.
+    /// For `n` items, there are `n+1` offsets in this list.
+    offsets: arrow_buffer::OffsetBufferBuilder<i64>,
+    /// Consecutive data buffers.
+    data: arrow_buffer::MutableBuffer,
+    /// Presence (nulls) bitmap.
+    nulls: arrow_buffer::NullBufferBuilder,
 }
 
 impl BinaryBuilder {
@@ -66,7 +71,54 @@ impl BinaryBuilder {
     /// * `value` - The binary data to store. Can be any type implementing `AsRef<[u8]>`.
     pub fn push(&mut self, value: impl AsRef<[u8]>) {
         self.fill_missing();
-        self.inner.append_value(value);
+        let value = value.as_ref();
+        self.offsets.push_length(value.len());
+        self.data.extend_from_slice(value);
+        self.nulls.append_non_null();
+        self.next_pos += 1;
+    }
+
+    /// Concatenates multiple binary fragments into a single value at the current position
+    /// and advances.
+    ///
+    /// This method accepts an iterable of fragments that can each be converted to byte slices
+    /// (`AsRef<[u8]>`). All fragments are concatenated together in order to form a single
+    /// binary value that is stored at the current position. This is useful for efficiently
+    /// building binary values from multiple parts without intermediate allocations.
+    ///
+    /// # Parameters
+    ///
+    /// * `fragments` - An iterable of binary fragments to concatenate. Each fragment can be
+    ///   any type implementing `AsRef<[u8]>` (e.g., `&[u8]`, `Vec<u8>`, `&str`, `String`).
+    ///   The iterator must be cloneable to allow for efficient length calculation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// # use amudai_arrow_builders::binary::BinaryBuilder;
+    /// let mut builder = BinaryBuilder::default();
+    ///
+    /// // Concatenate string fragments
+    /// builder.push_concat(&[b"Hello".as_ref(), b" ", b"World"]);
+    ///
+    /// // Concatenate mixed types
+    /// builder.push_concat(&[b"prefix".as_ref(), "middle".as_bytes(), b"suffix"]);
+    /// ```
+    pub fn push_concat(&mut self, fragments: impl IntoIterator<Item = impl AsRef<[u8]>> + Clone) {
+        self.fill_missing();
+
+        let len = fragments
+            .clone()
+            .into_iter()
+            .map(|s| s.as_ref().len())
+            .sum();
+        self.data.reserve(len);
+        self.offsets.push_length(len);
+        for slice in fragments {
+            self.data.extend_from_slice(slice.as_ref());
+        }
+        self.nulls.append_non_null();
+
         self.next_pos += 1;
     }
 
@@ -77,14 +129,15 @@ impl BinaryBuilder {
     /// null buffer and can be checked with `is_null()` methods on the resulting array.
     pub fn push_null(&mut self) {
         self.fill_missing();
-        self.inner.append_null();
+        self.offsets.push_length(0);
+        self.nulls.append_null();
         self.next_pos += 1;
     }
 
     /// Returns the current length of the underlying Arrow builder.
     #[inline]
     fn inner_pos(&self) -> u64 {
-        arrow_array::builder::ArrayBuilder::len(&self.inner) as u64
+        self.offsets.len() as u64 - 1
     }
 
     /// Fills any gaps between the inner position and the target position with nulls.
@@ -99,10 +152,11 @@ impl BinaryBuilder {
     #[inline]
     fn fill_missing(&mut self) {
         if self.inner_pos() < self.next_pos {
-            let null_count = self.next_pos - self.inner_pos();
+            let null_count = (self.next_pos - self.inner_pos()) as usize;
             for _ in 0..null_count {
-                self.inner.append_null();
+                self.offsets.push_length(0);
             }
+            self.nulls.append_n_nulls(null_count);
         }
         assert_eq!(self.inner_pos(), self.next_pos);
     }
@@ -110,12 +164,14 @@ impl BinaryBuilder {
 
 /// Creates a new, empty `BinaryBuilder` with default settings.
 ///
-/// The builder starts at position 0 with an empty underlying `LargeBinaryBuilder`.
+/// The builder starts at position 0 with empty underlying buffers.
 impl Default for BinaryBuilder {
     fn default() -> Self {
         BinaryBuilder {
             next_pos: 0,
-            inner: arrow_array::builder::LargeBinaryBuilder::new(),
+            offsets: arrow_buffer::OffsetBufferBuilder::new(128),
+            data: Default::default(),
+            nulls: arrow_buffer::NullBufferBuilder::new(128),
         }
     }
 }
@@ -180,7 +236,16 @@ impl ArrayBuilder for BinaryBuilder {
     fn build(&mut self) -> Arc<dyn Array> {
         self.fill_missing();
         self.next_pos = 0;
-        Arc::new(self.inner.finish())
+
+        let nulls = self.nulls.finish();
+        let offsets = std::mem::replace(
+            &mut self.offsets,
+            arrow_buffer::OffsetBufferBuilder::new(128),
+        )
+        .finish();
+        let data = std::mem::take(&mut self.data).into();
+        let array = arrow_array::GenericBinaryArray::new(offsets, data, nulls);
+        Arc::new(array)
     }
 }
 
@@ -366,5 +431,25 @@ impl<const S: usize> ArrayBuilder for FixedSizeBinaryBuilder<S> {
         self.fill_missing();
         self.next_pos = 0;
         Arc::new(self.inner.finish())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::cast::AsArray;
+
+    use crate::{ArrayBuilder, binary::BinaryBuilder};
+
+    #[test]
+    fn test_binary_builder() {
+        let mut builder = BinaryBuilder::default();
+        builder.push(b"abc");
+        builder.move_to_pos(10);
+        builder.push_concat(&[b"def", b"1234".as_ref()]);
+        builder.push(b"def");
+        let arr = builder.build();
+        let arr = arr.as_binary::<i64>();
+        assert_eq!(arr.value(3), b"");
+        assert_eq!(arr.value(10), b"def1234");
     }
 }

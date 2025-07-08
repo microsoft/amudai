@@ -205,7 +205,7 @@ impl NumericIndexBuilder for DecimalIndexBuilder {
         if array.value_length() != DECIMAL_SIZE as i32 {
             return Err(Error::invalid_arg(
                 "array",
-                format!("Expected decimal array with {} byte values", DECIMAL_SIZE),
+                format!("Expected decimal array with {DECIMAL_SIZE} byte values"),
             ));
         }
 

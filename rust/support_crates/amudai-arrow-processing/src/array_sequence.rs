@@ -200,11 +200,7 @@ impl ArraySequence {
 
             while range_idx < ranges.len() && ranges[range_idx].start < current_offset + array_len {
                 let range = &ranges[range_idx];
-                let slice_start = if range.start > current_offset {
-                    range.start - current_offset
-                } else {
-                    0
-                };
+                let slice_start = range.start.saturating_sub(current_offset);
                 let slice_end = std::cmp::min(range.end, current_offset + array_len);
                 let slice_len = slice_end - (current_offset + slice_start);
 

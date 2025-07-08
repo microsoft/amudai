@@ -217,7 +217,7 @@ impl BlockMapOps for BlockList {
         }
         Err(Error::invalid_arg(
             "logical_pos",
-            format!("Cannot find block ordinal for logical pos {}", logical_pos),
+            format!("Cannot find block ordinal for logical pos {logical_pos}"),
         ))
     }
 

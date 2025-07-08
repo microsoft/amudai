@@ -187,10 +187,7 @@ fn test_large_decimal_dataset() -> Result<()> {
     assert_eq!(amount_desc.position_count as usize, large_record_count);
     assert_eq!(price_desc.position_count as usize, large_record_count);
 
-    println!(
-        "✓ Large decimal dataset test passed with {} records!",
-        large_record_count
-    );
+    println!("✓ Large decimal dataset test passed with {large_record_count} records!");
     Ok(())
 }
 
@@ -284,7 +281,7 @@ fn test_multiple_stripes_with_decimals() -> Result<()> {
         let field_desc = amount_field.descriptor().field.as_ref().unwrap();
         assert_eq!(field_desc.position_count, 500);
 
-        println!("Verified stripe {} has decimal data", stripe_idx);
+        println!("Verified stripe {stripe_idx} has decimal data");
     }
 
     println!("✓ Multiple stripes with decimals test passed!");
@@ -465,8 +462,7 @@ fn test_decimal_end_to_end_read_back() -> Result<()> {
 
         assert_eq!(
             decoded_decimal, *expected_decimal,
-            "Decimal value mismatch at position {}: expected {}, got {}",
-            i, expected_decimal, decoded_decimal
+            "Decimal value mismatch at position {i}: expected {expected_decimal}, got {decoded_decimal}"
         );
     }
 
@@ -579,8 +575,7 @@ fn test_decimal_with_index_end_to_end() -> Result<()> {
 
     assert_eq!(
         decoded_decimal, expected_decimal,
-        "First decimal value mismatch: expected {}, got {}",
-        expected_decimal, decoded_decimal
+        "First decimal value mismatch: expected {expected_decimal}, got {decoded_decimal}"
     );
 
     println!("✓ Decimal with index end-to-end test passed!");
@@ -588,10 +583,7 @@ fn test_decimal_with_index_end_to_end() -> Result<()> {
         "  Successfully handled indexed decimal field with {} buffers",
         encoded_buffers.len()
     );
-    println!(
-        "  Read back values: first decoded decimal = {}",
-        decoded_decimal
-    );
+    println!("  Read back values: first decoded decimal = {decoded_decimal}");
 
     Ok(())
 }

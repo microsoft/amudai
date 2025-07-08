@@ -674,16 +674,9 @@ impl Buffer {
 
         assert!(
             start <= end,
-            "range start must not be greater than end: {:?} <= {:?}",
-            start,
-            end,
+            "range start must not be greater than end: {start:?} <= {end:?}",
         );
-        assert!(
-            end <= len,
-            "range end out of bounds: {:?} <= {:?}",
-            end,
-            len,
-        );
+        assert!(end <= len, "range end out of bounds: {end:?} <= {len:?}",);
 
         start..end
     }
@@ -1078,7 +1071,7 @@ mod tests {
         let mut vec = AlignedByteVec::new();
         vec.extend_from_slice(&[1, 2, 3]);
 
-        let debug_str = format!("{:?}", vec);
+        let debug_str = format!("{vec:?}");
         assert!(debug_str.contains("values"));
         assert!(debug_str.contains("len"));
         assert!(debug_str.contains("cap"));
