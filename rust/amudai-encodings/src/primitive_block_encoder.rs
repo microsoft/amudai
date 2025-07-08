@@ -505,14 +505,20 @@ impl BlockEncoder for PrimitiveBlockEncoder {
 
         metadata.finalize(&mut buffer);
 
-        // Make sure the target buffer is aligned before returning.
+        let checksum_size = if self.policy.parameters.checksum == BlockChecksum::Enabled {
+            std::mem::size_of::<u32>()
+        } else {
+            0
+        };
+        // Make sure the target buffer is aligned to 0x8 before returning.
         // Decoders know exactly how many bytes to read, so this padding will be ignored.
-        let alignment = buffer.len().next_multiple_of(ALIGNMENT_BYTES);
+        let alignment = (buffer.len() + checksum_size).next_multiple_of(ALIGNMENT_BYTES);
         buffer.resize(alignment, 0);
 
         if self.policy.parameters.checksum == BlockChecksum::Enabled {
-            let checksum = amudai_format::checksum::compute(&buffer);
-            buffer.write_value::<u32>(checksum);
+            let checksum_pos = buffer.len() - checksum_size;
+            let checksum = amudai_format::checksum::compute(&buffer[..checksum_pos]);
+            buffer.write_value_at::<u32>(checksum_pos, checksum);
         }
 
         Ok(EncodedBlock::Pooled(buffer))
