@@ -16,9 +16,9 @@ pub struct FileReader {
 }
 
 impl FileReader {
-    pub fn new(file: File) -> FileReader {
+    pub fn new(file: impl Into<Arc<File>>) -> FileReader {
         FileReader {
-            file: Arc::new(file),
+            file: file.into(),
             size: Default::default(),
         }
     }

@@ -11,15 +11,15 @@ fn create_stores() -> Vec<Arc<dyn TemporaryFileStore>> {
 fn create_stores_with_capacity(capacity: u64) -> Vec<Arc<dyn TemporaryFileStore>> {
     vec![
         super::create_in_memory(capacity).unwrap(),
-        super::create_file_based_cached(capacity, None).unwrap(),
-        super::create_file_based_uncached(capacity, None).unwrap(),
+        super::create_fs_based(capacity, None).unwrap(),
+        // super::create_file_based_uncached(capacity, None).unwrap(),
     ]
 }
 
 fn test_allocate_writable_write_read_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut writable = store
-        .allocate_writable(None)
-        .expect("Failed to allocate writable");
+        .allocate_stream(None)
+        .expect("Failed to allocate stream");
 
     let data = b"Hello, TemporaryFileStore!";
     writable.write_all(data).expect("Failed to write data");
@@ -42,8 +42,8 @@ fn test_allocate_writable_write_read() {
 
 fn test_allocate_writable_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut writable = store
-        .allocate_writable(None)
-        .expect("Failed to allocate writable");
+        .allocate_stream(None)
+        .expect("Failed to allocate stream");
     assert_eq!(writable.current_size(), 0);
 
     let data = b"Hello, world!";
@@ -60,13 +60,13 @@ fn test_allocate_writable() {
 
 fn test_allocate_buffer_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer = store
-        .allocate_buffer(None)
-        .expect("Failed to allocate buffer");
-    assert_eq!(buffer.current_size(), 0);
+        .allocate_exclusive_buffer(None)
+        .expect("Failed to allocate exclusive buffer");
+    assert_eq!(buffer.size().unwrap(), 0);
 
     let data = b"Hello, buffer!";
-    buffer.write_all(data).expect("Failed to write data");
-    assert_eq!(buffer.current_size(), data.len() as u64);
+    buffer.write_at(0, data).expect("Failed to write data");
+    assert_eq!(buffer.size().unwrap(), data.len() as u64);
 
     let read_data = buffer
         .read_at(0..data.len() as u64)
@@ -83,8 +83,8 @@ fn test_allocate_buffer() {
 
 fn test_truncate_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut writable = store
-        .allocate_writable(None)
-        .expect("Failed to allocate writable");
+        .allocate_stream(None)
+        .expect("Failed to allocate stream");
     let data = b"Hello, world!";
     writable.write_all(data).expect("Failed to write data");
 
@@ -108,14 +108,14 @@ fn test_truncate() {
 
 fn test_allocate_buffer_append_write_read_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer = store
-        .allocate_buffer(None)
-        .expect("Failed to allocate buffer");
+        .allocate_exclusive_buffer(None)
+        .expect("Failed to allocate exclusive buffer");
 
-    // Append initial data
+    // Write initial data
     let initial_data = b"Initial data.";
     buffer
-        .write_all(initial_data)
-        .expect("Failed to append initial data");
+        .write_at(0, initial_data)
+        .expect("Failed to write initial data");
 
     // Write at a specific position
     let overwrite_data = b"Overwrite!";
@@ -123,12 +123,10 @@ fn test_allocate_buffer_append_write_read_impl(store: &Arc<dyn TemporaryFileStor
         .write_at(8, overwrite_data)
         .expect("Failed to write at position");
 
-    let range = 0..buffer.current_size();
+    let range = 0..buffer.size().unwrap();
 
     // Convert to reader and verify
-    let reader = buffer
-        .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+    let reader = buffer.into_read_at().expect("Failed to convert to ReadAt");
 
     // Read the entire range
     let bytes = reader.read_at(range).expect("Failed to read at range");
@@ -146,8 +144,8 @@ fn test_allocate_buffer_append_write_read() {
 
 fn test_truncate_writable_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut writable = store
-        .allocate_writable(None)
-        .expect("Failed to allocate writable");
+        .allocate_stream(None)
+        .expect("Failed to allocate stream");
 
     let data = b"Data before truncation.";
     writable.write_all(data).expect("Failed to write data");
@@ -176,15 +174,15 @@ fn test_truncate_writable() {
 /// Test reading beyond the end of the writable stream to ensure short reads are handled.
 fn test_read_beyond_end_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut writable = store
-        .allocate_writable(None)
-        .expect("Failed to allocate writable");
+        .allocate_stream(None)
+        .expect("Failed to allocate stream");
 
     let data = b"Short data.";
     writable.write_all(data).expect("Failed to write data");
 
     let reader = writable
         .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+        .expect("Failed to convert to ReadAt");
 
     let range = 0..data.len() as u64 + 10; // Extend beyond the data length
     let bytes = reader.read_at(range).expect("Failed to read at range");
@@ -214,8 +212,8 @@ fn test_concurrent_access_impl(store: &Arc<dyn TemporaryFileStore>) {
         let data = data_per_thread.to_vec();
         handles.push(thread::spawn(move || {
             let mut writable = store_clone
-                .allocate_writable(None)
-                .expect("Failed to allocate writable");
+                .allocate_stream(None)
+                .expect("Failed to allocate stream");
             writable.write_all(&data).expect("Failed to write data");
             let mut reader = writable.into_reader().expect("Failed to convert to reader");
             let mut read_data = Vec::new();
@@ -241,8 +239,8 @@ fn test_concurrent_access() {
 /// Test handling of empty writable streams.
 fn test_empty_writable_impl(store: &Arc<dyn TemporaryFileStore>) {
     let writable = store
-        .allocate_writable(None)
-        .expect("Failed to allocate writable");
+        .allocate_stream(None)
+        .expect("Failed to allocate stream");
 
     assert_eq!(writable.current_size(), 0);
 
@@ -266,13 +264,13 @@ fn test_empty_writable() {
 /// Test writing at the beginning, middle, and end positions.
 fn test_write_at_positions_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer = store
-        .allocate_buffer(None)
-        .expect("Failed to allocate buffer");
+        .allocate_exclusive_buffer(None)
+        .expect("Failed to allocate exclusive buffer");
 
     // Initial write
     let initial_data = b"HelloWorld";
     buffer
-        .write_all(initial_data)
+        .write_at(0, initial_data)
         .expect("Failed to write initial data");
 
     // Write at beginning
@@ -290,15 +288,13 @@ fn test_write_at_positions_impl(store: &Arc<dyn TemporaryFileStore>) {
     // Write at the end
     let end_data = b"End";
     buffer
-        .write_at(buffer.current_size(), end_data)
+        .write_at(buffer.size().unwrap(), end_data)
         .expect("Failed to write at end");
 
-    let range = 0..buffer.current_size();
+    let range = 0..buffer.size().unwrap();
 
     // Convert to reader and verify
-    let reader = buffer
-        .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+    let reader = buffer.into_read_at().expect("Failed to convert to ReadAt");
 
     let bytes = reader.read_at(range).expect("Failed to read at range");
 
@@ -316,21 +312,21 @@ fn test_write_at_positions() {
 /// Test allocating multiple buffers and ensuring isolation between them.
 fn test_multiple_buffers_isolation_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer1 = store
-        .allocate_buffer(None)
+        .allocate_exclusive_buffer(None)
         .expect("Failed to allocate buffer1");
     let mut buffer2 = store
-        .allocate_buffer(None)
+        .allocate_exclusive_buffer(None)
         .expect("Failed to allocate buffer2");
 
     buffer1
-        .write_all(b"Buffer1 Data")
+        .write_at(0, b"Buffer1 Data")
         .expect("Failed to write to buffer1");
     buffer2
-        .write_all(b"Buffer2 Data")
+        .write_at(0, b"Buffer2 Data")
         .expect("Failed to write to buffer2");
 
-    let buffer1_size = buffer1.current_size();
-    let buffer2_size = buffer1.current_size();
+    let buffer1_size = buffer1.size().unwrap();
+    let buffer2_size = buffer2.size().unwrap();
 
     let reader1 = buffer1
         .into_read_at()
@@ -360,19 +356,17 @@ fn test_multiple_buffers_isolation() {
 /// Test truncating a buffer and ensuring subsequent reads reflect the truncation.
 fn test_truncate_buffer_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer = store
-        .allocate_buffer(None)
-        .expect("Failed to allocate buffer");
+        .allocate_exclusive_buffer(None)
+        .expect("Failed to allocate exclusive buffer");
 
     buffer
-        .write_all(b"Data to be truncated")
+        .write_at(0, b"Data to be truncated")
         .expect("Failed to write data");
-    buffer.truncate(9).expect("Failed to truncate buffer");
+    buffer.set_size(9).expect("Failed to truncate buffer");
 
-    assert_eq!(buffer.current_size(), 9);
+    assert_eq!(buffer.size().unwrap(), 9);
 
-    let reader = buffer
-        .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+    let reader = buffer.into_read_at().expect("Failed to convert to ReadAt");
     let bytes = reader.read_at(0..9).expect("Failed to read from buffer");
 
     assert_eq!(&bytes[..], b"Data to b");
@@ -388,21 +382,19 @@ fn test_truncate_buffer() {
 /// Test writing beyond the current size to ensure the buffer expands correctly.
 fn test_write_beyond_current_size_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer = store
-        .allocate_buffer(None)
-        .expect("Failed to allocate buffer");
+        .allocate_exclusive_buffer(None)
+        .expect("Failed to allocate exclusive buffer");
 
     buffer
-        .write_all(b"Initial")
+        .write_at(0, b"Initial")
         .expect("Failed to write initial data");
     buffer
         .write_at(10, b"Extended")
         .expect("Failed to write beyond current size");
 
-    assert_eq!(buffer.current_size(), 18);
+    assert_eq!(buffer.size().unwrap(), 18);
 
-    let reader = buffer
-        .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+    let reader = buffer.into_read_at().expect("Failed to convert to ReadAt");
 
     let bytes = reader.read_at(0..18).expect("Failed to read at range");
 
@@ -426,14 +418,12 @@ fn test_multiple_readers_concurrent_access_impl(store: &Arc<dyn TemporaryFileSto
     use std::thread;
 
     let mut buffer = store
-        .allocate_buffer(None)
-        .expect("Failed to allocate buffer");
+        .allocate_exclusive_buffer(None)
+        .expect("Failed to allocate exclusive buffer");
     buffer
-        .write_all(b"Concurrent Readers Data")
+        .write_at(0, b"Concurrent Readers Data")
         .expect("Failed to write data");
-    let reader = buffer
-        .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+    let reader = buffer.into_read_at().expect("Failed to convert to ReadAt");
 
     let reader_arc = Arc::new(reader);
     let num_threads = 5;
@@ -442,7 +432,7 @@ fn test_multiple_readers_concurrent_access_impl(store: &Arc<dyn TemporaryFileSto
     for _ in 0..num_threads {
         let reader_clone = Arc::clone(&reader_arc);
         handles.push(thread::spawn(move || {
-            let bytes = reader_clone.read_at(0..24).expect("Failed to read data");
+            let bytes = reader_clone.read_at(0..23).expect("Failed to read data");
             assert_eq!(&bytes[..], b"Concurrent Readers Data");
         }));
     }
@@ -462,14 +452,14 @@ fn test_multiple_readers_concurrent_access() {
 /// Test reading and writing with invalid ranges to ensure proper error handling.
 fn test_invalid_range_operations_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut writable = store
-        .allocate_writable(None)
-        .expect("Failed to allocate writable");
+        .allocate_stream(None)
+        .expect("Failed to allocate stream");
     writable
         .write_all(b"Valid data")
         .expect("Failed to write data");
     let reader = writable
         .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+        .expect("Failed to convert to ReadAt");
 
     // Invalid range where start > end
     let invalid_range = Range { start: 10, end: 5 };
@@ -496,16 +486,14 @@ fn test_invalid_range_operations() {
 /// Test that writing zero bytes does not alter the buffer.
 fn test_write_zero_bytes_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer = store
-        .allocate_buffer(None)
-        .expect("Failed to allocate buffer");
-    buffer.write_all(b"Data").expect("Failed to write data");
-    buffer.write_all(&[]).expect("Failed to write zero bytes");
+        .allocate_exclusive_buffer(None)
+        .expect("Failed to allocate exclusive buffer");
+    buffer.write_at(0, b"Data").expect("Failed to write data");
+    buffer.write_at(4, &[]).expect("Failed to write zero bytes");
 
-    assert_eq!(buffer.current_size(), 4);
+    assert_eq!(buffer.size().unwrap(), 4);
 
-    let reader = buffer
-        .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+    let reader = buffer.into_read_at().expect("Failed to convert to ReadAt");
     let bytes = reader.read_at(0..4).expect("Failed to read data");
 
     assert_eq!(&bytes[..], b"Data");
@@ -521,31 +509,29 @@ fn test_write_zero_bytes() {
 /// Test reading from a buffer after multiple write and truncate operations.
 fn test_read_after_multiple_writes_truncates_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer = store
-        .allocate_buffer(None)
-        .expect("Failed to allocate buffer");
+        .allocate_exclusive_buffer(None)
+        .expect("Failed to allocate exclusive buffer");
 
     buffer
-        .write_all(b"First part. ")
+        .write_at(0, b"First part. ")
         .expect("Failed to write first part");
     buffer
-        .write_all(b"Second part. ")
+        .write_at(12, b"Second part. ")
         .expect("Failed to write second part");
     buffer
-        .truncate(12)
+        .set_size(12)
         .expect("Failed to truncate to 'First part.'");
 
     buffer
-        .write_all(b"Modified. ")
+        .write_at(12, b"Modified. ")
         .expect("Failed to write modified data");
     buffer
-        .write_all(b"Third part.")
+        .write_at(22, b"Third part.")
         .expect("Failed to write third part");
 
-    let size = buffer.current_size();
+    let size = buffer.size().unwrap();
 
-    let reader = buffer
-        .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+    let reader = buffer.into_read_at().expect("Failed to convert to ReadAt");
     let bytes = reader.read_at(0..size).expect("Failed to read data");
 
     let expected = b"First part. Modified. Third part.";
@@ -562,14 +548,12 @@ fn test_read_after_multiple_writes_truncates() {
 /// Test writing to a buffer and reading specific ranges to verify `read_at` functionality.
 fn test_read_at_specific_ranges_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer = store
-        .allocate_buffer(None)
-        .expect("Failed to allocate buffer");
+        .allocate_exclusive_buffer(None)
+        .expect("Failed to allocate exclusive buffer");
     let data = b"The quick brown fox jumps over the lazy dog.";
-    buffer.write_all(data).expect("Failed to write data");
+    buffer.write_at(0, data).expect("Failed to write data");
 
-    let reader = buffer
-        .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+    let reader = buffer.into_read_at().expect("Failed to convert to ReadAt");
 
     // Read the word "quick"
     let quick = reader.read_at(4..9).expect("Failed to read 'quick'");
@@ -600,8 +584,8 @@ fn test_read_at_specific_ranges() {
 /// Test writing non-sequential data using `write_at` and verifying the entire buffer.
 fn test_write_at_non_sequential_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer = store
-        .allocate_buffer(None)
-        .expect("Failed to allocate buffer");
+        .allocate_exclusive_buffer(None)
+        .expect("Failed to allocate exclusive buffer");
 
     // Write "Hello"
     buffer
@@ -616,9 +600,7 @@ fn test_write_at_non_sequential_impl(store: &Arc<dyn TemporaryFileStore>) {
     // The buffer should have "Hello" followed by 5 padding bytes and then "World"
     let expected = b"Hello\x00\x00\x00\x00\x00World";
 
-    let reader = buffer
-        .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+    let reader = buffer.into_read_at().expect("Failed to convert to ReadAt");
     let bytes = reader.read_at(0..15).expect("Failed to read data");
 
     assert_eq!(&bytes[..], &expected[..]);
@@ -634,25 +616,23 @@ fn test_write_at_non_sequential() {
 /// Test that multiple truncates work as expected.
 fn test_multiple_truncates_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer = store
-        .allocate_buffer(None)
-        .expect("Failed to allocate buffer");
+        .allocate_exclusive_buffer(None)
+        .expect("Failed to allocate exclusive buffer");
 
     buffer
-        .write_all(b"Data for truncation testing")
+        .write_at(0, b"Data for truncation testing")
         .expect("Failed to write data");
-    buffer.truncate(10).expect("Failed to truncate to 10 bytes");
-    assert_eq!(buffer.current_size(), 10);
+    buffer.set_size(10).expect("Failed to truncate to 10 bytes");
+    assert_eq!(buffer.size().unwrap(), 10);
 
-    buffer.truncate(5).expect("Failed to truncate to 5 bytes");
-    assert_eq!(buffer.current_size(), 5);
+    buffer.set_size(5).expect("Failed to truncate to 5 bytes");
+    assert_eq!(buffer.size().unwrap(), 5);
 
     buffer.write_at(8, b"aaa").expect("Failed to extend");
-    buffer.truncate(8).expect("Failed to truncate to 8 bytes");
-    assert_eq!(buffer.current_size(), 8);
+    buffer.set_size(8).expect("Failed to truncate to 8 bytes");
+    assert_eq!(buffer.size().unwrap(), 8);
 
-    let reader = buffer
-        .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+    let reader = buffer.into_read_at().expect("Failed to convert to ReadAt");
     let bytes = reader.read_at(0..8).expect("Failed to read data");
 
     // Expect first 5 bytes of "Data " followed by 3 padding bytes
@@ -670,20 +650,20 @@ fn test_multiple_truncates() {
 /// Test writing and reading multiple small chunks to simulate fragmented writes.
 fn test_fragmented_writes_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer = store
-        .allocate_buffer(None)
-        .expect("Failed to allocate buffer");
+        .allocate_exclusive_buffer(None)
+        .expect("Failed to allocate exclusive buffer");
 
     let chunks: Vec<&[u8]> = vec![b"Frag", b"mented", b" ", b"Write", b"s."];
+    let mut pos = 0;
 
     for chunk in &chunks {
-        buffer.write_all(chunk).expect("Failed to write chunk");
+        buffer.write_at(pos, chunk).expect("Failed to write chunk");
+        pos += chunk.len() as u64;
     }
 
-    let size = buffer.current_size();
+    let size = buffer.size().unwrap();
 
-    let reader = buffer
-        .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+    let reader = buffer.into_read_at().expect("Failed to convert to ReadAt");
     let bytes = reader.read_at(0..size).expect("Failed to read data");
 
     let expected = b"Fragmented Writes.";
@@ -700,11 +680,11 @@ fn test_fragmented_writes() {
 /// Test that writing and reading with overlapping `write_at` operations maintains data integrity.
 fn test_overlapping_write_at_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer = store
-        .allocate_buffer(None)
-        .expect("Failed to allocate buffer");
+        .allocate_exclusive_buffer(None)
+        .expect("Failed to allocate exclusive buffer");
 
     buffer
-        .write_all(b"ABCDEFGHIJ")
+        .write_at(0, b"ABCDEFGHIJ")
         .expect("Failed to write initial data");
 
     // Overwrite "CDE" with "123"
@@ -717,10 +697,8 @@ fn test_overlapping_write_at_impl(store: &Arc<dyn TemporaryFileStore>) {
         .write_at(5, b"4567")
         .expect("Failed to overwrite 'FGH'");
 
-    let size = buffer.current_size();
-    let reader = buffer
-        .into_read_at()
-        .expect("Failed to convert to ReadAtBlocking");
+    let size = buffer.size().unwrap();
+    let reader = buffer.into_read_at().expect("Failed to convert to ReadAt");
     let bytes = reader.read_at(0..size).expect("Failed to read data");
 
     let expected = b"AB1234567J";
@@ -737,8 +715,8 @@ fn test_overlapping_write_at() {
 /// Test writing and reading zero-length ranges to ensure no data is returned but no error occurs.
 fn test_zero_length_read_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut writable = store
-        .allocate_writable(None)
-        .expect("Failed to allocate writable");
+        .allocate_stream(None)
+        .expect("Failed to allocate stream");
     writable
         .write_all(b"Non-empty data")
         .expect("Failed to write data");
@@ -763,8 +741,8 @@ fn test_zero_length_read() {
 /// Test converting a writable stream to a `std::io::Read` and verifying data integrity.
 fn test_into_std_read_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut writable = store
-        .allocate_writable(None)
-        .expect("Failed to allocate writable");
+        .allocate_stream(None)
+        .expect("Failed to allocate stream");
     let data = b"Standard Read data.";
     writable.write_all(data).expect("Failed to write data");
 
@@ -789,7 +767,7 @@ fn test_into_std_read() {
 /// Test writing and reading with non-aligned positions to ensure flexibility.
 fn test_non_aligned_positions_impl(store: &Arc<dyn TemporaryFileStore>) {
     let mut buffer = store
-        .allocate_buffer(None)
+        .allocate_exclusive_buffer(None)
         .expect("Failed to allocate buffer");
 
     // Write "Rustaceans" starting at position 3

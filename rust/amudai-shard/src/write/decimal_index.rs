@@ -85,7 +85,7 @@ impl DecimalIndexBuilder {
     fn encode_bytes(
         &self,
         encoding_policy: &BlockEncodingPolicy,
-        buffer: &mut dyn amudai_io::temp_file_store::TemporaryBuffer,
+        buffer: &mut dyn amudai_io::ExclusiveIoBuffer,
         pos: u64,
         data: &[u8],
     ) -> Result<u64> {
@@ -112,7 +112,7 @@ impl DecimalIndexBuilder {
 
     /// Encodes the accumulated index data into the final buffer format.
     fn encode_index(&self) -> Result<PreparedEncodedBuffer> {
-        let mut writer = self.temp_store.allocate_buffer(None)?;
+        let mut writer = self.temp_store.allocate_exclusive_buffer(None)?;
 
         let encoding_policy = BlockEncodingPolicy {
             parameters: BlockEncodingParameters {

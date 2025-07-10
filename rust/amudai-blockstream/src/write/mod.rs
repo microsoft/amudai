@@ -25,7 +25,7 @@ use amudai_format::defs::{
     common::DataRef,
     shard::{self, BufferKind},
 };
-use amudai_io::{ReadAt, temp_file_store::TemporaryWritable};
+use amudai_io::{IoStream, ReadAt};
 
 use crate::{
     read::block_stream::{BlockReaderPrefetch, BlockStreamDecoder},
@@ -114,7 +114,7 @@ impl PreparedEncodedBuffer {
     /// - Block map construction fails due to size constraints or invalid block data
     pub fn concatenate(
         sources: &[&PreparedEncodedBuffer],
-        writer: Box<dyn TemporaryWritable>,
+        writer: Box<dyn IoStream>,
     ) -> Result<PreparedEncodedBuffer> {
         Self::verify_concatenated_sources(sources)?;
 

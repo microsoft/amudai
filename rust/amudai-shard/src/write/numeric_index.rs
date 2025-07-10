@@ -486,7 +486,7 @@ impl<T: NumericIndexable> TypedNumericIndexBuilder<T> {
     fn encode_bytes(
         &self,
         encoding_policy: &BlockEncodingPolicy,
-        buffer: &mut dyn amudai_io::temp_file_store::TemporaryBuffer,
+        buffer: &mut dyn amudai_io::ExclusiveIoBuffer,
         pos: u64,
         data: &[u8],
     ) -> Result<u64> {
@@ -541,7 +541,7 @@ impl<T: NumericIndexable> TypedNumericIndexBuilder<T> {
     /// A `PreparedEncodedBuffer` containing the complete encoded index.
     fn encode_index(&self) -> Result<PreparedEncodedBuffer> {
         // Writer for the result
-        let mut writer = self.temp_store.allocate_buffer(None)?;
+        let mut writer = self.temp_store.allocate_exclusive_buffer(None)?;
 
         // Create encoding policy with checksums enabled
         let encoding_policy = BlockEncodingPolicy {

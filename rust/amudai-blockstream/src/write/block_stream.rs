@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use amudai_common::{Result, error::Error, verify_arg};
-use amudai_io::{ReadAt, io_extensions::AlignWrite, temp_file_store::TemporaryWritable};
+use amudai_io::{IoStream, ReadAt, io_extensions::AlignWrite};
 
 use super::block_map_encoder::BlockMapEncoder;
 
@@ -21,12 +21,12 @@ use super::block_map_encoder::BlockMapEncoder;
 /// During the creation of the block stream, `BlockStreamEncoder` manages the bookkeeping of logical
 /// block sizes to construct a `BlockMap`.
 pub struct BlockStreamEncoder {
-    writer: Box<dyn TemporaryWritable>,
+    writer: Box<dyn IoStream>,
     block_map: BlockMapEncoder,
 }
 
 impl BlockStreamEncoder {
-    pub fn new(writer: Box<dyn TemporaryWritable>) -> BlockStreamEncoder {
+    pub fn new(writer: Box<dyn IoStream>) -> BlockStreamEncoder {
         assert_eq!(writer.current_size(), 0);
         BlockStreamEncoder {
             writer,
@@ -115,7 +115,7 @@ impl std::fmt::Debug for PreparedBlockStream {
 
 #[cfg(test)]
 mod tests {
-    use amudai_io::temp_file_store::TemporaryWritable;
+    use amudai_io::IoStream;
     use amudai_io_impl::temp_file_store;
 
     use super::BlockStreamEncoder;
@@ -160,8 +160,8 @@ mod tests {
         assert_eq!(&buf[0..10], b"aababcabcd");
     }
 
-    fn new_temp_writable() -> Box<dyn TemporaryWritable> {
+    fn new_temp_writable() -> Box<dyn IoStream> {
         let temp_store = temp_file_store::create_in_memory(100000000).unwrap();
-        temp_store.allocate_writable(None).unwrap()
+        temp_store.allocate_stream(None).unwrap()
     }
 }

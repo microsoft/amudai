@@ -58,8 +58,8 @@ impl PrimitiveBufferEncoder {
     ) -> Result<PrimitiveBufferEncoder> {
         // TODO: consider passing reasonable size hint.
         let writer = temp_store
-            .allocate_writable(None)
-            .map_err(|e| Error::io("allocate_writable", e))?;
+            .allocate_stream(None)
+            .map_err(|e| Error::io("allocate_stream", e))?;
         Ok(PrimitiveBufferEncoder {
             block_params: policy.parameters.clone(),
             block_encoder: PrimitiveBlockEncoder::new(

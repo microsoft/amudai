@@ -1,11 +1,13 @@
-use std::{io, sync::Arc};
+use std::{
+    io,
+    sync::{Arc, RwLock},
+};
 
 use amudai_budget_tracker::{Allocation, Budget};
 use amudai_bytes::{Bytes, BytesMut};
 use amudai_io::{
-    ReadAt, StorageProfile,
-    temp_file_store::{TemporaryBuffer, TemporaryFileStore, TemporaryWritable},
-    verify,
+    ExclusiveIoBuffer, IoStream, ReadAt, SharedIoBuffer, StorageProfile, WriteAt,
+    temp_file_store::TemporaryFileStore, verify,
 };
 
 pub struct InMemoryTempFileStore {
@@ -35,17 +37,25 @@ impl InMemoryTempFileStore {
 }
 
 impl TemporaryFileStore for InMemoryTempFileStore {
-    fn allocate_writable(
-        &self,
-        size_hint: Option<usize>,
-    ) -> io::Result<Box<dyn TemporaryWritable>> {
+    fn allocate_stream(&self, size_hint: Option<usize>) -> std::io::Result<Box<dyn IoStream>> {
         self.create_temp_buffer(size_hint)
-            .map(|buf| Box::new(buf) as Box<dyn TemporaryWritable>)
+            .map(|t| Box::new(t) as Box<dyn IoStream>)
     }
 
-    fn allocate_buffer(&self, size_hint: Option<usize>) -> io::Result<Box<dyn TemporaryBuffer>> {
+    fn allocate_exclusive_buffer(
+        &self,
+        size_hint: Option<usize>,
+    ) -> std::io::Result<Box<dyn ExclusiveIoBuffer>> {
         self.create_temp_buffer(size_hint)
-            .map(|buf| Box::new(buf) as Box<dyn TemporaryBuffer>)
+            .map(|t| Box::new(t) as Box<dyn ExclusiveIoBuffer>)
+    }
+
+    fn allocate_shared_buffer(
+        &self,
+        size_hint: Option<usize>,
+    ) -> std::io::Result<Box<dyn SharedIoBuffer>> {
+        self.create_temp_buffer(size_hint)
+            .map(|t| Box::new(Shared::new(t)) as Box<dyn SharedIoBuffer>)
     }
 }
 
@@ -74,6 +84,65 @@ impl InMemoryTempBuffer {
         Ok(())
     }
 
+    fn write_impl(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.write_at_impl(self.write_pos, buf)?;
+        self.write_pos += buf.len() as u64;
+        Ok(buf.len())
+    }
+
+    fn set_size_impl(&mut self, size: u64) -> std::io::Result<()> {
+        if size < self.current_size() {
+            self.truncate_impl(size)
+        } else {
+            self.ensure_allocation_for_size(size as usize)?;
+            self.data.resize(size as usize, 0);
+            Ok(())
+        }
+    }
+
+    fn truncate_impl(&mut self, end_pos: u64) -> std::io::Result<()> {
+        assert_eq!(self.allocation.amount(), self.current_size());
+        if end_pos < self.current_size() {
+            self.data.truncate(end_pos as usize);
+            self.allocation.shrink_to(end_pos);
+            self.write_pos = std::cmp::min(self.write_pos, end_pos);
+        }
+        Ok(())
+    }
+
+    fn write_at_impl(&mut self, pos: u64, buf: &[u8]) -> std::io::Result<()> {
+        let end_pos = pos + buf.len() as u64;
+        self.ensure_allocation_for_size(end_pos as usize)?;
+
+        if pos == self.current_size() {
+            self.data.extend_from_slice(buf);
+        } else {
+            if end_pos > self.current_size() {
+                self.data.resize(end_pos as usize, 0);
+            }
+            self.data[pos as usize..end_pos as usize].copy_from_slice(buf);
+        }
+        Ok(())
+    }
+
+    fn read_at_impl(&self, range: std::ops::Range<u64>) -> io::Result<Bytes> {
+        verify!(range.end >= range.start);
+        let end = range.end.min(self.data.len() as u64);
+        verify!(end >= range.start);
+        if end > range.start {
+            Ok(Bytes::from(&self.data[range.start as usize..end as usize]))
+        } else {
+            Ok(Bytes::new())
+        }
+    }
+
+    fn storage_profile_impl(&self) -> StorageProfile {
+        StorageProfile {
+            min_io_size: 1,
+            max_io_size: 1024 * 1024,
+        }
+    }
+
     fn make_reader(self) -> InMemoryTempReader {
         assert_eq!(self.allocation.amount(), self.current_size());
         let mut allocation = self.allocation;
@@ -85,13 +154,19 @@ impl InMemoryTempBuffer {
             _allocation: allocation,
         }
     }
+
+    fn into_read_at_impl(self) -> std::io::Result<Arc<dyn ReadAt>> {
+        Ok(Arc::new(self.make_reader()))
+    }
+
+    fn into_reader_impl(self) -> std::io::Result<Box<dyn std::io::Read>> {
+        Ok(Box::new(self.make_reader()))
+    }
 }
 
 impl io::Write for InMemoryTempBuffer {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.write_at(self.write_pos, buf)?;
-        self.write_pos += buf.len() as u64;
-        Ok(buf.len())
+        self.write_impl(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -105,62 +180,93 @@ impl ReadAt for InMemoryTempBuffer {
     }
 
     fn read_at(&self, range: std::ops::Range<u64>) -> io::Result<Bytes> {
-        verify!(range.end >= range.start);
-        let end = range.end.min(self.data.len() as u64);
-        verify!(end >= range.start);
-        if end > range.start {
-            Ok(Bytes::from(&self.data[range.start as usize..end as usize]))
-        } else {
-            Ok(Bytes::new())
-        }
+        self.read_at_impl(range)
     }
 
     fn storage_profile(&self) -> StorageProfile {
-        StorageProfile {
-            min_io_size: 1,
-            max_io_size: 1024 * 1024,
-        }
+        self.storage_profile_impl()
     }
 }
 
-impl TemporaryWritable for InMemoryTempBuffer {
+impl IoStream for InMemoryTempBuffer {
     fn current_size(&self) -> u64 {
         self.data.len() as u64
     }
 
-    fn truncate(&mut self, end_pos: u64) -> io::Result<()> {
-        assert_eq!(self.allocation.amount(), self.current_size());
-        if end_pos < self.current_size() {
-            self.data.truncate(end_pos as usize);
-            self.allocation.shrink_to(end_pos);
-            self.write_pos = std::cmp::min(self.write_pos, end_pos);
-        }
-        Ok(())
+    fn truncate(&mut self, end_pos: u64) -> std::io::Result<()> {
+        self.truncate_impl(end_pos)
     }
 
-    fn into_read_at(self: Box<Self>) -> io::Result<Arc<dyn amudai_io::ReadAt>> {
-        Ok(Arc::new(self.make_reader()))
+    fn into_read_at(self: Box<Self>) -> std::io::Result<Arc<dyn ReadAt>> {
+        self.into_read_at_impl()
     }
 
-    fn into_reader(self: Box<Self>) -> io::Result<Box<dyn io::Read>> {
-        Ok(Box::new(self.make_reader()))
+    fn into_reader(self: Box<Self>) -> std::io::Result<Box<dyn std::io::Read>> {
+        self.into_reader_impl()
     }
 }
 
-impl TemporaryBuffer for InMemoryTempBuffer {
-    fn write_at(&mut self, pos: u64, buf: &[u8]) -> io::Result<()> {
-        let end_pos = pos + buf.len() as u64;
-        self.ensure_allocation_for_size(end_pos as usize)?;
+impl ExclusiveIoBuffer for InMemoryTempBuffer {
+    fn set_size(&mut self, size: u64) -> std::io::Result<()> {
+        self.set_size_impl(size)
+    }
 
-        if pos == self.current_size() {
-            self.data.extend_from_slice(buf);
-        } else {
-            if end_pos > self.current_size() {
-                self.data.resize(end_pos as usize, 0);
-            }
-            self.data[pos as usize..end_pos as usize].copy_from_slice(buf);
-        }
-        Ok(())
+    fn write_at(&mut self, pos: u64, buf: &[u8]) -> std::io::Result<()> {
+        self.write_at_impl(pos, buf)
+    }
+
+    fn into_read_at(self: Box<Self>) -> std::io::Result<Arc<dyn ReadAt>> {
+        self.into_read_at_impl()
+    }
+
+    fn into_reader(self: Box<Self>) -> std::io::Result<Box<dyn std::io::Read>> {
+        self.into_reader_impl()
+    }
+}
+
+struct Shared(RwLock<InMemoryTempBuffer>);
+
+impl Shared {
+    fn new(buf: InMemoryTempBuffer) -> Shared {
+        Shared(RwLock::new(buf))
+    }
+}
+
+impl ReadAt for Shared {
+    fn size(&self) -> std::io::Result<u64> {
+        self.0.read().unwrap().size()
+    }
+
+    fn read_at(&self, range: std::ops::Range<u64>) -> std::io::Result<Bytes> {
+        self.0.read().unwrap().read_at_impl(range)
+    }
+
+    fn storage_profile(&self) -> StorageProfile {
+        self.0.read().unwrap().storage_profile_impl()
+    }
+}
+
+impl WriteAt for Shared {
+    fn write_at(&self, pos: u64, buf: &[u8]) -> std::io::Result<()> {
+        self.0.write().unwrap().write_at_impl(pos, buf)
+    }
+
+    fn storage_profile(&self) -> StorageProfile {
+        self.0.read().unwrap().storage_profile_impl()
+    }
+}
+
+impl SharedIoBuffer for Shared {
+    fn set_size(&self, size: u64) -> std::io::Result<()> {
+        self.0.write().unwrap().set_size_impl(size)
+    }
+
+    fn into_read_at(self: Box<Self>) -> std::io::Result<Arc<dyn ReadAt>> {
+        self.0.into_inner().unwrap().into_read_at_impl()
+    }
+
+    fn into_reader(self: Box<Self>) -> std::io::Result<Box<dyn std::io::Read>> {
+        self.0.into_inner().unwrap().into_reader_impl()
     }
 }
 
@@ -182,7 +288,7 @@ impl ReadAt for InMemoryTempReader {
     fn storage_profile(&self) -> StorageProfile {
         StorageProfile {
             min_io_size: 1,
-            max_io_size: self.bytes.len(),
+            max_io_size: StorageProfile::default().max_io_size,
         }
     }
 }
@@ -214,7 +320,7 @@ mod tests {
     #[test]
     fn test_in_memory_temp_file_store_allocate_writable() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1024);
-        let writable = store.allocate_writable(Some(512))?;
+        let writable = store.allocate_stream(Some(512))?;
         assert_eq!(store.available_space(), 512); // Initial reservation
         assert_eq!(writable.current_size(), 0);
         Ok(())
@@ -223,7 +329,7 @@ mod tests {
     #[test]
     fn test_in_memory_temp_file_store_allocate_buffer() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1024);
-        let buffer = store.allocate_buffer(Some(512))?;
+        let buffer = store.allocate_exclusive_buffer(Some(512))?;
         assert_eq!(store.available_space(), 512);
         drop(buffer);
         assert_eq!(store.available_space(), 1024);
@@ -233,7 +339,7 @@ mod tests {
     #[test]
     fn test_in_memory_temp_file_store_allocate_no_hint() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1024);
-        let writable = store.allocate_writable(None)?;
+        let writable = store.allocate_stream(None)?;
         assert_eq!(store.available_space(), 1024); // Initial reservation
         assert_eq!(writable.current_size(), 0);
         Ok(())
@@ -242,14 +348,14 @@ mod tests {
     #[test]
     fn test_in_memory_temp_file_store_allocate_exceed_capacity() {
         let store = InMemoryTempFileStore::new(1024);
-        let result = store.allocate_writable(Some(1024 * 1024));
+        let result = store.allocate_stream(Some(1024 * 1024));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_in_memory_temp_buffer_write_and_read() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1024 * 1024);
-        let mut buffer = store.allocate_writable(None)?;
+        let mut buffer = store.allocate_stream(None)?;
 
         let data = b"hello world";
         buffer.write_all(data)?;
@@ -265,15 +371,15 @@ mod tests {
     #[test]
     fn test_in_memory_temp_buffer_write_at() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1024 * 1024);
-        let mut buffer = store.allocate_buffer(None)?;
+        let mut buffer = store.allocate_exclusive_buffer(None)?;
 
         let data1 = b"hello";
         buffer.write_at(0, data1)?;
-        assert_eq!(buffer.current_size(), data1.len() as u64);
+        assert_eq!(buffer.size()?, data1.len() as u64);
 
         let data2 = b" world";
         buffer.write_at(data1.len() as u64, data2)?;
-        assert_eq!(buffer.current_size(), (data1.len() + data2.len()) as u64);
+        assert_eq!(buffer.size()?, (data1.len() + data2.len()) as u64);
 
         let buf = buffer.read_at(0..(data1.len() + data2.len()) as u64)?;
         assert_eq!(buf.as_ref(), b"hello world");
@@ -283,7 +389,7 @@ mod tests {
     #[test]
     fn test_in_memory_temp_buffer_write_at_overwrite() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1024 * 1024);
-        let mut buffer = store.allocate_buffer(None)?;
+        let mut buffer = store.allocate_exclusive_buffer(None)?;
 
         let data1 = b"hello world";
         buffer.write_at(0, data1)?;
@@ -299,7 +405,7 @@ mod tests {
     #[test]
     fn test_in_memory_temp_buffer_write_at_extend() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1024 * 1024);
-        let mut buffer = store.allocate_buffer(None)?;
+        let mut buffer = store.allocate_exclusive_buffer(None)?;
 
         let data1 = b"hello";
         buffer.write_at(0, data1)?;
@@ -315,7 +421,7 @@ mod tests {
     #[test]
     fn test_in_memory_temp_buffer_truncate() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1024 * 1024);
-        let mut buffer = store.allocate_writable(None)?;
+        let mut buffer = store.allocate_stream(None)?;
 
         let data = b"hello world";
         buffer.write_all(data)?;
@@ -334,7 +440,7 @@ mod tests {
     #[test]
     fn test_in_memory_temp_buffer_truncate_no_op() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1024 * 1024);
-        let mut buffer = store.allocate_writable(None)?;
+        let mut buffer = store.allocate_stream(None)?;
 
         let data = b"hello world";
         buffer.write_all(data)?;
@@ -353,7 +459,7 @@ mod tests {
     #[test]
     fn test_in_memory_temp_buffer_read_at_range() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1024 * 1024);
-        let mut buffer = store.allocate_buffer(None)?;
+        let mut buffer = store.allocate_exclusive_buffer(None)?;
 
         let data = b"hello world";
         buffer.write_at(0, data)?;
@@ -375,7 +481,7 @@ mod tests {
     #[test]
     fn test_in_memory_temp_reader_read_at() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1024 * 1024);
-        let mut buffer = store.allocate_writable(None)?;
+        let mut buffer = store.allocate_stream(None)?;
 
         let data = b"hello world";
         buffer.write_all(data)?;
@@ -398,8 +504,8 @@ mod tests {
     #[test]
     fn test_in_memory_temp_buffer_budget_exceeded() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1024);
-        let mut buffer1 = store.allocate_buffer(None)?;
-        let mut buffer2 = store.allocate_buffer(None)?;
+        let mut buffer1 = store.allocate_stream(None)?;
+        let mut buffer2 = store.allocate_stream(None)?;
 
         for _ in 0..63 {
             buffer1.write_all(b"12345678")?;
@@ -417,7 +523,7 @@ mod tests {
     #[test]
     fn test_truncate_basic_memory() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1000000);
-        let mut temp_file = store.allocate_writable(None)?;
+        let mut temp_file = store.allocate_stream(None)?;
 
         // Write some data
         let data = b"Hello, World! This is test data for truncation.";
@@ -441,7 +547,7 @@ mod tests {
     #[test]
     fn test_truncate_to_zero_memory() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1000000);
-        let mut temp_file = store.allocate_writable(None)?;
+        let mut temp_file = store.allocate_stream(None)?;
 
         // Write some data
         let data = b"Hello, World!";
@@ -464,7 +570,7 @@ mod tests {
     #[test]
     fn test_truncate_no_effect_when_larger_memory() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1000000);
-        let mut temp_file = store.allocate_writable(None)?;
+        let mut temp_file = store.allocate_stream(None)?;
 
         // Write some data
         let data = b"Hello, World!";
@@ -488,7 +594,7 @@ mod tests {
     #[test]
     fn test_truncate_to_same_size_memory() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1000000);
-        let mut temp_file = store.allocate_writable(None)?;
+        let mut temp_file = store.allocate_stream(None)?;
 
         // Write some data
         let data = b"Hello, World!";
@@ -512,7 +618,7 @@ mod tests {
     #[test]
     fn test_truncate_multiple_times_memory() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1000000);
-        let mut temp_file = store.allocate_writable(None)?;
+        let mut temp_file = store.allocate_stream(None)?;
 
         // Write some data
         let data = b"Hello, World! This is a longer test string for multiple truncations.";
@@ -544,19 +650,19 @@ mod tests {
     #[test]
     fn test_truncate_after_sparse_writes_memory() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1000000);
-        let mut temp_file = store.allocate_buffer(None)?;
+        let mut temp_file = store.allocate_exclusive_buffer(None)?;
 
         // Write sparse data
         temp_file.write_at(0, b"start")?;
         temp_file.write_at(100, b"middle")?;
         temp_file.write_at(200, b"end")?;
 
-        let initial_size = temp_file.current_size();
+        let initial_size = temp_file.size()?;
         assert_eq!(initial_size, 203); // 200 + 3 bytes for "end"
 
         // Truncate to middle of file
-        temp_file.truncate(150)?;
-        assert_eq!(temp_file.current_size(), 150);
+        temp_file.set_size(150)?;
+        assert_eq!(temp_file.size()?, 150);
 
         // Verify the data
         let reader = temp_file.into_read_at()?;
@@ -578,7 +684,7 @@ mod tests {
     #[test]
     fn test_truncate_write_position_adjustment_memory() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1000000);
-        let mut temp_file = store.allocate_writable(None)?;
+        let mut temp_file = store.allocate_stream(None)?;
 
         // Write some data
         let data = b"Hello, World! This is test data.";
@@ -609,7 +715,7 @@ mod tests {
     #[test]
     fn test_truncate_budget_tracking_memory() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1000);
-        let mut temp_file = store.allocate_writable(None)?;
+        let mut temp_file = store.allocate_stream(None)?;
 
         // Write data to consume budget
         let data = vec![42u8; 800];
@@ -633,7 +739,7 @@ mod tests {
     #[test]
     fn test_truncate_large_buffer_memory() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(10_000_000);
-        let mut temp_file = store.allocate_writable(None)?;
+        let mut temp_file = store.allocate_stream(None)?;
 
         // Write a large amount of data
         let chunk = vec![42u8; 1024];
@@ -664,7 +770,7 @@ mod tests {
     #[test]
     fn test_truncate_empty_buffer_memory() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1000000);
-        let mut temp_file = store.allocate_writable(None)?;
+        let mut temp_file = store.allocate_stream(None)?;
 
         // Truncate empty file to zero (should be no-op)
         assert_eq!(temp_file.current_size(), 0);
@@ -681,16 +787,16 @@ mod tests {
     #[test]
     fn test_truncate_read_at_boundaries_memory() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1000000);
-        let mut temp_file = store.allocate_buffer(None)?;
+        let mut temp_file = store.allocate_exclusive_buffer(None)?;
 
         // Write test data with pattern
         let data = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
         temp_file.write_at(0, data)?;
-        assert_eq!(temp_file.current_size(), data.len() as u64);
+        assert_eq!(temp_file.size()?, data.len() as u64);
 
         // Truncate at various boundaries
-        temp_file.truncate(25)?;
-        assert_eq!(temp_file.current_size(), 25);
+        temp_file.set_size(25)?;
+        assert_eq!(temp_file.size()?, 25);
 
         // Test read at exactly the boundary
         let boundary_read = temp_file.read_at(24..25)?;
@@ -710,23 +816,23 @@ mod tests {
     #[test]
     fn test_truncate_and_rewrite_memory() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1000000);
-        let mut temp_file = store.allocate_buffer(None)?;
+        let mut temp_file = store.allocate_exclusive_buffer(None)?;
 
         // Initial write
         temp_file.write_at(0, b"Hello, World!")?;
-        assert_eq!(temp_file.current_size(), 13);
+        assert_eq!(temp_file.size()?, 13);
 
         // Truncate to middle
-        temp_file.truncate(7)?;
-        assert_eq!(temp_file.current_size(), 7);
+        temp_file.set_size(7)?;
+        assert_eq!(temp_file.size()?, 7);
 
         // Overwrite from beginning
         temp_file.write_at(0, b"Hi")?;
-        assert_eq!(temp_file.current_size(), 7);
+        assert_eq!(temp_file.size()?, 7);
 
         // Write beyond current size
         temp_file.write_at(10, b"New!")?;
-        assert_eq!(temp_file.current_size(), 14);
+        assert_eq!(temp_file.size()?, 14);
 
         // Verify final data
         let final_data = temp_file.read_at(0..14)?;
@@ -739,7 +845,7 @@ mod tests {
     #[test]
     fn test_truncate_stress_test_memory() -> io::Result<()> {
         let store = InMemoryTempFileStore::new(1000000);
-        let mut temp_file = store.allocate_writable(None)?;
+        let mut temp_file = store.allocate_stream(None)?;
 
         // Write data in chunks and truncate repeatedly
         for i in 0..100 {

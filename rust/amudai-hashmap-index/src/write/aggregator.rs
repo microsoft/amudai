@@ -1,7 +1,7 @@
 use crate::write::builder::get_entry_bucket_index;
 use amudai_collections::identity_hash::IdentityHashMap;
 use amudai_common::Result;
-use amudai_io::temp_file_store::{TemporaryFileStore, TemporaryWritable};
+use amudai_io::{IoStream, temp_file_store::TemporaryFileStore};
 use rayon::prelude::*;
 use std::{
     io::{BufReader, BufWriter, Read, Write},
@@ -13,7 +13,7 @@ use std::{
 /// through multiple temporary files and bucket-based organization.
 pub struct EntriesAggregator {
     temp_store: Arc<dyn TemporaryFileStore>,
-    temp_files: Vec<BufWriter<Box<dyn TemporaryWritable>>>,
+    temp_files: Vec<BufWriter<Box<dyn IoStream>>>,
     max_memory_usage: usize,
 }
 
@@ -43,7 +43,7 @@ impl EntriesAggregator {
         let temp_files = (0..num_files)
             .map(|_| {
                 temp_store
-                    .allocate_writable(None)
+                    .allocate_stream(None)
                     .map_err(|e| e.into())
                     .map(BufWriter::new)
             })
@@ -146,8 +146,8 @@ impl EntriesAggregator {
     /// and returns a new temporary file with the aggregated entries.
     fn aggregate_entries(
         &self,
-        mut temp_file: BufWriter<Box<dyn TemporaryWritable>>,
-    ) -> Result<(BufWriter<Box<dyn TemporaryWritable>>, usize)> {
+        mut temp_file: BufWriter<Box<dyn IoStream>>,
+    ) -> Result<(BufWriter<Box<dyn IoStream>>, usize)> {
         temp_file.flush()?;
 
         let mut entry_map = IdentityHashMap::default();
@@ -178,7 +178,7 @@ impl EntriesAggregator {
         }
 
         let entries_count = entry_map.len();
-        let mut temp_file = BufWriter::new(self.temp_store.allocate_writable(None)?);
+        let mut temp_file = BufWriter::new(self.temp_store.allocate_stream(None)?);
         for (hash, positions) in entry_map {
             let positions_slice = positions.as_slice();
             if positions_slice.is_empty() {
@@ -198,9 +198,9 @@ impl EntriesAggregator {
     /// by the hash, and writes them to a new temporary file.
     fn sort_aggregated_entries(
         &self,
-        temp_file: BufWriter<Box<dyn TemporaryWritable>>,
+        temp_file: BufWriter<Box<dyn IoStream>>,
         buckets_count: usize,
-    ) -> Result<Box<dyn TemporaryWritable>> {
+    ) -> Result<Box<dyn IoStream>> {
         let mut sorted_entries = Vec::with_capacity(buckets_count);
         {
             let mut reader = BufReader::new(
@@ -231,7 +231,7 @@ impl EntriesAggregator {
         sorted_entries
             .par_sort_unstable_by_key(|(hash, _)| get_entry_bucket_index(*hash, buckets_count));
 
-        let temp_file = self.temp_store.allocate_writable(None)?;
+        let temp_file = self.temp_store.allocate_stream(None)?;
         let mut writer = BufWriter::new(temp_file);
         for (hash, positions) in sorted_entries {
             writer.write_all(&hash.to_le_bytes())?;
@@ -269,7 +269,7 @@ impl SortedEntries {
     /// # Errors
     /// Returns an error if file readers cannot be created or initial values
     /// cannot be read from the files.
-    pub fn new(temp_files: Vec<Box<dyn TemporaryWritable>>, buckets_count: usize) -> Result<Self> {
+    pub fn new(temp_files: Vec<Box<dyn IoStream>>, buckets_count: usize) -> Result<Self> {
         let mut readers = temp_files
             .into_iter()
             .map(|temp_file| Ok(BufReader::new(temp_file.into_reader()?)))

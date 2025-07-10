@@ -7,7 +7,7 @@
 //!
 //! # Key Components
 //!
-//! - [`DirectFileReader`]: A file reader that handles arbitrary reads by internally aligning
+//! - [`DirectFileReadAt`]: A file reader that handles arbitrary reads by internally aligning
 //!   to I/O granularity boundaries and slicing the results appropriately.
 //! - [`DirectFileWriter`]: A buffered file writer that ensures all writes are properly aligned
 //!   and handles alignment padding automatically.
@@ -23,140 +23,72 @@ use amudai_bytes::{
     Bytes, BytesMut,
     align::{align_down_u64, align_up_u64, is_aligned_u64},
 };
-use amudai_io::{ReadAt, StorageProfile, verify};
+use amudai_io::{ReadAt, StorageProfile, WriteAt, verify};
 
 use crate::fs::platform;
 
-/// A file reader that performs direct (unbuffered) I/O operations.
+/// A file that performs direct (unbuffered) I/O operations.
 ///
-/// This reader wraps an Arc<File> and ensures all I/O operations are properly
+/// `DirectFile` wraps an Arc<File> and ensures all I/O operations are properly
 /// aligned. It supports arbitrary reads by internally aligning the requested range,
 /// performing the aligned read, and then slicing the result to match the original
 /// request.
+/// `DirectFile` implements `WriteAt`, however `write_at` position and buffer size
+/// must be a multiple of `io_granularity`.
 #[derive(Clone)]
-pub struct DirectFileReader {
+pub struct DirectFile {
     /// The underlying file handle wrapped in an Arc for shared ownership.
     file: Arc<File>,
-    /// Cached file size to avoid repeated metadata calls.
-    size: OnceLock<u64>,
     /// The I/O granularity required for direct I/O operations on this file.
     /// All reads must be aligned to this boundary.
     io_granularity: u64,
 }
 
-impl DirectFileReader {
-    /// Creates a new DirectFileReader from an existing File.
-    ///
-    /// The I/O granularity is automatically determined from the platform and file.
-    /// If a known file size is provided, it will be cached to avoid metadata calls.
-    ///
-    /// # Arguments
-    ///
-    /// * `file` - The file handle to wrap, must be opened with direct I/O flags
-    /// * `known_size` - Optional pre-known file size to cache
-    ///
-    /// # Note
-    ///
-    /// The actual file opening with direct I/O flags should be done by the caller
-    /// and passed to this constructor.
-    pub fn new(file: Arc<File>, known_size: Option<u64>) -> DirectFileReader {
+impl DirectFile {
+    pub fn new(file: Arc<File>) -> DirectFile {
         let io_granularity = platform::get_io_granularity(&file).max(1);
         assert!(io_granularity.is_power_of_two());
-        DirectFileReader {
+        DirectFile {
             file,
-            size: {
-                let size = OnceLock::new();
-                if let Some(known_size) = known_size {
-                    let _ = size.set(known_size);
-                }
-                size
-            },
             io_granularity,
         }
     }
 
-    /// Creates a DirectFileReader from a File, wrapping it in an Arc.
-    ///
-    /// This is a convenience method that converts the file into an Arc and calls
-    /// [`new`](Self::new) with no pre-known size.
-    ///
-    /// # Arguments
-    ///
-    /// * `file` - The file to wrap, will be converted to `Arc<File>`
-    ///
-    /// # Note
-    ///
-    /// The actual file opening with direct I/O flags should be done by the caller
-    /// and passed to this constructor.
-    pub fn from_file(file: impl Into<Arc<File>>) -> DirectFileReader {
-        Self::new(file.into(), None)
-    }
-
-    /// Returns a reference to the underlying file handle.
-    ///
-    /// This provides access to the wrapped `Arc<File>` for operations that
-    /// need direct file access.
     pub fn inner(&self) -> &Arc<File> {
         &self.file
     }
 
-    /// Consumes the reader and returns the underlying file handle.
-    ///
-    /// This extracts the `Arc<File>` from the reader, consuming the reader
-    /// in the process.
     pub fn into_inner(self) -> Arc<File> {
         self.file
     }
 
-    /// Returns the I/O granularity for this file.
+    /// Consumes the writer and converts it into a `DirectFileReadAt` reader.
     ///
-    /// This is the alignment boundary that all direct I/O operations must
-    /// respect. All read positions and sizes are internally aligned to
-    /// this granularity.
+    /// This method provides a convenient way to convert a writer into a reader for
+    /// the same file, enabling you to read back the data that was written. The
+    /// conversion consumes the writer and creates a new reader that can perform
+    /// arbitrary positioned reads on the file.
+    pub fn into_read_at(self) -> DirectFileReadAt {
+        DirectFileReadAt::new(self.into_inner(), None)
+    }
+
     pub fn io_granularity(&self) -> u64 {
         self.io_granularity
     }
 
-    /// Gets the size of the file, caching it for subsequent calls.
+    /// Sets the size of the file to the specified value.
     ///
-    /// This method will query the file's metadata on the first call and cache
-    /// the result. Subsequent calls will return the cached value without
-    /// additional system calls.
-    ///
-    /// # Returns
-    ///
-    /// The size of the file in bytes, or an I/O error if the metadata
-    /// cannot be retrieved.
-    fn get_size(&self) -> std::io::Result<u64> {
-        if let Some(&size) = self.size.get() {
-            Ok(size)
-        } else {
-            let size = self.file.metadata()?.len();
-            let _ = self.size.set(size);
-            Ok(size)
-        }
-    }
-
-    /// Adjusts the requested read range to ensure it doesn't exceed file bounds.
-    ///
-    /// This method clamps the read range to the actual file size and handles
-    /// edge cases like reads starting beyond the end of the file or empty ranges.
+    /// This method changes the file size by truncating or extending the file as needed.
+    /// The operation is performed directly on the underlying file handle, making it
+    /// immediately effective.
     ///
     /// # Arguments
     ///
-    /// * `range` - The requested read range
-    ///
-    /// # Returns
-    ///
-    /// An adjusted range that is guaranteed to be within file bounds,
-    /// or an empty range (0..0) if the request is invalid.
-    fn adjust_read_range(&self, range: Range<u64>) -> std::io::Result<Range<u64>> {
-        let size = self.get_size()?;
-        if range.start >= size || range.start == range.end {
-            return Ok(0..0);
-        }
-        let range = range.start..std::cmp::min(range.end, size);
-        Ok(range)
+    /// * `size` - The new file size in bytes. This value **must** be aligned to the
+    ///   I/O granularity boundary returned by [`io_granularity()`](Self::io_granularity).
+    pub fn set_size(&self, size: u64) -> std::io::Result<()> {
+        verify!(is_aligned_u64(size, self.io_granularity));
+        self.file.set_len(size)
     }
 
     /// Performs the actual aligned read operation.
@@ -236,14 +168,13 @@ impl DirectFileReader {
     }
 }
 
-impl ReadAt for DirectFileReader {
+impl ReadAt for DirectFile {
     fn size(&self) -> std::io::Result<u64> {
-        self.get_size()
+        Ok(self.file.metadata()?.len())
     }
 
     fn read_at(&self, range: Range<u64>) -> std::io::Result<Bytes> {
         verify!(range.end >= range.start);
-        let range = self.adjust_read_range(range)?;
         if range.is_empty() {
             return Ok(Bytes::new());
         }
@@ -251,11 +182,177 @@ impl ReadAt for DirectFileReader {
     }
 
     fn storage_profile(&self) -> StorageProfile {
+        Default::default()
+    }
+}
+
+impl WriteAt for DirectFile {
+    fn write_at(&self, pos: u64, buf: &[u8]) -> std::io::Result<()> {
+        verify!(is_aligned_u64(pos, self.io_granularity));
+        verify!(is_aligned_u64(buf.len() as u64, self.io_granularity));
+        let mut aligned_buf;
+        let buf = if is_aligned_u64(buf.as_ptr() as u64, self.io_granularity) {
+            buf
+        } else {
+            aligned_buf =
+                BytesMut::with_capacity_and_alignment(buf.len(), self.io_granularity as usize);
+            aligned_buf.extend_from_slice(buf);
+            aligned_buf.as_slice()
+        };
+
+        amudai_io::file::file_write_at(&self.file, pos, buf)
+    }
+
+    fn storage_profile(&self) -> StorageProfile {
+        Default::default()
+    }
+}
+
+/// A file reader that performs direct (unbuffered) I/O operations.
+///
+/// This reader wraps an Arc<File> and ensures all I/O operations are properly
+/// aligned. It supports arbitrary reads by internally aligning the requested range,
+/// performing the aligned read, and then slicing the result to match the original
+/// request.
+#[derive(Clone)]
+pub struct DirectFileReadAt {
+    /// The underlying file.
+    inner: DirectFile,
+    /// Cached file size to avoid repeated metadata calls.
+    size: OnceLock<u64>,
+}
+
+impl DirectFileReadAt {
+    /// Creates a new DirectFileReader from an existing File.
+    ///
+    /// The I/O granularity is automatically determined from the platform and file.
+    /// If a known file size is provided, it will be cached to avoid metadata calls.
+    ///
+    /// # Arguments
+    ///
+    /// * `file` - The file handle to wrap, must be opened with direct I/O flags
+    /// * `known_size` - Optional pre-known file size to cache
+    ///
+    /// # Note
+    ///
+    /// The actual file opening with direct I/O flags should be done by the caller
+    /// and passed to this constructor.
+    pub fn new(file: Arc<File>, known_size: Option<u64>) -> DirectFileReadAt {
+        DirectFileReadAt {
+            inner: DirectFile::new(file),
+            size: {
+                let size = OnceLock::new();
+                if let Some(known_size) = known_size {
+                    let _ = size.set(known_size);
+                }
+                size
+            },
+        }
+    }
+
+    /// Creates a DirectFileReader from a File, wrapping it in an Arc.
+    ///
+    /// This is a convenience method that converts the file into an Arc and calls
+    /// [`new`](Self::new) with no pre-known size.
+    ///
+    /// # Arguments
+    ///
+    /// * `file` - The file to wrap, will be converted to `Arc<File>`
+    ///
+    /// # Note
+    ///
+    /// The actual file opening with direct I/O flags should be done by the caller
+    /// and passed to this constructor.
+    pub fn from_file(file: impl Into<Arc<File>>) -> DirectFileReadAt {
+        Self::new(file.into(), None)
+    }
+
+    /// Returns a reference to the underlying file handle.
+    ///
+    /// This provides access to the wrapped `Arc<File>` for operations that
+    /// need direct file access.
+    pub fn inner(&self) -> &Arc<File> {
+        self.inner.inner()
+    }
+
+    /// Consumes the reader and returns the underlying file handle.
+    ///
+    /// This extracts the `Arc<File>` from the reader, consuming the reader
+    /// in the process.
+    pub fn into_inner(self) -> Arc<File> {
+        self.inner.into_inner()
+    }
+
+    /// Returns the I/O granularity for this file.
+    ///
+    /// This is the alignment boundary that all direct I/O operations must
+    /// respect. All read positions and sizes are internally aligned to
+    /// this granularity.
+    pub fn io_granularity(&self) -> u64 {
+        self.inner.io_granularity()
+    }
+
+    /// Gets the size of the file, caching it for subsequent calls.
+    ///
+    /// This method will query the file's metadata on the first call and cache
+    /// the result. Subsequent calls will return the cached value without
+    /// additional system calls.
+    ///
+    /// # Returns
+    ///
+    /// The size of the file in bytes, or an I/O error if the metadata
+    /// cannot be retrieved.
+    fn get_size(&self) -> std::io::Result<u64> {
+        if let Some(&size) = self.size.get() {
+            Ok(size)
+        } else {
+            let size = self.inner.file.metadata()?.len();
+            let _ = self.size.set(size);
+            Ok(size)
+        }
+    }
+
+    /// Adjusts the requested read range to ensure it doesn't exceed file bounds.
+    ///
+    /// This method clamps the read range to the actual file size and handles
+    /// edge cases like reads starting beyond the end of the file or empty ranges.
+    ///
+    /// # Arguments
+    ///
+    /// * `range` - The requested read range
+    ///
+    /// # Returns
+    ///
+    /// An adjusted range that is guaranteed to be within file bounds,
+    /// or an empty range (0..0) if the request is invalid.
+    fn adjust_read_range(&self, range: Range<u64>) -> std::io::Result<Range<u64>> {
+        let size = self.get_size()?;
+        if range.start >= size || range.start == range.end {
+            return Ok(0..0);
+        }
+        let range = range.start..std::cmp::min(range.end, size);
+        Ok(range)
+    }
+}
+
+impl ReadAt for DirectFileReadAt {
+    fn size(&self) -> std::io::Result<u64> {
+        self.get_size()
+    }
+
+    fn read_at(&self, range: Range<u64>) -> std::io::Result<Bytes> {
+        verify!(range.end >= range.start);
+        let range = self.adjust_read_range(range)?;
+        self.inner.read_at(range)
+    }
+
+    fn storage_profile(&self) -> StorageProfile {
         StorageProfile::default()
     }
 }
 
-/// A buffered file writer that performs direct (unbuffered) I/O operations.
+/// A file writer that performs direct (unbuffered) I/O operations against the unerlying
+/// file.
 ///
 /// This writer maintains an internal buffer and ensures all writes to the underlying
 /// file are properly aligned to I/O granularity boundaries. It automatically handles
@@ -465,6 +562,17 @@ impl DirectFileWriter {
             logical_size,
             file_size,
         })
+    }
+
+    /// Consumes the writer and converts it into a `DirectFileReadAt` reader.
+    ///
+    /// This method provides a convenient way to convert a writer into a reader for
+    /// the same file, enabling you to read back the data that was written. The
+    /// conversion consumes the writer and creates a new reader that can perform
+    /// arbitrary positioned reads on the file.
+    pub fn into_read_at(self) -> std::io::Result<DirectFileReadAt> {
+        let res = self.close()?;
+        Ok(DirectFileReadAt::new(res.file, Some(res.file_size)))
     }
 }
 
@@ -704,7 +812,7 @@ mod tests {
     use amudai_bytes::buffer::AlignedByteVec;
     use amudai_io::ReadAt;
 
-    use crate::fs::{DirectFileReader, DirectFileWriter, IoMode, direct_file::FileWriteResult};
+    use crate::fs::{DirectFileReadAt, DirectFileWriter, IoMode, direct_file::FileWriteResult};
 
     #[test]
     fn test_from_file() {
@@ -715,7 +823,7 @@ mod tests {
         buf.resize(16 * 1024, 0);
         file.write_all(&buf).unwrap();
         file.set_len(4096 * 4).unwrap();
-        let f = DirectFileReader::from_file(file);
+        let f = DirectFileReadAt::from_file(file);
         let _buf = f.read_at(4096..5000).unwrap();
     }
 
@@ -746,7 +854,7 @@ mod tests {
         assert_eq!(size, io_granularity);
 
         // Read back the data to verify
-        let reader = DirectFileReader::from_file(file_arc);
+        let reader = DirectFileReadAt::from_file(file_arc);
         let read_data = reader.read_at(0..test_data.len() as u64).unwrap();
         assert_eq!(&read_data[..], test_data);
     }
@@ -776,7 +884,7 @@ mod tests {
         assert_eq!(size, 4096);
 
         // Read back and verify
-        let reader = DirectFileReader::from_file(file_arc);
+        let reader = DirectFileReadAt::from_file(file_arc);
         assert_eq!(reader.size().unwrap(), 4096);
         let read_data = reader.read_at(0..4096).unwrap();
         assert_eq!(read_data.len(), 4096);
@@ -816,7 +924,7 @@ mod tests {
         assert_eq!(file_size, truncate_pos);
 
         // Verify file content
-        let reader = DirectFileReader::from_file(file);
+        let reader = DirectFileReadAt::from_file(file);
         assert_eq!(reader.size().unwrap(), truncate_pos);
         let read_data = reader.read_at(0..truncate_pos).unwrap();
         assert_eq!(read_data.len(), truncate_pos as usize);
@@ -855,7 +963,7 @@ mod tests {
         let file = writer.close().unwrap().file;
 
         // Verify file content
-        let reader = DirectFileReader::from_file(file);
+        let reader = DirectFileReadAt::from_file(file);
 
         // Check original data is still there
         let original_read = reader.read_at(0..4096).unwrap();
@@ -893,7 +1001,7 @@ mod tests {
 
         // File should be unchanged
         let final_file = writer.close().unwrap().file;
-        let reader = DirectFileReader::from_file(final_file);
+        let reader = DirectFileReadAt::from_file(final_file);
         let read_data = reader.read_at(0..current_pos).unwrap();
         assert_eq!(read_data.len(), current_pos as usize);
         assert!(read_data.iter().all(|&b| b == 0x42));
@@ -933,7 +1041,7 @@ mod tests {
         writer.write_all(&new_data).unwrap();
 
         let final_file = writer.close().unwrap().file;
-        let reader = DirectFileReader::from_file(final_file);
+        let reader = DirectFileReadAt::from_file(final_file);
 
         // Verify the data
         let flushed_read = reader.read_at(0..4096).unwrap();
@@ -972,7 +1080,7 @@ mod tests {
 
         let io_granularity = writer.io_granularity();
         let final_file = writer.close().unwrap().file;
-        let reader = DirectFileReader::from_file(final_file);
+        let reader = DirectFileReadAt::from_file(final_file);
 
         // Verify only the new data exists
         let read_data = reader.read_at(0..1024).unwrap();
@@ -1008,7 +1116,7 @@ mod tests {
         writer.write_all(&additional_data).unwrap();
 
         let final_file = writer.close().unwrap().file;
-        let reader = DirectFileReader::from_file(final_file);
+        let reader = DirectFileReadAt::from_file(final_file);
 
         // Verify data integrity at unaligned boundary
         let before_truncate = reader.read_at(0..unaligned_pos).unwrap();
@@ -1056,7 +1164,7 @@ mod tests {
         writer.write_all(&data3).unwrap();
 
         let final_file = writer.close().unwrap().file;
-        let reader = DirectFileReader::from_file(final_file);
+        let reader = DirectFileReadAt::from_file(final_file);
 
         // Verify data patterns
         let region1 = reader.read_at(0..3072).unwrap();
@@ -1093,7 +1201,7 @@ mod tests {
         writer.write_all(&data).unwrap();
 
         let final_file = writer.close().unwrap().file;
-        let reader = DirectFileReader::from_file(final_file);
+        let reader = DirectFileReadAt::from_file(final_file);
 
         // Check zero-filled area
         let zeros = reader.read_at(0..2048).unwrap();
@@ -1134,7 +1242,7 @@ mod tests {
         assert_eq!(writer.position(), io_granularity * 2 + 1);
 
         let final_file = writer.close().unwrap().file;
-        let reader = DirectFileReader::from_file(final_file);
+        let reader = DirectFileReadAt::from_file(final_file);
 
         // Verify data integrity
         let read_data = reader.read_at(0..io_granularity * 2 + 1).unwrap();
@@ -1179,7 +1287,7 @@ mod tests {
         writer.write_all(&new_data).unwrap();
 
         let final_file = writer.close().unwrap().file;
-        let reader = DirectFileReader::from_file(final_file);
+        let reader = DirectFileReadAt::from_file(final_file);
 
         // Verify truncated data
         let original_data = reader.read_at(0..truncate_pos).unwrap();

@@ -48,8 +48,8 @@ impl BytesBufferEncoder {
     ) -> Result<BytesBufferEncoder> {
         // TODO: consider passing reasonable size hint.
         let writer = temp_store
-            .allocate_writable(None)
-            .map_err(|e| Error::io("allocate_writable", e))?;
+            .allocate_stream(None)
+            .map_err(|e| Error::io("allocate_stream", e))?;
         Ok(BytesBufferEncoder {
             block_encoder: BinaryBlockEncoder::new(
                 policy.clone(),

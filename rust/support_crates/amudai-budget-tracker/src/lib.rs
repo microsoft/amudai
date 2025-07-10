@@ -310,6 +310,10 @@ impl BudgetNode {
 
     fn allocate_from_parent(&self, amount: u64) -> bool {
         let Some(parent) = self.parent.as_deref() else {
+            // Note: allocate_from_parent does not "transfer" the budget from the parent node
+            // to this node, it merely ensures that our own allocation is allowed by the parent.
+            // If there's no parent, there's nothing to verify, and the parent allocation is
+            // trivially allowed.
             return true;
         };
 

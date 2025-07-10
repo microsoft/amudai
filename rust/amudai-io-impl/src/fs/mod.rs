@@ -30,7 +30,7 @@ pub mod direct_file;
 mod platform;
 mod shared;
 
-pub use direct_file::{DirectFileReader, DirectFileWriter};
+pub use direct_file::{DirectFileReadAt, DirectFileWriter};
 pub use platform::*;
 
 /// Specifies the I/O buffering mode for file operations.

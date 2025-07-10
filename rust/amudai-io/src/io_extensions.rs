@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use crate::temp_file_store::TemporaryWritable;
+use crate::IoStream;
 
 /// Extension trait providing a helper method to align writers that track their current position
 /// by appending zero-filled padding.
@@ -24,7 +24,7 @@ pub trait AlignWrite {
 
 impl<W> AlignWrite for W
 where
-    W: ?Sized + TemporaryWritable,
+    W: ?Sized + IoStream,
 {
     fn align(&mut self, alignment: usize) -> std::io::Result<usize> {
         let pos = self.current_size();
