@@ -9,7 +9,7 @@ use amudai_bytes::Bytes;
 use amudai_common::{Result, error::Error, verify_data};
 use amudai_encodings::block_encoder::BlockChecksum;
 use amudai_format::defs::shard;
-use amudai_io::{ReadAt, sliced_read::SlicedReadAt};
+use amudai_io::{ReadAt, SlicedFile};
 use amudai_io_impl::prefetch_read::PrefetchReadAt;
 
 use crate::write::PreparedEncodedBuffer;
@@ -40,7 +40,7 @@ pub struct BlockStreamDecoder {
     /// Weak reference to self, allowing readers to reference the decoder
     this: Weak<BlockStreamDecoder>,
     /// Reader for the data section containing encoded blocks
-    data_reader: SlicedReadAt<Arc<dyn ReadAt>>,
+    data_reader: SlicedFile<Arc<dyn ReadAt>>,
     /// Block map containing metadata about block locations
     block_map: Arc<BlockMap>,
     /// Configuration for block checksums. Whether the checksums are available
@@ -61,8 +61,8 @@ impl BlockStreamDecoder {
     ///
     /// Arc-wrapped BlockStreamDecoder instance
     pub fn new(
-        data_reader: SlicedReadAt<Arc<dyn ReadAt>>,
-        block_map_reader: SlicedReadAt<Arc<dyn ReadAt>>,
+        data_reader: SlicedFile<Arc<dyn ReadAt>>,
+        block_map_reader: SlicedFile<Arc<dyn ReadAt>>,
         checksum_config: BlockChecksum,
     ) -> Arc<BlockStreamDecoder> {
         let profile = data_reader.storage_profile();
@@ -115,8 +115,8 @@ impl BlockStreamDecoder {
         verify_data!(block_map_size, block_map_size != 0);
         verify_data!(block_map_size, block_map_size % 8 == 0);
 
-        let data_reader = SlicedReadAt::new(reader.clone(), buffer_range);
-        let block_map_reader = SlicedReadAt::new(reader, block_map_range);
+        let data_reader = SlicedFile::new(reader.clone(), buffer_range);
+        let block_map_reader = SlicedFile::new(reader, block_map_range);
         let checksum_config = if encoded_buffer.block_checksums {
             BlockChecksum::Enabled
         } else {

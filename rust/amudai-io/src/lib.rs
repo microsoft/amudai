@@ -8,14 +8,14 @@ use std::{ops::Range, sync::Arc};
 
 use amudai_bytes::Bytes;
 
-pub mod file;
-pub mod io_extensions;
-pub mod memory;
-pub mod precached_read;
-pub mod read_adapter;
-pub mod sliced_read;
 pub mod temp_file_store;
 pub mod utils;
+
+pub use temp_file_store::TemporaryFileStore;
+pub use utils::{
+    align_write::AlignWrite, precached_read::PrecachedReadAt, read_adapter::ReadAdapter,
+    sliced_file::SlicedFile,
+};
 
 /// A trait representing a conceptual file or buffer that supports reading from arbitrary
 /// positions.
@@ -24,6 +24,9 @@ pub trait ReadAt: Send + Sync + 'static {
     fn size(&self) -> std::io::Result<u64>;
 
     /// Reads a specified range of bytes from the object.
+    ///
+    /// **NOTE**: `read_at` should not return with a short read, unless end-of-file
+    /// is encountered.
     ///
     /// # Arguments
     ///
@@ -59,6 +62,9 @@ pub trait ReadAt: Send + Sync + 'static {
 pub trait WriteAt: Send + Sync + 'static {
     /// Writes the provided buffer at the specified position, expanding the underlying
     /// storage if necessary.
+    ///
+    /// **NOTE**: `write_at` should not return with a short write, upon success the entire
+    /// buffer is written.
     ///
     /// # Arguments
     ///

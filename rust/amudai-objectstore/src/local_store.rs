@@ -7,7 +7,7 @@ use std::{
 use amudai_common::error::Error;
 use amudai_io::{
     ReadAt, SealingWrite,
-    file::{FileReader, FileWriter},
+    utils::file::{FileReader, FileWriter},
 };
 use url::Url;
 

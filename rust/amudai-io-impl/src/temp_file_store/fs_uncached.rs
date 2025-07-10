@@ -10,8 +10,8 @@ use std::{
 
 use amudai_bytes::{Bytes, align::is_aligned_u64};
 use amudai_io::{
-    ExclusiveIoBuffer, IoStream, ReadAt, SharedIoBuffer, StorageProfile, WriteAt,
-    read_adapter::ReadAdapter, temp_file_store::TemporaryFileStore, verify,
+    ExclusiveIoBuffer, IoStream, ReadAdapter, ReadAt, SharedIoBuffer, StorageProfile,
+    TemporaryFileStore, WriteAt, verify,
 };
 
 use crate::{
@@ -432,9 +432,7 @@ mod tests {
         time::Duration,
     };
 
-    use amudai_io::{
-        SharedIoBuffer, read_adapter::ReadAdapter, temp_file_store::TemporaryFileStore,
-    };
+    use amudai_io::{ReadAdapter, SharedIoBuffer, TemporaryFileStore};
 
     fn create_temp_store(capacity: u64) -> Arc<dyn TemporaryFileStore> {
         Arc::new(super::TempFileStore::new(capacity, None).unwrap())

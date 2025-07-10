@@ -4,7 +4,7 @@ use std::{
 };
 
 use amudai_common::{Result, error::Error, verify_arg, verify_data};
-use amudai_io::{ReadAt, StorageProfile, sliced_read::SlicedReadAt};
+use amudai_io::{ReadAt, SlicedFile, StorageProfile};
 
 use super::{
     block_map_decoder::BlockMapDecoder,
@@ -271,7 +271,7 @@ impl BlockMapOps for BlockList {
 /// - The full block list is only expanded when access patterns indicate it would be
 ///   beneficial
 pub struct BlockMap {
-    reader: SlicedReadAt<Arc<dyn ReadAt>>,
+    reader: SlicedFile<Arc<dyn ReadAt>>,
     profile: StorageProfile,
     decoder: OnceLock<BlockMapDecoder>,
     list: OnceLock<BlockList>,
@@ -291,7 +291,7 @@ impl BlockMap {
     /// # Returns
     ///
     /// A new `BlockMap` instance that lazily initializes internal structures
-    pub fn new(reader: SlicedReadAt<Arc<dyn ReadAt>>, profile: StorageProfile) -> BlockMap {
+    pub fn new(reader: SlicedFile<Arc<dyn ReadAt>>, profile: StorageProfile) -> BlockMap {
         BlockMap {
             reader,
             profile,

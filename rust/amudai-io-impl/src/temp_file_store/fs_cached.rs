@@ -8,10 +8,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use amudai_bytes::{Bytes, BytesMut};
+use amudai_bytes::Bytes;
 use amudai_io::{
-    ExclusiveIoBuffer, IoStream, ReadAt, SharedIoBuffer, StorageProfile, WriteAt, file::FileReader,
-    read_adapter::ReadAdapter, temp_file_store::TemporaryFileStore, verify,
+    ExclusiveIoBuffer, IoStream, ReadAt, SharedIoBuffer, StorageProfile, WriteAt,
+    temp_file_store::TemporaryFileStore, utils::file::FileReader, utils::read_adapter::ReadAdapter,
+    verify,
 };
 
 use crate::{
@@ -181,8 +182,7 @@ impl TempFile {
     fn write_at(&mut self, pos: u64, buf: &[u8]) -> std::io::Result<()> {
         let end_pos = pos.checked_add(buf.len() as u64).expect("end_pos");
         self.allocation.ensure_at_least(end_pos)?;
-        amudai_io::file::file_write_at(&self.file, pos, buf)?;
-        Ok(())
+        self.file.write_at(pos, buf)
     }
 
     fn read_at(&self, range: Range<u64>) -> std::io::Result<Bytes> {
@@ -190,10 +190,7 @@ impl TempFile {
         let size = self.allocation.size();
         let end = range.end.min(size);
         if end > range.start {
-            let len = (end - range.start) as usize;
-            let mut buf = BytesMut::zeroed(len);
-            amudai_io::file::file_read_at_exact(&self.file, range.start, &mut buf)?;
-            Ok(Bytes::from(buf))
+            self.file.read_at(range.start..end)
         } else {
             Ok(Bytes::new())
         }
@@ -306,14 +303,7 @@ impl ReadAt for SharedTempFileBuffer {
 
     fn read_at(&self, range: Range<u64>) -> std::io::Result<Bytes> {
         verify!(range.end >= range.start);
-        let len = (range.end - range.start) as usize;
-        if len != 0 {
-            let mut buf = BytesMut::zeroed(len);
-            amudai_io::file::file_read_at_exact(&self.file, range.start, &mut buf)?;
-            Ok(Bytes::from(buf))
-        } else {
-            Ok(Bytes::new())
-        }
+        self.file.read_at(range)
     }
 
     fn storage_profile(&self) -> StorageProfile {
@@ -325,7 +315,7 @@ impl WriteAt for SharedTempFileBuffer {
     fn write_at(&self, pos: u64, buf: &[u8]) -> std::io::Result<()> {
         let end_pos = pos.checked_add(buf.len() as u64).expect("end_pos");
         self.allocation.lock().unwrap().ensure_at_least(end_pos)?;
-        amudai_io::file::file_write_at(&self.file, pos, buf)
+        self.file.write_at(pos, buf)
     }
 
     fn storage_profile(&self) -> StorageProfile {

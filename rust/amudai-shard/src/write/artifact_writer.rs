@@ -163,7 +163,7 @@ impl ArtifactWriter {
     ///
     /// The number of padding bytes written.
     pub fn align(&mut self, alignment: usize) -> std::io::Result<usize> {
-        let padding = amudai_io::io_extensions::get_padding(self.pos, alignment);
+        let padding = amudai_io::utils::align_write::get_padding(self.pos, alignment);
         self.write_all(&padding)?;
         Ok(padding.len())
     }

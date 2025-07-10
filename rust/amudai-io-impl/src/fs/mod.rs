@@ -65,8 +65,8 @@ mod tests {
         let file = create_temporary_in(&temp_dir, IoMode::Unbuffered).unwrap();
         let mut buf = AlignedByteVec::with_capacity_and_alignment(20000, 4096);
         buf.resize(20000, 17);
-        amudai_io::file::file_write_at(&file, 4096 * 3, &buf[..8192]).unwrap();
-        amudai_io::file::file_read_at_exact(&file, 4096 * 2, &mut buf[..8192]).unwrap();
+        amudai_io::utils::file::file_write_at(&file, 4096 * 3, &buf[..8192]).unwrap();
+        amudai_io::utils::file::file_read_at_exact(&file, 4096 * 2, &mut buf[..8192]).unwrap();
         let n = try_get_io_granularity(&file).unwrap();
         assert!(n.is_power_of_two());
     }

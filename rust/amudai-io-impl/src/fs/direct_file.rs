@@ -116,7 +116,7 @@ impl DirectFile {
         let mut buf = BytesMut::with_capacity_and_alignment(len, self.io_granularity as usize);
         buf.resize(len, 0);
 
-        amudai_io::file::file_read_at_exact(&self.file, aligned_range.start, &mut buf)?;
+        amudai_io::utils::file::file_read_at_exact(&self.file, aligned_range.start, &mut buf)?;
 
         Ok(buf.into())
     }
@@ -200,7 +200,7 @@ impl WriteAt for DirectFile {
             aligned_buf.as_slice()
         };
 
-        amudai_io::file::file_write_at(&self.file, pos, buf)
+        self.file.write_at(pos, buf)
     }
 
     fn storage_profile(&self) -> StorageProfile {
@@ -532,7 +532,7 @@ impl DirectFileWriter {
             ));
         }
 
-        amudai_io::file::file_write_at(&self.file, pos, buffer)
+        self.file.write_at(pos, buffer)
     }
 
     /// Closes the writer and ensures the final file size is properly set.
@@ -609,7 +609,7 @@ impl DirectFileWriter {
             self.buffer.resize(aligned_len, 0);
         }
 
-        amudai_io::file::file_write_at(&self.file, self.buffer_pos, &self.buffer)?;
+        self.file.write_at(self.buffer_pos, &self.buffer)?;
 
         let bytes_written = self.buffer.len() as u64;
         self.buffer_pos += bytes_written;
@@ -658,7 +658,11 @@ impl DirectFileWriter {
             }
         } else {
             self.buffer.resize(self.io_granularity as usize, 0);
-            amudai_io::file::file_read_at_exact(&self.file, new_buffer_pos, &mut self.buffer)?;
+            amudai_io::utils::file::file_read_at_exact(
+                &self.file,
+                new_buffer_pos,
+                &mut self.buffer,
+            )?;
             self.buffer.truncate((pos - new_buffer_pos) as usize);
         }
         self.buffer_pos = new_buffer_pos;
@@ -708,7 +712,7 @@ impl Write for DirectFileWriter {
             && is_aligned_u64(buf.len() as u64, self.io_granularity)
             && is_aligned_u64(buf.as_ptr() as u64, self.io_granularity)
         {
-            amudai_io::file::file_write_at(&self.file, self.buffer_pos, buf)?;
+            self.file.write_at(self.buffer_pos, buf)?;
             self.buffer_pos += buf.len() as u64;
             return Ok(buf.len());
         }

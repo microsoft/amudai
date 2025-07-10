@@ -5,7 +5,7 @@ use std::{
 
 use amudai_bytes::Bytes;
 use amudai_common::{Result, error::Error, verify_arg, verify_data};
-use amudai_io::{ReadAt, sliced_read::SlicedReadAt};
+use amudai_io::{ReadAt, SlicedFile};
 
 use super::{
     block_map::BlockList,
@@ -39,7 +39,7 @@ pub struct BlockMapDecoder {
     /// Points to the exact range containing the encoded block map data.
     /// Used to read the footer, segment list, and individual segments as needed.
     /// May be either a file-based reader or an in-memory buffer (when preloaded).
-    reader: SlicedReadAt<Arc<dyn ReadAt>>,
+    reader: SlicedFile<Arc<dyn ReadAt>>,
 
     /// Contains metadata about the entire block map:
     /// - `value_count`: Total number of logical values (sum of all block sizes).
@@ -74,7 +74,7 @@ impl BlockMapDecoder {
     /// # Arguments
     ///
     /// * `reader` - A `SlicedReadAt` reader providing access to the block map data.
-    pub fn new(reader: SlicedReadAt<Arc<dyn ReadAt>>) -> Result<BlockMapDecoder> {
+    pub fn new(reader: SlicedFile<Arc<dyn ReadAt>>) -> Result<BlockMapDecoder> {
         let footer = Self::read_footer(&reader)?;
         let segment_list = Self::read_segment_list(&reader, &footer)?;
         Ok(BlockMapDecoder {
@@ -93,7 +93,7 @@ impl BlockMapDecoder {
     /// # Returns
     ///
     /// A reference to the `SlicedReadAt` reader used by this decoder.
-    pub fn reader(&self) -> &SlicedReadAt<Arc<dyn ReadAt>> {
+    pub fn reader(&self) -> &SlicedFile<Arc<dyn ReadAt>> {
         &self.reader
     }
 
@@ -116,10 +116,10 @@ impl BlockMapDecoder {
     ///
     /// This method trades memory usage for performance by loading the entire block map
     /// into memory, eliminating I/O operations for subsequent reads.
-    pub fn preloaded(reader: SlicedReadAt<Arc<dyn ReadAt>>) -> Result<BlockMapDecoder> {
+    pub fn preloaded(reader: SlicedFile<Arc<dyn ReadAt>>) -> Result<BlockMapDecoder> {
         let size = reader.slice_size();
         let bytes = reader.read_all()?;
-        let reader = SlicedReadAt::new(Arc::new(bytes) as Arc<dyn ReadAt>, 0..size);
+        let reader = SlicedFile::new(Arc::new(bytes) as Arc<dyn ReadAt>, 0..size);
         BlockMapDecoder::new(reader)
     }
 
@@ -229,7 +229,7 @@ impl BlockMapDecoder {
     ///
     /// A `Result` containing the parsed `Footer`, or an error if the footer
     /// couldn't be read or is invalid.
-    fn read_footer(reader: &SlicedReadAt<Arc<dyn ReadAt>>) -> Result<Footer> {
+    fn read_footer(reader: &SlicedFile<Arc<dyn ReadAt>>) -> Result<Footer> {
         verify_arg!(reader, reader.slice_size() >= Footer::SIZE);
         let end = reader.slice_size();
         let start = end - Footer::SIZE;
@@ -269,7 +269,7 @@ impl BlockMapDecoder {
     /// A `Result` containing the parsed `SegmentList`, or an error if the list
     /// couldn't be read or is invalid.
     fn read_segment_list(
-        reader: &SlicedReadAt<Arc<dyn ReadAt>>,
+        reader: &SlicedFile<Arc<dyn ReadAt>>,
         footer: &Footer,
     ) -> Result<SegmentList> {
         let start = footer.get_segment_list_offset(reader.slice_size())?;
@@ -725,7 +725,7 @@ mod tests {
 
     use amudai_bytes::Bytes;
     use amudai_common::Result;
-    use amudai_io::{ReadAt, sliced_read::SlicedReadAt};
+    use amudai_io::{ReadAt, utils::sliced_file::SlicedFile};
 
     use crate::{read::block_map_ops::BlockMapOps, write::block_map_encoder::BlockMapEncoder};
 
@@ -740,7 +740,7 @@ mod tests {
         let encoded = encoder.finish();
         let len = encoded.len();
         let reader = Arc::new(encoded) as Arc<dyn ReadAt>;
-        let decoder = BlockMapDecoder::new(SlicedReadAt::new(reader, 0..len as u64)).unwrap();
+        let decoder = BlockMapDecoder::new(SlicedFile::new(reader, 0..len as u64)).unwrap();
 
         let s0 = decoder.read_segment(0).unwrap();
         assert_eq!(s0.block_count, 1024);
@@ -772,7 +772,7 @@ mod tests {
         let encoded = encoder.finish();
         let len = encoded.len();
         let reader = Arc::new(encoded) as Arc<dyn ReadAt>;
-        let decoder = BlockMapDecoder::new(SlicedReadAt::new(reader, 0..len as u64)).unwrap();
+        let decoder = BlockMapDecoder::new(SlicedFile::new(reader, 0..len as u64)).unwrap();
 
         let flat = decoder.expand().unwrap();
         flat.verify().unwrap();
@@ -783,13 +783,13 @@ mod tests {
         let encoded = encoder.finish();
         let len = encoded.len();
         let reader = Arc::new(encoded) as Arc<dyn ReadAt>;
-        BlockMapDecoder::new(SlicedReadAt::new(reader, 0..len as u64))
+        BlockMapDecoder::new(SlicedFile::new(reader, 0..len as u64))
     }
 
     fn create_decoder_from_bytes(bytes: Bytes) -> Result<BlockMapDecoder> {
         let len = bytes.len();
         let reader = Arc::new(bytes) as Arc<dyn ReadAt>;
-        BlockMapDecoder::new(SlicedReadAt::new(reader, 0..len as u64))
+        BlockMapDecoder::new(SlicedFile::new(reader, 0..len as u64))
     }
 
     #[test]

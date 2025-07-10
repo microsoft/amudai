@@ -9,7 +9,7 @@ use amudai_format::{
     },
     schema::{Schema, SchemaId, SchemaMessage},
 };
-use amudai_io::precached_read::PrecachedReadAt;
+use amudai_io::PrecachedReadAt;
 use amudai_objectstore::{ObjectStore, ReferenceResolver, url::ObjectUrl};
 
 use super::{

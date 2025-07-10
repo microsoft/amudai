@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use amudai_common::{Result, error::Error, verify_arg};
-use amudai_io::{IoStream, ReadAt, io_extensions::AlignWrite};
+use amudai_io::{AlignWrite, IoStream, ReadAt};
 
 use super::block_map_encoder::BlockMapEncoder;
 
