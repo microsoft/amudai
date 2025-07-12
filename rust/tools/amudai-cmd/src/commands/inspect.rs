@@ -646,6 +646,10 @@ fn gather_field_encoding_statistics(
     let field = stripe.open_field(data_type.clone())?;
 
     for encoded_buffer in field.get_encoded_buffers()? {
+        if encoded_buffer.kind() != amudai_format::defs::shard::BufferKind::Data {
+            continue;
+        }
+
         let decoder = field.open_block_stream(encoded_buffer)?;
 
         let parameters = BlockEncodingParameters {

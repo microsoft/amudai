@@ -9,7 +9,8 @@
 use amudai_common::{Result, error::Error};
 use amudai_sequence::{offsets::Offsets, presence::Presence, sequence::ValueSequence};
 use arrow_array::{
-    ArrayRef, ArrowPrimitiveType, LargeBinaryArray, LargeStringArray, PrimitiveArray,
+    ArrayRef, ArrowPrimitiveType, FixedSizeBinaryArray, LargeBinaryArray, LargeStringArray,
+    PrimitiveArray,
     types::{
         Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type, UInt16Type,
         UInt32Type, UInt64Type,
@@ -104,14 +105,17 @@ impl IntoArrowArray for ValueSequence {
                     .map(|arr| Arc::new(arr) as ArrayRef)
                     .map_err(|e| Error::arrow("new binary array", e))
             }
-            BasicType::FixedSizeBinary => todo!(),
+            BasicType::FixedSizeBinary | BasicType::Guid => {
+                FixedSizeBinaryArray::try_new(type_desc.fixed_size as i32, values, nulls)
+                    .map(|arr| Arc::new(arr) as ArrayRef)
+                    .map_err(|e| Error::arrow("new fixed-size binary array", e))
+            }
             BasicType::String => {
                 let offsets = offsets.expect("offsets");
                 LargeStringArray::try_new(offsets, values, nulls)
                     .map(|arr| Arc::new(arr) as ArrayRef)
                     .map_err(|e| Error::arrow("new string array", e))
             }
-            BasicType::Guid => todo!(),
             BasicType::DateTime => todo!(),
             BasicType::List => todo!(),
             BasicType::FixedSizeList => todo!(),
