@@ -12,7 +12,7 @@ use amudai_common::error::Error;
 use amudai_format::schema::BasicTypeDescriptor;
 use amudai_sequence::{
     presence::Presence,
-    value_sequence::{BinarySequenceBuilder, ValueSequence},
+    value_sequence::{BinarySequenceBuilder, FixedSizeBinarySequenceBuilder, ValueSequence},
 };
 use std::{collections::HashMap, hash::Hash};
 
@@ -94,7 +94,8 @@ impl StringEncoding for BlockDictionaryEncoding {
         encoded_size = encoded_size.next_multiple_of(ALIGNMENT_BYTES);
 
         let mut total_size = 0;
-        {
+        // Only encode lengths if values are not fixed size.
+        if values.fixed_value_size().is_none() {
             let mut lengths = context.buffers.get_buffer();
             lengths.reserve(values_by_popularity.len() * std::mem::size_of::<u32>());
             for (value, _) in values_by_popularity.iter() {
@@ -168,7 +169,8 @@ impl StringEncoding for BlockDictionaryEncoding {
         let alignment = target.len().next_multiple_of(ALIGNMENT_BYTES);
         target.resize(alignment, 0);
 
-        {
+        // Only encode lengths if values are not fixed size.
+        if values.fixed_value_size().is_none() {
             let mut lengths = context.buffers.get_buffer();
             lengths.reserve(values_by_popularity.len() * std::mem::size_of::<u32>());
             for (value, _) in values_by_popularity.iter() {
@@ -219,6 +221,21 @@ impl StringEncoding for BlockDictionaryEncoding {
             context,
         )?;
         let codes = codes.typed_data::<u32>();
+
+        if type_desc.fixed_size > 0 {
+            let value_size = type_desc.fixed_size as usize;
+            let mut seq_builder = FixedSizeBinarySequenceBuilder::new(type_desc);
+            for &code in codes {
+                if code == 0 {
+                    seq_builder.add_null();
+                } else {
+                    let value_pos = code as usize - 1;
+                    let value_offset = value_pos * value_size;
+                    seq_builder.add_value(&buffer[value_offset..value_offset + value_size]);
+                }
+            }
+            return Ok(seq_builder.build());
+        }
 
         let lengths_pos = metadata
             .codes_encoded_size

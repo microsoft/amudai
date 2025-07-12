@@ -492,6 +492,51 @@ impl BinarySequenceBuilder {
     }
 }
 
+/// Builder for sequences of fixed-size binary values.
+pub struct FixedSizeBinarySequenceBuilder {
+    type_desc: BasicTypeDescriptor,
+    values: Values,
+    presence: PresenceBuilder,
+}
+
+impl FixedSizeBinarySequenceBuilder {
+    pub fn new(type_desc: BasicTypeDescriptor) -> Self {
+        assert!(type_desc.fixed_size > 0);
+        Self {
+            type_desc,
+            values: Values::new(),
+            presence: PresenceBuilder::new(),
+        }
+    }
+
+    pub fn add_value(&mut self, value: &[u8]) {
+        assert_eq!(value.len(), self.type_desc.fixed_size as usize);
+        self.values.extend_from_slice(value);
+        self.presence.add_non_null();
+    }
+
+    pub fn add_null(&mut self) {
+        self.presence.add_null();
+        self.values
+            .resize_zeroed_bytes(self.values.bytes_len() + self.type_desc.fixed_size as usize);
+    }
+
+    pub fn add_n_nulls(&mut self, n: usize) {
+        self.presence.add_n_nulls(n);
+        self.values
+            .resize_zeroed_bytes(self.values.bytes_len() + self.type_desc.fixed_size as usize * n);
+    }
+
+    pub fn build(self) -> ValueSequence {
+        ValueSequence {
+            type_desc: self.type_desc,
+            values: self.values,
+            offsets: None,
+            presence: self.presence.build(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

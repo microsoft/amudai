@@ -105,11 +105,14 @@ impl IntoArrowArray for ValueSequence {
                     .map(|arr| Arc::new(arr) as ArrayRef)
                     .map_err(|e| Error::arrow("new binary array", e))
             }
-            BasicType::FixedSizeBinary | BasicType::Guid => {
+            BasicType::FixedSizeBinary => {
                 FixedSizeBinaryArray::try_new(type_desc.fixed_size as i32, values, nulls)
                     .map(|arr| Arc::new(arr) as ArrayRef)
                     .map_err(|e| Error::arrow("new fixed-size binary array", e))
             }
+            BasicType::Guid => FixedSizeBinaryArray::try_new(16, values, nulls)
+                .map(|arr| Arc::new(arr) as ArrayRef)
+                .map_err(|e| Error::arrow("new fixed-size binary array", e)),
             BasicType::String => {
                 let offsets = offsets.expect("offsets");
                 LargeStringArray::try_new(offsets, values, nulls)
