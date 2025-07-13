@@ -72,8 +72,31 @@ impl<F> SlicedFile<F> {
 }
 
 impl<F: Clone> SlicedFile<F> {
-    /// Creates a new `SlicedFile` from the current instance, using the specified `range`
-    /// relative to the starting position of this slice.
+    /// Creates a new sub-slice from this `SlicedFile` using the specified range.
+    ///
+    /// This method creates a new `SlicedFile` that represents a subset of the current slice.
+    /// The provided `range` is interpreted **relative to the starting position of this slice**,
+    /// not the underlying reader. The new slice will share the same underlying reader through
+    /// cloning.
+    ///
+    /// Unlike [`into_slice`](SlicedFile::into_slice), this method borrows `self` and clones
+    /// the underlying reader, allowing you to keep the original slice intact while creating
+    /// new sub-slices.
+    ///
+    /// # Arguments
+    ///
+    /// * `range` - A byte range relative to the start of this slice. Both `start` and `end`
+    ///   must be within the bounds of this slice (i.e., `<= slice_size()`).
+    ///
+    /// # Returns
+    ///
+    /// A new `SlicedFile` representing the specified sub-range of this slice.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `std::io::Error` with kind `InvalidInput` if:
+    /// - `range.start > slice_size()`
+    /// - `range.end > slice_size()`
     pub fn slice(&self, range: Range<u64>) -> std::io::Result<SlicedFile<F>> {
         let this_size = self.slice_size();
         verify!(range.start <= this_size);
@@ -82,6 +105,78 @@ impl<F: Clone> SlicedFile<F> {
             inner: self.inner.clone(),
             range: self.range.start + range.start..self.range.start + range.end,
         })
+    }
+
+    /// Splits off the first `size` bytes from this slice's range and returns a new
+    /// `SlicedFile` containing those bytes.
+    ///
+    /// This method mutates the current `SlicedFile` by advancing its starting position
+    /// by `size` bytes, effectively removing the first `size` bytes from its range.
+    /// The returned `SlicedFile` contains exactly the bytes that were removed from
+    /// the current slice.
+    ///
+    /// # Arguments
+    ///
+    /// * `size` - The number of bytes to split off from the beginning of this slice.
+    ///   Must be less than or equal to the current slice size.
+    ///
+    /// # Returns
+    ///
+    /// A new `SlicedFile` containing the first `size` bytes of the original slice.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `size` is greater than the current slice size.
+    pub fn split_first(&mut self, size: u64) -> std::io::Result<SlicedFile<F>> {
+        let this_size = self.slice_size();
+        verify!(size <= this_size);
+
+        // Create the new slice for the first `size` bytes
+        let first_slice = SlicedFile {
+            inner: self.inner.clone(),
+            range: self.range.start..self.range.start + size,
+        };
+
+        // Update this slice to remove the first `size` bytes
+        self.range.start += size;
+
+        Ok(first_slice)
+    }
+
+    /// Splits off the last `size` bytes from this slice's range and returns a new
+    /// `SlicedFile` containing those bytes.
+    ///
+    /// This method mutates the current `SlicedFile` by reducing its ending position
+    /// by `size` bytes, effectively removing the last `size` bytes from its range.
+    /// The returned `SlicedFile` contains exactly the bytes that were removed from
+    /// the current slice.
+    ///
+    /// # Arguments
+    ///
+    /// * `size` - The number of bytes to split off from the end of this slice.
+    ///   Must be less than or equal to the current slice size.
+    ///
+    /// # Returns
+    ///
+    /// A new `SlicedFile` containing the last `size` bytes of the original slice.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `size` is greater than the current slice size.
+    pub fn split_last(&mut self, size: u64) -> std::io::Result<SlicedFile<F>> {
+        let this_size = self.slice_size();
+        verify!(size <= this_size);
+
+        // Create the new slice for the last `size` bytes
+        let last_slice = SlicedFile {
+            inner: self.inner.clone(),
+            range: self.range.end - size..self.range.end,
+        };
+
+        // Update this slice to remove the last `size` bytes
+        self.range.end -= size;
+
+        Ok(last_slice)
     }
 }
 
@@ -226,5 +321,171 @@ mod tests {
         let inner = vec![1, 2, 3, 4, 5];
         let sliced = SlicedFile::new(inner.clone(), 1..4);
         assert_eq!(sliced.inner(), &inner);
+    }
+
+    #[test]
+    fn test_split_first() {
+        let inner = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let mut sliced = SlicedFile::new(inner, 2..8); // Contains bytes [3, 4, 5, 6, 7, 8]
+
+        // Split first 2 bytes
+        let first_part = sliced.split_first(2).unwrap();
+
+        // Verify the first part contains the expected range
+        assert_eq!(first_part.slice_size(), 2);
+        assert_eq!(first_part.slice_range(), 2..4);
+        let data = first_part.read_all().unwrap();
+        assert_eq!(&data[..], &[3, 4]);
+
+        // Verify the remaining slice is updated correctly
+        assert_eq!(sliced.slice_size(), 4);
+        assert_eq!(sliced.slice_range(), 4..8);
+        let remaining_data = sliced.read_all().unwrap();
+        assert_eq!(&remaining_data[..], &[5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn test_split_first_entire_slice() {
+        let inner = vec![1, 2, 3, 4, 5];
+        let mut sliced = SlicedFile::new(inner, 1..4); // Contains bytes [2, 3, 4]
+
+        // Split the entire slice
+        let first_part = sliced.split_first(3).unwrap();
+
+        // Verify the first part contains the entire original range
+        assert_eq!(first_part.slice_size(), 3);
+        assert_eq!(first_part.slice_range(), 1..4);
+        let data = first_part.read_all().unwrap();
+        assert_eq!(&data[..], &[2, 3, 4]);
+
+        // Verify the remaining slice is empty
+        assert_eq!(sliced.slice_size(), 0);
+        assert_eq!(sliced.slice_range(), 4..4);
+        let remaining_data = sliced.read_all().unwrap();
+        assert!(remaining_data.is_empty());
+    }
+
+    #[test]
+    fn test_split_first_zero_size() {
+        let inner = vec![1, 2, 3, 4, 5];
+        let mut sliced = SlicedFile::new(inner, 1..4);
+        let original_range = sliced.slice_range();
+
+        // Split zero bytes
+        let first_part = sliced.split_first(0).unwrap();
+
+        // Verify the first part is empty
+        assert_eq!(first_part.slice_size(), 0);
+        assert_eq!(first_part.slice_range(), 1..1);
+        let data = first_part.read_all().unwrap();
+        assert!(data.is_empty());
+
+        // Verify the original slice is unchanged
+        assert_eq!(sliced.slice_range(), original_range);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_split_first_size_too_large() {
+        let inner = vec![1, 2, 3, 4, 5];
+        let mut sliced = SlicedFile::new(inner, 1..4); // Size is 3
+
+        // Try to split 4 bytes (more than available)
+        sliced.split_first(4).unwrap();
+    }
+
+    #[test]
+    fn test_split_last() {
+        let inner = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let mut sliced = SlicedFile::new(inner, 2..8); // Contains bytes [3, 4, 5, 6, 7, 8]
+
+        // Split last 2 bytes
+        let last_part = sliced.split_last(2).unwrap();
+
+        // Verify the last part contains the expected range
+        assert_eq!(last_part.slice_size(), 2);
+        assert_eq!(last_part.slice_range(), 6..8);
+        let data = last_part.read_all().unwrap();
+        assert_eq!(&data[..], &[7, 8]);
+
+        // Verify the remaining slice is updated correctly
+        assert_eq!(sliced.slice_size(), 4);
+        assert_eq!(sliced.slice_range(), 2..6);
+        let remaining_data = sliced.read_all().unwrap();
+        assert_eq!(&remaining_data[..], &[3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn test_split_last_entire_slice() {
+        let inner = vec![1, 2, 3, 4, 5];
+        let mut sliced = SlicedFile::new(inner, 1..4); // Contains bytes [2, 3, 4]
+
+        // Split the entire slice
+        let last_part = sliced.split_last(3).unwrap();
+
+        // Verify the last part contains the entire original range
+        assert_eq!(last_part.slice_size(), 3);
+        assert_eq!(last_part.slice_range(), 1..4);
+        let data = last_part.read_all().unwrap();
+        assert_eq!(&data[..], &[2, 3, 4]);
+
+        // Verify the remaining slice is empty
+        assert_eq!(sliced.slice_size(), 0);
+        assert_eq!(sliced.slice_range(), 1..1);
+        let remaining_data = sliced.read_all().unwrap();
+        assert!(remaining_data.is_empty());
+    }
+
+    #[test]
+    fn test_split_last_zero_size() {
+        let inner = vec![1, 2, 3, 4, 5];
+        let mut sliced = SlicedFile::new(inner, 1..4);
+        let original_range = sliced.slice_range();
+
+        // Split zero bytes
+        let last_part = sliced.split_last(0).unwrap();
+
+        // Verify the last part is empty
+        assert_eq!(last_part.slice_size(), 0);
+        assert_eq!(last_part.slice_range(), 4..4);
+        let data = last_part.read_all().unwrap();
+        assert!(data.is_empty());
+
+        // Verify the original slice is unchanged
+        assert_eq!(sliced.slice_range(), original_range);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_split_last_size_too_large() {
+        let inner = vec![1, 2, 3, 4, 5];
+        let mut sliced = SlicedFile::new(inner, 1..4); // Size is 3
+
+        // Try to split 4 bytes (more than available)
+        sliced.split_last(4).unwrap();
+    }
+
+    #[test]
+    fn test_split_first_and_split_last_combined() {
+        let inner = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let mut sliced = SlicedFile::new(inner, 1..9); // Contains bytes [2, 3, 4, 5, 6, 7, 8, 9]
+
+        // Split first 2 bytes
+        let first_part = sliced.split_first(2).unwrap();
+        assert_eq!(first_part.slice_range(), 1..3);
+        let first_data = first_part.read_all().unwrap();
+        assert_eq!(&first_data[..], &[2, 3]);
+
+        // Split last 2 bytes from remaining slice
+        let last_part = sliced.split_last(2).unwrap();
+        assert_eq!(last_part.slice_range(), 7..9);
+        let last_data = last_part.read_all().unwrap();
+        assert_eq!(&last_data[..], &[8, 9]);
+
+        // Verify the middle slice remains
+        assert_eq!(sliced.slice_size(), 4);
+        assert_eq!(sliced.slice_range(), 3..7);
+        let middle_data = sliced.read_all().unwrap();
+        assert_eq!(&middle_data[..], &[4, 5, 6, 7]);
     }
 }

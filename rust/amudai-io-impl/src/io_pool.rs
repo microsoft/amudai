@@ -10,7 +10,6 @@ use std::{
 
 use amudai_bytes::Bytes;
 use amudai_io::ReadAt;
-use once_cell::sync::OnceCell;
 
 /// Thread pool for asynchronous background I/O operations with a bounded queue size.
 ///
@@ -168,7 +167,7 @@ pub struct QueuedRead {
     pub range: Range<u64>,
     /// Storage for the read result. The inner `Option` is `None` if the read failed.
     // TODO: replace with OnceLock when `wait()` is stabilized.
-    result: OnceCell<Option<Bytes>>,
+    result: OnceLock<Option<Bytes>>,
     /// The reader implementation to use for the read operation.
     reader: Arc<dyn ReadAt>,
 }
@@ -187,7 +186,7 @@ impl QueuedRead {
     pub fn new(range: Range<u64>, reader: Arc<dyn ReadAt>) -> QueuedRead {
         QueuedRead {
             range,
-            result: OnceCell::new(),
+            result: OnceLock::new(),
             reader,
         }
     }

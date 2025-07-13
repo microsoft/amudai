@@ -129,6 +129,36 @@ impl BytesMut {
     pub fn into_inner(self) -> AlignedByteVec {
         self.0
     }
+
+    /// Returns a slice of `T` values from the underlying buffer data.
+    ///
+    /// # Safety
+    ///
+    /// This function performs a raw cast and relies on the caller to ensure that
+    /// the underlying data is valid for the type `T`. The type `T` must implement
+    /// `bytemuck::AnyBitPattern`.
+    #[inline]
+    pub fn typed_data<T>(&self) -> &[T]
+    where
+        T: bytemuck::AnyBitPattern,
+    {
+        self.0.typed_data()
+    }
+
+    /// Returns a mutable slice of `T` values from the underlying buffer data.
+    ///
+    /// # Safety
+    ///
+    /// This function performs a raw cast and relies on the caller to ensure that
+    /// the underlying data is valid for the type `T`. The type `T` must implement
+    /// `bytemuck::AnyBitPattern + bytemuck::NoUninit`.
+    #[inline]
+    pub fn typed_data_mut<T>(&mut self) -> &mut [T]
+    where
+        T: bytemuck::AnyBitPattern + bytemuck::NoUninit,
+    {
+        self.0.typed_data_mut()
+    }
 }
 
 impl Default for BytesMut {
@@ -276,6 +306,31 @@ impl Bytes {
     pub fn into_inner(self) -> Buffer {
         self.0
     }
+
+    /// Consumes the `Bytes` and returns `AlignedByteVec` with the equivalent data.
+    ///
+    /// Under certain conditions, this will be a zero-copy and zero-allocation operation:
+    ///  - the buffer wraps `AlignedByteVec`
+    ///  - the buffer is not shared
+    ///  - the buffer is not a slice of the original `AlignedByteVec`
+    pub fn into_vec(self) -> AlignedByteVec {
+        self.0.into_vec()
+    }
+
+    /// Returns a slice of `T` values from the underlying buffer.
+    ///
+    /// # Safety
+    ///
+    /// This function performs a raw cast and relies on the caller to ensure
+    /// that the underlying data is valid for the type `T`. The type `T` must
+    /// implement `bytemuck::AnyBitPattern`.
+    #[inline]
+    pub fn typed_data<T>(&self) -> &[T]
+    where
+        T: bytemuck::AnyBitPattern,
+    {
+        self.0.typed_data()
+    }
 }
 
 impl std::ops::Deref for Bytes {
@@ -302,6 +357,12 @@ impl From<Buffer> for Bytes {
 impl From<BytesMut> for Bytes {
     fn from(bytes: BytesMut) -> Self {
         bytes.into_bytes()
+    }
+}
+
+impl From<AlignedByteVec> for Bytes {
+    fn from(v: AlignedByteVec) -> Self {
+        Self::from(Buffer::from_byte_vec(v))
     }
 }
 

@@ -102,14 +102,17 @@ pub use amudai_io_impl as io_impl;
 pub use amudai_objectstore as objectstore;
 pub use amudai_sequence as sequence;
 pub use amudai_shard as shard;
+pub use amudai_spill_data as spill_data;
 pub use amudai_text_index as text_index;
 
 pub mod support {
     pub use amudai_arrow_builders as arrow_builders;
     pub use amudai_arrow_builders_macros as arrow_builders_macros;
     pub use amudai_arrow_processing as arrow_processing;
+    pub use amudai_bloom_filters as bloom_filters;
     pub use amudai_budget_tracker as budget_tracker;
     pub use amudai_bytes as bytes;
     pub use amudai_collections as collections;
     pub use amudai_keyed_vector as keyed_vector;
+    pub use amudai_workflow as workflow;
 }

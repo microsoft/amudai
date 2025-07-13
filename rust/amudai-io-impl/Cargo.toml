@@ -13,7 +13,6 @@ amudai-bytes = { workspace = true }
 amudai-common = { workspace = true }
 amudai-io = { workspace = true }
 fastrand = { workspace = true }
-once_cell = { workspace = true }
 rayon = { workspace = true }
 tempfile = { workspace = true }
 

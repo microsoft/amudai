@@ -80,6 +80,12 @@ impl AlignedByteVec {
         )
     }
 
+    /// Returns the configured alignment of the vector.
+    #[inline]
+    pub fn alignment(&self) -> usize {
+        self.alignment as usize
+    }
+
     /// Returns a raw pointer to the vector's buffer.
     #[inline]
     pub fn as_ptr(&self) -> *const u8 {
@@ -175,10 +181,12 @@ impl AlignedByteVec {
     /// Shrinks the capacity of the vector as much as possible.
     pub fn shrink_to_fit(&mut self) {
         let vec_capacity = round_up(self.len(), Self::BLOCK_SIZE)
-            .checked_add(Self::ALIGNMENT)
+            .checked_add(self.alignment())
             .expect("add");
         if vec_capacity < self.inner.capacity() {
-            *self = AlignedByteVec::copy_from_slice(self.as_slice());
+            let mut v = AlignedByteVec::with_capacity_and_alignment(self.len(), self.alignment());
+            v.extend_from_slice(self.as_slice());
+            *self = v;
         }
     }
 
@@ -308,7 +316,7 @@ impl AlignedByteVec {
 
     /// Creates a new vector with the specified capacity, ensuring alignment requirements.
     fn make(capacity: usize, alignment: usize) -> AlignedByteVec {
-        let alignment = alignment.max(1);
+        let alignment = alignment.max(Self::ALIGNMENT);
         assert!(alignment.is_power_of_two());
 
         if capacity == 0 {
@@ -352,7 +360,7 @@ impl AlignedByteVec {
             Self::BLOCK_SIZE,
         );
         let new_cap = std::cmp::max(self.capacity() * 2, new_cap);
-        let alignment = self.alignment as usize;
+        let alignment = self.alignment();
         let mut v = Self::make(new_cap, alignment);
         if !self.is_empty() {
             v.inner.extend_from_slice(self.as_slice());
@@ -438,6 +446,7 @@ unsafe impl MemoryOwner for AlignedByteVec {
             ptr: self.as_ptr(),
             len: self.len(),
             capacity: self.capacity(),
+            alignment: self.alignment(),
         }
     }
 }
@@ -489,7 +498,12 @@ impl Buffer {
     /// - The capacity is less than the length
     /// - The capacity is not a multiple of 64
     pub fn from_owner(owner: Arc<dyn MemoryOwner + Send + Sync + 'static>) -> Buffer {
-        let MemoryAllocation { ptr, len, capacity } = owner.memory();
+        let MemoryAllocation {
+            ptr,
+            len,
+            capacity,
+            alignment: _,
+        } = owner.memory();
         assert!(is_aligned(ptr, 64));
         assert!(capacity >= len);
         assert_eq!(capacity % 64, 0);
@@ -615,14 +629,39 @@ impl Buffer {
         self.owner.into_owner()
     }
 
+    /// Consumes the buffer and returns an `AlignedByteVec` with the equivalent data.
+    ///
+    /// Under certain conditions, this will be a zero-copy and zero-allocation operation:
+    ///  - the buffer wraps `AlignedByteVec`
+    ///  - the buffer is not shared
+    ///  - the buffer is not a slice of the original `AlignedByteVec`
+    pub fn into_vec(self) -> AlignedByteVec {
+        match self.try_unwrap_vec() {
+            Ok(vec) => vec,
+            Err(buffer) => {
+                let alignment = buffer.owner.memory().alignment;
+                let mut vec = AlignedByteVec::with_capacity_and_alignment(buffer.len(), alignment);
+                vec.extend_from_slice(&buffer);
+                vec
+            }
+        }
+    }
+
     /// Attempts to consume the buffer and return an `AlignedByteVec`, provided that
     /// it is the owner of the underlying memory and the buffer is not shared.
-    pub fn try_into_byte_vec(self) -> Result<AlignedByteVec, Buffer> {
-        self.owner.try_unwrap_vec().map_err(|owner| Buffer {
+    pub fn try_unwrap_vec(self) -> Result<AlignedByteVec, Buffer> {
+        if self.ptr != self.owner.memory().ptr {
+            // This is a slice of the original buffer, cannot unwrap to an equivalent vec.
+            return Err(self);
+        }
+        let len = self.len();
+        let mut vec = self.owner.try_unwrap_vec().map_err(|owner| Buffer {
             ptr: self.ptr,
             len: self.len,
             owner,
-        })
+        })?;
+        vec.truncate(len);
+        Ok(vec)
     }
 }
 
@@ -748,6 +787,13 @@ impl BufOwner {
         }
     }
 
+    fn memory(&self) -> MemoryAllocation {
+        match self {
+            BufOwner::Vec(vec) => vec.memory(),
+            BufOwner::External(external) => external.memory(),
+        }
+    }
+
     fn try_unwrap_vec(self) -> Result<AlignedByteVec, BufOwner> {
         match self {
             BufOwner::Vec(vec) => Arc::try_unwrap(vec).map_err(BufOwner::Vec),
@@ -765,6 +811,8 @@ pub struct MemoryAllocation {
     pub len: usize,
     /// Total capacity of the allocated memory in bytes
     pub capacity: usize,
+    /// Formal alignment of the memory buffer.
+    pub alignment: usize,
 }
 
 /// Trait for types that own aligned memory buffers.
@@ -878,7 +926,7 @@ mod tests {
         let buf = Buffer::copy_from_slice(&data);
 
         // Test successful conversion when buffer is not shared
-        match buf.try_into_byte_vec() {
+        match buf.try_unwrap_vec() {
             Ok(vec) => assert_eq!(vec.as_slice(), &data),
             Err(_) => panic!("Expected successful conversion"),
         }
@@ -887,10 +935,24 @@ mod tests {
         let buf1 = Buffer::copy_from_slice(&data);
         let _buf2 = buf1.clone();
 
-        match buf1.try_into_byte_vec() {
+        match buf1.try_unwrap_vec() {
             Ok(_) => panic!("Expected failed conversion due to sharing"),
             Err(buffer) => assert_eq!(buffer.as_slice(), &data),
         }
+
+        let buf_full = Buffer::copy_from_slice(&data);
+        let buf_slice = buf_full.slice(1..);
+        drop(buf_full);
+        match buf_slice.try_unwrap_vec() {
+            Ok(_) => panic!("Expected failed conversion due to slicing"),
+            Err(buffer) => assert_eq!(buffer.as_slice(), &data[1..]),
+        }
+
+        let buf_full = Buffer::copy_from_slice(&data);
+        let buf_slice = buf_full.slice(1..);
+        drop(buf_full);
+        let vec = buf_slice.into_vec();
+        assert_eq!(vec.as_slice(), &data[1..]);
     }
 
     // Custom MemoryOwner implementation for testing
@@ -905,6 +967,7 @@ mod tests {
                 ptr: self.data.as_ptr(),
                 len: self.data.len(),
                 capacity: self.data.capacity(),
+                alignment: self.data.alignment(),
             }
         }
     }

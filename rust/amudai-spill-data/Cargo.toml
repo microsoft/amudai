@@ -1,0 +1,22 @@
+[package]
+name = "amudai-spill-data"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ahash = { workspace = true }
+amudai-bytes = { workspace = true }
+amudai-collections = { workspace = true }
+amudai-common = { workspace = true }
+amudai-io = { workspace = true }
+bincode = { workspace = true }
+bytemuck = { workspace = true }
+fastrand = { workspace = true }
+
+[dev-dependencies]
+amudai-io-impl = { workspace = true }
+fastrand = { workspace = true }
