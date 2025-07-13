@@ -5,7 +5,7 @@ pub mod artifact_reader;
 pub mod decimal_index;
 mod element_memo;
 pub mod field;
-mod field_context;
+pub mod field_context;
 pub mod field_decoder;
 pub mod numeric_index;
 mod opened_artifact_cache;

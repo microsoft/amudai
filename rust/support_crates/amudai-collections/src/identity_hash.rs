@@ -1,5 +1,8 @@
 use core::panic;
-use std::{collections::HashMap, hash::Hasher};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hasher,
+};
 
 /// A HashMap that uses an identity hasher for primitive integer keys.
 ///
@@ -22,6 +25,28 @@ use std::{collections::HashMap, hash::Hasher};
 /// assert_eq!(map.get(&42), Some(&"value".to_string()));
 /// ```
 pub type IdentityHashMap<K, V> = HashMap<K, V, std::hash::BuildHasherDefault<IdentityHasher>>;
+
+/// A HashSet that uses an identity hasher for primitive integer keys.
+///
+/// This type alias provides a HashSet implementation that uses `IdentityHasher` as the
+/// hash function. It's optimized for use with primitive integer types where the hash
+/// value is simply the integer value itself, avoiding the overhead of actual hashing.
+///
+/// # When to Use
+///
+/// - Keys are primitive integers with good distribution (not clustered in small ranges)
+/// - Performance is critical and you want to avoid hash computation overhead
+///
+/// # Examples
+///
+/// ```
+/// use amudai_collections::identity_hash::IdentityHashSet;
+///
+/// let mut set: IdentityHashSet<u32> = IdentityHashSet::default();
+/// set.insert(42);
+/// assert!(set.contains(&42));
+/// ```
+pub type IdentityHashSet<K> = HashSet<K, std::hash::BuildHasherDefault<IdentityHasher>>;
 
 /// A hasher implementation that returns the input value as the hash for primitive integers.
 ///

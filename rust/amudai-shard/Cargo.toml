@@ -22,6 +22,7 @@ tempfile = { workspace = true }
 amudai-arrow-compat = { workspace = true }
 amudai-arrow-processing = { workspace = true }
 amudai-blockstream = { workspace = true }
+amudai-bloom-filters = { workspace = true }
 amudai-bytes = { workspace = true }
 amudai-common = { workspace = true }
 amudai-data-stats = { workspace = true }

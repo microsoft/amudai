@@ -112,6 +112,9 @@ message FieldDescriptor {
     // distinct value.
     optional CardinalityInfo cardinality = 7;
     // Optional approximate membership query (AMQ) filters for the values of the field.
+    // Some MembershipFilters (notably SBBF) are only populated at the stripe level, not at the shard level.
+    // To determine if a value exists in a shard, queries must check the membership filters
+    // across all relevant stripes.
     optional MembershipFilters membership_filters = 8;
     // Optional indexes specific to the field (these can exist alongside multi-field indexes
     // at the shard or stripe level).
@@ -134,11 +137,27 @@ message FieldDescriptor {
     }
     
     repeated amudai.common.NameValuePair custom_properties = 40;
-    // The sum of all Amudai encoded buffer sizes for this field, excluding references to external
-    // artifacts (e.g., columns in Parquet files).
-    optional fixed64 stored_data_size = 41;
-    optional fixed64 stored_index_size = 42;
-    optional fixed64 plain_data_size = 43;
+
+    // Size of the data in its raw, uncompressed format in bytes.
+    // This represents the theoretical size of the data before any encoding, compression,
+    // or optimization is applied. The calculation varies by data type:
+    //
+    // For fixed-size data types (int32, int64, float32, float64, bool, etc.):
+    //   - raw_data_size = (count of non-null values) * (size of data type in bytes)
+    //   - Example: 100 non-null int64 values = 100 * 8 = 800 bytes
+    //
+    // For variable-length data types (string, binary, lists, maps):
+    //   - raw_data_size = sum of the length in bytes of all non-null values
+    //   - For strings: sum of UTF-8 byte lengths of all non-null strings
+    //   - For binary: sum of byte lengths of all non-null binary values
+    //   - For lists/maps: sum of the serialized byte lengths of all non-null containers
+    //
+    // For null value handling:
+    //   - If the field contains no null values: raw_data_size includes only actual data
+    //   - If the field contains some null values: raw_data_size excludes null values
+    //     from the calculation (nulls contribute 0 bytes to raw size)
+    //   - If all values in the field are null: raw_data_size = 0
+    optional fixed64 raw_data_size = 41;
 }
 
 // Provides the minimum and maximum values for the stored sequence.
@@ -221,7 +240,30 @@ message CardinalityInfo {
 }
 
 message MembershipFilters {
-    repeated amudai.common.AnyValue bloom_filters = 1;
+    // Bloom filter sketches.
+    // Note: These filters exist only at the stripe level. To determine if a value
+    // exists in a shard, queries must probe all stripe-level filters across all stripes.
+    optional SplitBlockBloomFilter sbbf = 1;
+}
+
+// Split-Block Bloom Filter (SBBF) for efficient approximate membership queries.
+// Provides cache-efficient membership testing with configurable false positive rates.
+// This message is typically serialized and stored within a MembershipFilters.sbbf
+message SplitBlockBloomFilter {
+    // Number of 256-bit (32 bytes) blocks in the filter
+    fixed64 num_blocks = 1;
+    
+    // Target false positive probability (e.g., 0.01 for 1%)
+    double target_fpp = 2;
+    
+    // Number of distinct values inserted into the filter
+    fixed64 num_values = 3;
+    
+    // Hash algorithm used (e.g., "xxh3_64")
+    string hash_algorithm = 4;
+
+    // The filter data as a sequence of 256-bit blocks
+    bytes data = 5;
 }
 
 // Stripe-level field descriptor: stats and encoding.

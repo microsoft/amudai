@@ -1,7 +1,8 @@
 //! Field context (field's data type, its descriptor, and the stripe it belongs to).
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
+use amudai_bloom_filters::decoder::SbbfDecoder;
 use amudai_common::{Result, error::Error};
 use amudai_format::{
     defs::{common::DataRef, shard},
@@ -31,6 +32,8 @@ pub struct FieldContext {
     descriptor: Arc<StripeFieldDescriptor>,
     /// The context of the stripe to which this field belongs.
     stripe: Arc<StripeContext>,
+    // Optional Split Block Bloom Filter, with 32-byte aligned memory access
+    ssbf: OnceLock<Option<SbbfDecoder>>,
 }
 
 impl FieldContext {
@@ -43,6 +46,7 @@ impl FieldContext {
             data_type,
             descriptor,
             stripe,
+            ssbf: OnceLock::new(),
         }
     }
 
@@ -252,5 +256,21 @@ impl FieldContext {
                     ),
                 )
             })
+    }
+
+    /// Gets or creates the bloom filter for this field, if available.
+    /// Returns None if no bloom filter is available for this field.
+    /// The bloom filter is lazily initialized on first access.
+    pub fn get_bloom_filter(&self) -> Option<&SbbfDecoder> {
+        // Use get_or_init to lazily initialize the bloom filter
+        self.ssbf
+            .get_or_init(|| {
+                self.descriptor
+                    .field
+                    .as_ref()
+                    .and_then(|field_desc| field_desc.try_get_sbbf_bytes())
+                    .and_then(|sbbf_bytes| SbbfDecoder::from_aligned_data(sbbf_bytes).ok())
+            })
+            .as_ref()
     }
 }

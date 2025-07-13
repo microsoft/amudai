@@ -179,38 +179,3 @@ Array of **`Union<f0: T0, f1: T1, ...>`**:
  Encoded as N+1 child arrays: `discriminator` (u8), `f0` (T0), `f1` (T1), ....
  Value of a union at logical position `i` is obtained by fetching `v = discriminator[i]`, then fetching
  the value from `f{v}` at logical position `i`.
-
-## Appendix: usage in graph store
-
-Graph "partition" (a locally queried part of the graph) can be stored in a single Amudai shard with the following schema:
-
-```
-type NodeId ::= i64;
-
-Struct<
-    // node_id: NodeId (implied) == record logical pos
-
-    properties: Struct<
-        traits: List<String>,
-        hoisted_prop0: T0,
-        hoisted_prop1: T1,
-        ...
-        hoisted_propX: TX,
-        residual_property_bag: Map<String, Binary(KustoDynamic)>,
-    >
-    out_edges: List<
-        Struct<
-            target: NodeId,
-            properties: Struct<
-                traits: List<String>,
-                hoisted_prop0: T0,
-                hoisted_prop1: T1,
-                ...
-                hoisted_propY: TY,
-                residual_property_bag: Map<String, Binary(KustoDynamic)>,
-            >
-        >
-    >,
-    in_edges: List<NodeId>,
->
-```

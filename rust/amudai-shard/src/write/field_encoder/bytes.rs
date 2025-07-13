@@ -7,6 +7,7 @@ use amudai_common::Result;
 use amudai_data_stats::{binary::BinaryStatsCollector, string::StringStatsCollector};
 use amudai_encodings::{
     binary_block_encoder::BinaryBlockEncoder,
+    block_encoder::BlockEncodingProfile,
     block_encoder::{
         BlockChecksum, BlockEncodingParameters, BlockEncodingPolicy, BlockSizeConstraints,
         PresenceEncoding,
@@ -29,12 +30,19 @@ enum BytesStatsCollector {
 }
 
 impl BytesStatsCollector {
-    /// Creates a new statistics collector for the given basic type.
-    pub fn new(basic_type: BasicType) -> Self {
+    /// Creates a new statistics collector for the given basic type with bloom filter
+    /// configuration derived from the encoding profile.
+    ///
+    /// For string fields, bloom filters are automatically enabled unless the encoding
+    /// profile is Plain (which prioritizes speed over query optimization features).
+    pub fn new(basic_type: BasicType, encoding_profile: BlockEncodingProfile) -> Self {
         match basic_type {
-            BasicType::String => Self::String(StringStatsCollector::new()),
+            BasicType::String => {
+                let collector = StringStatsCollector::new(encoding_profile);
+                Self::String(collector)
+            }
             BasicType::Binary | BasicType::Guid | BasicType::FixedSizeBinary => {
-                Self::Binary(BinaryStatsCollector::new())
+                Self::Binary(BinaryStatsCollector::new(basic_type, encoding_profile))
             }
             _ => Self::None,
         }
@@ -64,11 +72,11 @@ impl BytesStatsCollector {
         match self {
             Self::None => Ok(None),
             Self::String(collector) => {
-                let stats = collector.finish()?;
+                let stats = collector.finalize()?;
                 Ok(Some(EncodedFieldStatistics::String(stats)))
             }
             Self::Binary(collector) => {
-                let stats = collector.finalize();
+                let stats = collector.finalize()?;
                 Ok(Some(EncodedFieldStatistics::Binary(stats)))
             }
         }
@@ -126,7 +134,10 @@ impl BytesFieldEncoder {
                 params.basic_type,
                 params.temp_store.clone(),
             )?,
-            stats_collector: BytesStatsCollector::new(params.basic_type.basic_type),
+            stats_collector: BytesStatsCollector::new(
+                params.basic_type.basic_type,
+                params.encoding_profile,
+            ),
         }))
     }
 }
@@ -450,7 +461,8 @@ mod tests {
     #[test]
     fn test_bytes_stats_collector_enum_dispatching() -> amudai_common::Result<()> {
         // Test that the enum correctly dispatches to String statistics
-        let mut string_collector = BytesStatsCollector::new(BasicType::String);
+        let mut string_collector =
+            BytesStatsCollector::new(BasicType::String, BlockEncodingProfile::Balanced);
         let string_array = Arc::new(arrow_array::StringArray::from(vec!["hello", "world"]));
         string_collector.process_array(string_array.as_ref())?;
 
@@ -460,7 +472,8 @@ mod tests {
         } else {
             panic!("Expected String statistics");
         } // Test that the enum correctly dispatches to Binary statistics
-        let mut binary_collector = BytesStatsCollector::new(BasicType::Binary);
+        let mut binary_collector =
+            BytesStatsCollector::new(BasicType::Binary, BlockEncodingProfile::Balanced);
         let binary_array = Arc::new(arrow_array::BinaryArray::from_vec(vec![b"hello", b"world"]));
         binary_collector.process_array(binary_array.as_ref())?;
 
@@ -470,7 +483,8 @@ mod tests {
         } else {
             panic!("Expected Binary statistics");
         } // Test that None returns no statistics
-        let mut none_collector = BytesStatsCollector::new(BasicType::Int32); // Unsupported type
+        let mut none_collector =
+            BytesStatsCollector::new(BasicType::Int32, BlockEncodingProfile::Balanced); // Unsupported type
         let int_array = Arc::new(arrow_array::Int32Array::from(vec![1, 2, 3]));
         let result = none_collector.process_array(int_array.as_ref());
         assert!(result.is_ok()); // Should not fail, just do nothing

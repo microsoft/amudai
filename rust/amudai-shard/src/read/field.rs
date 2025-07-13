@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use amudai_blockstream::read::block_stream::BlockStreamDecoder;
+use amudai_bloom_filters::decoder::SbbfDecoder;
 use amudai_common::Result;
 use amudai_format::{
     defs::shard,
@@ -217,5 +218,10 @@ impl Field {
     ) -> Result<Arc<BlockStreamDecoder>> {
         let reader = self.open_buffer(encoded_buffer)?;
         BlockStreamDecoder::from_encoded_buffer(reader, encoded_buffer)
+    }
+
+    /// Returns the bloom filter for this field, if present.
+    pub fn get_bloom_filter(&self) -> Option<&SbbfDecoder> {
+        self.0.get_bloom_filter()
     }
 }

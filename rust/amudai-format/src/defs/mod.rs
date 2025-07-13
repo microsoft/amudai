@@ -3,6 +3,7 @@ pub mod common;
 
 pub mod anyvalue_ext;
 pub mod common_ext;
+pub mod field_ext;
 pub mod hash_lookup_ext;
 
 #[path = "./amudai.shard.rs"]

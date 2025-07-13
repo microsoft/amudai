@@ -1,0 +1,19 @@
+[package]
+name = "amudai-bloom-filters"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description = "Bloom filter support for Amudai"
+rust-version.workspace = true
+
+[dependencies]
+amudai-bytes = { workspace = true }
+amudai-common = { workspace = true }
+amudai-collections = { workspace = true }
+
+sbbf-rs = { workspace = true }
+sbbf-rs-safe = { workspace = true }
+xxhash-rust = { workspace = true }
+
+[dev-dependencies]

@@ -131,6 +131,9 @@ pub struct FieldDescriptor {
     #[prost(message, optional, tag = "7")]
     pub cardinality: ::core::option::Option<CardinalityInfo>,
     /// Optional approximate membership query (AMQ) filters for the values of the field.
+    /// Some MembershipFilters (notably SBBF) are only populated at the stripe level, not at the shard level.
+    /// To determine if a value exists in a shard, queries must check the membership filters
+    /// across all relevant stripes.
     #[prost(message, optional, tag = "8")]
     pub membership_filters: ::core::option::Option<MembershipFilters>,
     /// Optional indexes specific to the field (these can exist alongside multi-field indexes
@@ -142,14 +145,27 @@ pub struct FieldDescriptor {
     pub properties: ::prost::alloc::vec::Vec<super::common::NameValuePair>,
     #[prost(message, repeated, tag = "40")]
     pub custom_properties: ::prost::alloc::vec::Vec<super::common::NameValuePair>,
-    /// The sum of all Amudai encoded buffer sizes for this field, excluding references to external
-    /// artifacts (e.g., columns in Parquet files).
+    /// Size of the data in its raw, uncompressed format in bytes.
+    /// This represents the theoretical size of the data before any encoding, compression,
+    /// or optimization is applied. The calculation varies by data type:
+    ///
+    /// For fixed-size data types (int32, int64, float32, float64, bool, etc.):
+    ///    - raw_data_size = (count of non-null values) * (size of data type in bytes)
+    ///    - Example: 100 non-null int64 values = 100 * 8 = 800 bytes
+    ///
+    /// For variable-length data types (string, binary, lists, maps):
+    ///    - raw_data_size = sum of the length in bytes of all non-null values
+    ///    - For strings: sum of UTF-8 byte lengths of all non-null strings
+    ///    - For binary: sum of byte lengths of all non-null binary values
+    ///    - For lists/maps: sum of the serialized byte lengths of all non-null containers
+    ///
+    /// For null value handling:
+    ///    - If the field contains no null values: raw_data_size includes only actual data
+    ///    - If the field contains some null values: raw_data_size excludes null values
+    ///      from the calculation (nulls contribute 0 bytes to raw size)
+    ///    - If all values in the field are null: raw_data_size = 0
     #[prost(fixed64, optional, tag = "41")]
-    pub stored_data_size: ::core::option::Option<u64>,
-    #[prost(fixed64, optional, tag = "42")]
-    pub stored_index_size: ::core::option::Option<u64>,
-    #[prost(fixed64, optional, tag = "43")]
-    pub plain_data_size: ::core::option::Option<u64>,
+    pub raw_data_size: ::core::option::Option<u64>,
     #[prost(oneof = "field_descriptor::TypeSpecific", tags = "20, 21, 22, 23, 24")]
     pub type_specific: ::core::option::Option<field_descriptor::TypeSpecific>,
 }
@@ -282,8 +298,32 @@ pub struct CardinalityInfo {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MembershipFilters {
-    #[prost(message, repeated, tag = "1")]
-    pub bloom_filters: ::prost::alloc::vec::Vec<super::common::AnyValue>,
+    /// Bloom filter sketches.
+    /// Note: These filters exist only at the stripe level. To determine if a value
+    /// exists in a shard, queries must probe all stripe-level filters across all stripes.
+    #[prost(message, optional, tag = "1")]
+    pub sbbf: ::core::option::Option<SplitBlockBloomFilter>,
+}
+/// Split-Block Bloom Filter (SBBF) for efficient approximate membership queries.
+/// Provides cache-efficient membership testing with configurable false positive rates.
+/// This message is typically serialized and stored within a MembershipFilters.sbbf
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SplitBlockBloomFilter {
+    /// Number of 256-bit (32 bytes) blocks in the filter
+    #[prost(fixed64, tag = "1")]
+    pub num_blocks: u64,
+    /// Target false positive probability (e.g., 0.01 for 1%)
+    #[prost(double, tag = "2")]
+    pub target_fpp: f64,
+    /// Number of distinct values inserted into the filter
+    #[prost(fixed64, tag = "3")]
+    pub num_values: u64,
+    /// Hash algorithm used (e.g., "xxh3_64")
+    #[prost(string, tag = "4")]
+    pub hash_algorithm: ::prost::alloc::string::String,
+    /// The filter data as a sequence of 256-bit blocks
+    #[prost(bytes = "vec", tag = "5")]
+    pub data: ::prost::alloc::vec::Vec<u8>,
 }
 /// Stripe-level field descriptor: stats and encoding.
 #[derive(Clone, PartialEq, ::prost::Message)]

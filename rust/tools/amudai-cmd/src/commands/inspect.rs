@@ -140,11 +140,7 @@ struct FieldDescriptorInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     dictionary_size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    stored_data_size: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    stored_index_size: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    plain_data_size: Option<u64>,
+    raw_data_size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     range_stats: Option<RangeStatsInfo>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -267,9 +263,7 @@ fn create_field_descriptor_info(
         null_count: field_desc.null_count,
         constant_value: field_desc.constant_value.as_ref().map(|v| format!("{v:?}")),
         dictionary_size: field_desc.dictionary_size,
-        stored_data_size: field_desc.stored_data_size,
-        stored_index_size: field_desc.stored_index_size,
-        plain_data_size: field_desc.plain_data_size,
+        raw_data_size: field_desc.raw_data_size,
         range_stats: field_desc.range_stats.as_ref().map(create_range_stats_info),
         properties: field_desc
             .properties
@@ -304,9 +298,7 @@ fn create_stripe_field_descriptor_info(
             null_count: field_desc.null_count,
             constant_value: field_desc.constant_value.as_ref().map(|v| format!("{v:?}")),
             dictionary_size: field_desc.dictionary_size,
-            stored_data_size: field_desc.stored_data_size,
-            stored_index_size: field_desc.stored_index_size,
-            plain_data_size: field_desc.plain_data_size,
+            raw_data_size: field_desc.raw_data_size,
             range_stats: field_desc.range_stats.as_ref().map(create_range_stats_info),
             properties: field_desc
                 .properties
@@ -348,7 +340,7 @@ fn create_membership_filters_info(
     filters: &amudai_format::defs::shard::MembershipFilters,
 ) -> MembershipFiltersInfo {
     MembershipFiltersInfo {
-        bloom_filter_count: filters.bloom_filters.len(),
+        bloom_filter_count: if filters.sbbf.is_some() { 1 } else { 0 },
     }
 }
 

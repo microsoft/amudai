@@ -63,9 +63,6 @@ All metadata and data elements referenced in this document, which are native to 
 ## Shard structure
 
 ### Data stripes
-```admonish note
-Our approach to data stripes differs from that of Kusto V3 shards.
-```
 
 The records within a shard are further segmented into multiple horizontal data stripes. Each shard contains at least one data stripe, with no set limit on stripe size; a single stripe can encompass an entire shard. It is recommended that writers create shards with a single stripe whenever possible.
 
@@ -119,6 +116,7 @@ Below is the logical structure of a shard. Items highlighted in `code span` repr
           - Low-fidelity HyperLogLog (HLL)
         - Low-fidelity histogram
         - Bloom filters and other sketches
+          - Split-Block Bloom Filters for membership testing
         - Type-specific properties (e.g. `NaN` count, `true` count, character set stats)
         - etc.
   - Stripe directory (x number of stripes)
@@ -214,10 +212,23 @@ To access a subset of fields within a shard, a reader should follow these steps:
 
 > [Forum] We discussed an option to have any property-bag to defined in a way that we can either model it as a part of the descriptor, or have a pointer to an external file with URL structure.
 
-```admonish todo title="To decide"
-Where do "sketches", such as Bloom filters, live? Can be embedded in the field descriptor or we can allow any kind of content reference for each potentially large sketch. At the moment, they're specified as part of the field stats, but it doesn't have to be the only option.
-If we decide these could live elsewhere and the field descriptor contains the references, then **Puffin** is one of the possible candidates.
-```
+#### Membership Filters and Sketches
+
+Field descriptors support various probabilistic data structures to enable efficient query filtering:
+
+- **Split-Block Bloom Filters (SBBF)**: These provide approximate membership testing with configurable false positive rates. SBBFs are particularly efficient due to their cache-friendly design, touching only a single 32-byte block per query. They are stored as part of the field descriptor and can be used for:
+  - Pre-filtering at the shard level before accessing stripes
+  - Eliminating fields from consideration during query planning
+  - Supporting semi-join operations without full data access
+
+- **HyperLogLog Sketches**: Used for cardinality estimation, these compact data structures provide approximate distinct value counts with controlled error rates.
+
+The placement of these sketches within field descriptors (rather than as separate index structures) allows for:
+- Efficient access during query planning
+- Natural aggregation across stripes at the shard level
+- Minimal overhead when scanning field metadata
+
+Not all fields may have these sketches - high-cardinality fields where the sketch size would be too large may skip sketch creation based on configurable heuristics.
 
 #### URL List
 The URL list is a section within the shard directory that catalogs all the blob URLs, whether they are absolute or relative, that are referenced by this shard.
@@ -288,6 +299,14 @@ Index descriptors are composed of two parts: a fixed portion, which specifies th
 #### Special (Internal) Fields
 
 New kinds of internal fields can typically be added without affecting existing consumers, except when the field semantics pertains to security, privacy or correctness of data interpretation.
+
+#### Probabilistic Data Structures
+
+New sketch types can be added to the `membership_filters` and other filter collections. The design principles are:
+- Sketches must be self-describing (include algorithm version and parameters)
+- Unknown sketch types can be safely ignored by readers
+- Writers should preserve sketches they don't understand when performing non-destructive operations
+- Critical sketches that affect correctness should be clearly marked in their annotation
 
 #### Low-Level Data Encodings
 

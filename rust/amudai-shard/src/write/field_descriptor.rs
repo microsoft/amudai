@@ -102,6 +102,10 @@ pub fn merge(
     // If accumulated is in initial state (empty), just copy current into it
     if accumulated.position_count == 0 {
         *accumulated = current.clone();
+        // This is the first stripe for this field. After cloning its descriptor,
+        // we must clear the membership filters, as shard-level descriptors
+        // must not contain them.
+        accumulated.membership_filters = None;
         return Ok(());
     }
 
@@ -202,6 +206,13 @@ fn populate_string_statistics(
             ascii_count: Some(string_stats.ascii_count),
         },
     ));
+
+    // Add bloom filter to membership_filters if one was constructed
+    if let Some(ref bloom_filter) = string_stats.bloom_filter {
+        descriptor.membership_filters = Some(shard::MembershipFilters {
+            sbbf: Some(bloom_filter.clone()),
+        });
+    }
 }
 
 /// Populates field descriptor with boolean statistics.
@@ -248,6 +259,13 @@ fn populate_binary_statistics(
             min_non_empty_length: binary_stats.min_non_empty_length,
         },
     ));
+
+    // Add bloom filter to membership_filters if one was constructed
+    if let Some(ref bloom_filter) = binary_stats.bloom_filter {
+        descriptor.membership_filters = Some(shard::MembershipFilters {
+            sbbf: Some(bloom_filter.clone()),
+        });
+    }
 }
 
 /// Populates a field descriptor with decimal statistics.
@@ -789,6 +807,7 @@ mod tests {
             ascii_count: 8,
             count: 10,
             null_count: 2,
+            bloom_filter: None,
         };
 
         let encoded_field = EncodedField {
@@ -823,6 +842,7 @@ mod tests {
             ascii_count: 100,
             count: 150,
             null_count: 0,
+            bloom_filter: None,
         };
 
         let encoded_field = EncodedField {

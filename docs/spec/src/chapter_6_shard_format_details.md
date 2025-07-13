@@ -420,22 +420,22 @@ message FieldDescriptor {
     optional fixed64 null_count = 2;
     optional AnyValue constant_value = 3;
     optional fixed64 dictionary_size = 4;
-    optional fixed64 true_count = 5;
-    optional fixed64 nan_count = 6;
-    optional RangeStats range_stats = 7;
-    optional CardinalityInfo cardinality = 8;
-    optional MembershipFilters membership_filters = 9;
-    optional IndexCollection indexes = 10;
+    optional RangeStats range_stats = 6;
+    optional CardinalityInfo cardinality = 7;
+    optional MembershipFilters membership_filters = 8;
+    optional IndexCollection indexes = 9;
+    repeated NameValuePair properties = 10;
 
     oneof type_specific {
         StringStats string_stats = 20;
         ContainerStats container_stats = 21;
+        BooleanStats boolean_stats = 22;
+        DecimalStats decimal_stats = 23;
+        FloatingStats floating_stats = 24;
     }
     
     repeated NameValuePair custom_properties = 40;
-    optional fixed64 stored_data_size = 41;
-    optional fixed64 stored_index_size = 42;
-    optional fixed64 plain_data_size = 43;
+    optional fixed64 raw_data_size = 41;
 }
 
 message RangeStats {
@@ -452,9 +452,31 @@ message StringStats {
     optional fixed64 ascii_count = 4;
 }
 
+message BooleanStats {
+    fixed64 true_count = 1;
+    fixed64 false_count = 2;
+}
+
 message ContainerStats {
     fixed64 min_length = 1;
-    fixed64 max_length = 2;
+    optional fixed64 min_non_empty_length = 2;
+    fixed64 max_length = 3;
+}
+
+message DecimalStats {
+    fixed64 zero_count = 1;
+    fixed64 positive_count = 2;
+    fixed64 negative_count = 3;
+    fixed64 nan_count = 4;
+}
+
+message FloatingStats {
+    fixed64 zero_count = 1;
+    fixed64 positive_count = 2;
+    fixed64 negative_count = 3;
+    fixed64 nan_count = 4;
+    fixed64 positive_infinity_count = 5;
+    fixed64 negative_infinity_count = 6;
 }
 
 message CardinalityInfo {
@@ -464,8 +486,34 @@ message CardinalityInfo {
 }
 
 message MembershipFilters {
-    repeated AnyValue bloom_filters = 1;
+    optional SplitBlockBloomFilter sbbf = 1;
 }
+
+message SplitBlockBloomFilter {
+    fixed64 num_blocks = 1;
+    double target_fpp = 2;
+    fixed64 num_values = 3;
+    string hash_algorithm = 4;
+    bytes data = 5;
+}
+```
+
+**CardinalityInfo properties:**
+- `count`: If present, provides the exact or estimated number of distinct values
+- `is_estimate`: Boolean flag indicating whether the `count` field contains an estimate (`true`) or exact count (`false`)
+- `hll_sketch`: Optional HyperLogLog sketch data for cardinality estimation, stored as an `AnyValue`
+
+**MembershipFilters properties:**
+- `sbbf`: A Split-Block Bloom Filter for efficient approximate membership queries with excellent cache locality.
+
+**Important Note**: `MembershipFilters` are only populated at the stripe level within `StripeFieldDescriptor`, not at the shard level in `FieldDescriptor`.
+
+**SplitBlockBloomFilter properties:**
+- `num_blocks`: The number of 256-bit (32-byte) blocks in the filter. Must be a power of 2
+- `target_fpp`: The target false positive probability used when sizing the filter (e.g., 0.01 for 1%)
+- `num_values`: The number of distinct values that were inserted into the filter during construction
+- `data`: The raw filter data as a sequence of 256-bit blocks stored in little-endian byte order
+- `hash_algorithm`: Identifier for the hash algorithm used (e.g., "xxh3_64"). Must produce consistent results across architectures
 ```
 
 - The only mandatory property is `position_count`, which indicates the number of logical "value slots" (logical positions) in this field's stored sequence. The other properties are optional and are primarily relevant to primitive data types.
@@ -473,10 +521,6 @@ message MembershipFilters {
 - `null_count`: If present, this specifies the number of logical value slots containing `null` values.
 
 - `constant_value`: If present, this indicates that all value slots contain the same value, including the possibility that all values are null. Such a field might not have any data encodings at the stripe level.
-
-- `true_count`: For a Boolean field, this denotes the number of value slots equal to `true`.
-
-- `nan_count`: For a floating-point type, this specifies the number of value slots containing `NaN`.
 
 - `dictionary_size`: When present, this specifies the size of the dictionary containing all distinct values for this field, including the null value. *Note*: The presence of this information does not necessarily mean that there's an actual value dictionary stored, although this is usually the case at the stripe level.  
 
@@ -486,22 +530,50 @@ message MembershipFilters {
     - For `binary` and `string` types, the min and max values are computed based on byte-lexicographic ordering.
 
 - `cardinality`: Estimates the number of distinct values in the field, with `null` counted as a single distinct value.
-    - TODO: Refer to the `hll_sketch` specification in the Appendix.
-
-- `membership_filters`: Optional approximate membership query (AMQ) filters for the values of the field.
-    - `bloom_filters`: These consist of one or more Bloom filter sketches used to perform an approximate membership check on the field's values. If any filter in the list returns `true` for a given value, it indicates that the value might be present among the field's values.
-        - TODO: Refer to the `bloom_filter` specification in the Appendix.
+    - See [CardinalityInfo message definition](#cardinalityinfo-properties) above for the structure specification.
+    - May contain exact counts, estimates, or HyperLogLog sketches for cardinality estimation.
 
 - `indexes`: Optional indexes specific to the field (these can exist alongside multi-field indexes at the shard or stripe level).
+
+- `membership_filters`: Optional approximate membership query (AMQ) filters for the values of the field. **Note**: This field is only populated when the `FieldDescriptor` is used at the stripe level (within `StripeFieldDescriptor`). At the shard level, this field remains empty.
 
 - `StringStats`: Applicable only for the `string` type. All sizes are measured in bytes, not code points.
     - `min_size` and `max_size`: Indicate the minimum and maximum sizes of the strings, in bytes.
     - `min_non_empty_size`: Indicates the minimum size of a non-empty string, in bytes.
     - `ascii_count`: Represents the number of value slots containing ASCII-only strings (strings with only code points below 128).  
 
+- `BooleanStats`: Applicable only for the `boolean` type.
+    - `true_count`: The number of value slots equal to `true`.
+    - `false_count`: The number of value slots equal to `false`.
+
 - `ContainerStats`: Relevant for variable-length `List`, `Map`, and `binary` types (where `binary` is treated as a container of bytes).
+    - `min_length`: The minimum length of the container.
+    - `min_non_empty_length`: The minimum length of a non-empty container.
+    - `max_length`: The maximum length of the container.
+
+- `DecimalStats`: Applicable only for decimal types (128-bit precision).
+    - `zero_count`: The number of decimal values that are zero.
+    - `positive_count`: The number of decimal values that are positive (greater than zero).
+    - `negative_count`: The number of decimal values that are negative (less than zero).
+    - `nan_count`: The number of decimal values that are NaN (Not a Number).
+
+- `FloatingStats`: Applicable only for floating-point types (`f32`, `f64`).
+    - `zero_count`: The number of floating-point values that are zero.
+    - `positive_count`: The number of floating-point values that are positive (greater than zero).
+    - `negative_count`: The number of floating-point values that are negative (less than zero).
+    - `nan_count`: The number of floating-point values that are NaN (Not a Number).
+    - `positive_infinity_count`: The number of floating-point values that are positive infinity.
+    - `negative_infinity_count`: The number of floating-point values that are negative infinity.
   
-- `stored_data_size`: The sum of all Amudai encoded buffer sizes for this field, excluding references to external artifacts (e.g., columns in Parquet files).
+- `raw_data_size`: Represents the size of the data in its raw, uncompressed format in bytes. This is the theoretical size of the data before any encoding, compression, or optimization is applied. The calculation varies by data type:
+
+  For fixed-size data types (int32, int64, float32, float64, bool, etc.), the raw data size is calculated as the count of non-null values multiplied by the size of the data type in bytes. For example, 100 non-null int64 values would have a raw data size of 100 × 8 = 800 bytes.
+
+  For variable-length data types (string, binary, lists, maps), the raw data size is the sum of the length in bytes of all non-null values. For strings, this is the sum of UTF-8 byte lengths of all non-null strings. For binary data, it's the sum of byte lengths of all non-null binary values. For lists and maps, it's the sum of the serialized byte lengths of all non-null containers.
+
+  Null value handling follows these rules: If the field contains no null values, raw_data_size includes only the actual data. If the field contains some null values, raw_data_size excludes null values from the calculation since nulls contribute 0 bytes to the raw size. If all values in the field are null, raw_data_size equals 0.
+
+  This metric is useful for compression ratio calculations (compressed_size / raw_data_size), memory usage estimation for uncompressed data processing, understanding the effectiveness of encoding schemes, and query planning and resource allocation decisions.
 
 *Note*: All the value statistics mentioned above are calculated for the entire stored sequence of values at the corresponding scope (shard or stripe) and do not account for logically deleted records.
 
@@ -513,10 +585,13 @@ The Stripe Field Descriptor shares part of its definition with a base Field Desc
 message StripeFieldDescriptor {
     FieldDescriptor field = 1;
     repeated DataEncoding encodings = 2;
+    optional MembershipFilters membership_filters = 3;
 }
 ```
 
 The `StripeFieldDescriptor` contains a list of data encodings, each offering an alternative way to represent the sequence of values. Typically, you'll find just one `DataEncoding` in this list. However, if there are multiple encodings, they should be arranged by priority, with the most efficient one for decoding placed first. When accessing the field's values, the reader should always try the first data encoding and use the others only as backups if the first isn't fully supported.
+
+The `StripeFieldDescriptor` includes `membership_filters` at the top level (field 3) to provide approximate membership query (AMQ) filters like bloom filters. Note that `membership_filters` should not be populated in the embedded `FieldDescriptor` (field 8) as these filters are maintained exclusively at the stripe level.
 
 ### Data Encoding
 
@@ -849,3 +924,58 @@ Let's clarify this concept with an example. Imagine a shard for a table with fie
     ]
 }
 ```
+
+## Split-Block Bloom Filters
+
+Split-Block Bloom Filters (SBBF) are used throughout the Amudai format to provide efficient approximate membership queries with excellent cache locality and SIMD optimization opportunities.
+
+### SBBF Algorithm
+
+The SBBF implementation follows the Apache Parquet specification with these characteristics:
+- **Block Size**: 256 bits (32 bytes)
+- **Hash Functions**: 8 independent hash functions per element
+- **Block Selection**: Uses the high bits of the hash to select a block
+- **Bit Selection**: Uses the low bits to select 8 positions within the block
+
+### Filter Storage Format
+
+The SBBF is stored as a contiguous buffer with the following structure:
+
+```protobuf
+message SplitBlockBloomFilter {
+    // Number of 256-bit blocks in the filter
+    fixed64 num_blocks = 1;
+    
+    // Target false positive probability (e.g., 0.01 for 1%)
+    double target_fpp = 2;
+    
+    // Number of distinct values inserted
+    fixed64 num_values = 3;
+    
+    // The filter data as a sequence of 256-bit blocks
+    bytes blocks = 4;
+    
+    // Hash algorithm used (e.g., "xxh3_64")
+    string hash_algorithm = 5;
+}
+```
+
+### Filter Sizing
+
+The number of blocks is determined by:
+- `m = -8 * n / ln(1 - fpp^(1/8))` where:
+  - `n` = expected number of distinct values
+  - `fpp` = target false positive probability
+  - The result is rounded up to the next power of 2
+
+### Usage in Field Descriptors
+
+Bloom filters are maintained exclusively at the stripe level within `StripeFieldDescriptor` instances. They are **not** duplicated or merged at the shard level.
+
+When two shards are merged, the resulting shard contains all stripes from the first shard followed by all stripes from the second shard. Each stripe field descriptor retains its existing bloom filters unchanged.
+
+### Implementation Notes
+
+- Filters are immutable once created
+- The hash algorithm must produce consistent results across architectures
+- The filter data is stored in little-endian byte order
