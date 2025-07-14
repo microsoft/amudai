@@ -22,6 +22,7 @@ pub struct BinaryStatsCollector {
     min_non_empty_length: Option<u64>,
     null_count: u64,
     total_count: u64,
+    raw_data_size: u64,
     // Bloom filter support
     bloom_filter_collector: Option<BloomFilterCollector>,
     // Flag to control bloom filter collection
@@ -61,6 +62,7 @@ impl BinaryStatsCollector {
             min_non_empty_length: None,
             null_count: 0,
             total_count: 0,
+            raw_data_size: 0,
             bloom_filter_collector,
             collect_bloom_filters,
         }
@@ -247,6 +249,9 @@ impl BinaryStatsCollector {
             });
         }
 
+        // Update raw_data_size (sum of lengths of all non-null values)
+        self.raw_data_size += length;
+
         Ok(())
     }
 
@@ -260,6 +265,25 @@ impl BinaryStatsCollector {
             (0, 0)
         } else {
             (self.min_length.unwrap_or(0), self.max_length.unwrap_or(0))
+        };
+
+        // Calculate raw_data_size according to proto specification:
+        // - If no nulls: just the sum of binary lengths
+        // - If some nulls: sum of binary lengths + N bits for null bitmap (where N = total_count)
+        // - If all nulls: 0
+        let raw_data_size = if self.total_count == 0 {
+            // No data processed
+            0
+        } else if self.null_count == self.total_count {
+            // All values are null
+            0
+        } else if self.null_count == 0 {
+            // No null values - just the actual data
+            self.raw_data_size
+        } else {
+            // Some null values - add null bitmap overhead (N bits = N/8 bytes, rounded up)
+            let null_bitmap_bytes = self.total_count.div_ceil(8); // Round up to nearest byte
+            self.raw_data_size + null_bitmap_bytes
         };
 
         // Build bloom filter if available
@@ -285,6 +309,7 @@ impl BinaryStatsCollector {
             min_non_empty_length: self.min_non_empty_length,
             null_count: self.null_count,
             total_count: self.total_count,
+            raw_data_size,
             bloom_filter,
         })
     }
@@ -305,6 +330,8 @@ pub struct BinaryStats {
     pub null_count: u64,
     /// Total number of values (including nulls) in the dataset.
     pub total_count: u64,
+    /// Sum of the length in bytes of all non-null binary values.
+    pub raw_data_size: u64,
     /// Optional bloom filter protobuf if one was successfully constructed during statistics collection.
     pub bloom_filter: Option<amudai_format::defs::shard::SplitBlockBloomFilter>,
 }
@@ -321,6 +348,7 @@ impl BinaryStats {
             min_non_empty_length: None,
             null_count: 0,
             total_count: 0,
+            raw_data_size: 0,
             bloom_filter: None,
         }
     }
@@ -842,5 +870,128 @@ mod tests {
         assert_eq!(stats.total_count, 3);
         // Bloom filter should be enabled for non-Plain profiles
         assert!(stats.bloom_filter.is_some());
+    }
+
+    #[test]
+    fn test_raw_data_size_calculation() {
+        let data: Vec<Option<&[u8]>> = vec![
+            Some(b"hello"), // 5 bytes
+            None,           // 0 bytes (null)
+            Some(b"world"), // 5 bytes
+            Some(b""),      // 0 bytes (empty)
+            Some(b"test"),  // 4 bytes
+        ];
+        let array = BinaryArray::from_opt_vec(data);
+        let mut collector = BinaryStatsCollector::default();
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        assert_eq!(stats.total_count, 5);
+        assert_eq!(stats.null_count, 1);
+        // raw_data_size should be sum of non-null values + null bitmap overhead
+        // Data: 5 + 5 + 0 + 4 = 14 bytes
+        // Null bitmap: 5 bits = 1 byte (rounded up)
+        // Total: 14 + 1 = 15 bytes
+        assert_eq!(stats.raw_data_size, 15);
+        assert_eq!(stats.min_length, 0); // Empty string
+        assert_eq!(stats.max_length, 5); // "hello" and "world"
+        assert_eq!(stats.min_non_empty_length, Some(4)); // "test" is shortest non-empty
+        assert!(!stats.is_empty());
+        assert!(!stats.is_all_nulls());
+    }
+
+    #[test]
+    fn test_raw_data_size_no_nulls() {
+        // Test case: no null values - raw_data_size includes only actual data
+        let mut collector = BinaryStatsCollector::default();
+        let data: Vec<&[u8]> = vec![b"hello", b"world", b"test"];
+        let array = BinaryArray::from_vec(data);
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        assert_eq!(stats.total_count, 3);
+        assert_eq!(stats.null_count, 0);
+        // raw_data_size should be sum of binary lengths only: 5 + 5 + 4 = 14 bytes
+        assert_eq!(stats.raw_data_size, 14);
+    }
+
+    #[test]
+    fn test_raw_data_size_some_nulls() {
+        // Test case: some null values - raw_data_size includes data + null bitmap
+        let mut collector = BinaryStatsCollector::default();
+        let data: Vec<Option<&[u8]>> = vec![
+            Some(b"hello"), // 5 bytes
+            None,           // null
+            Some(b"world"), // 5 bytes
+        ];
+        let array = BinaryArray::from_opt_vec(data);
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        assert_eq!(stats.total_count, 3);
+        assert_eq!(stats.null_count, 1);
+        // raw_data_size should be sum of non-null binary lengths + null bitmap overhead
+        // Data: 5 + 5 = 10 bytes
+        // Null bitmap: 3 bits = 1 byte (rounded up)
+        // Total: 10 + 1 = 11 bytes
+        assert_eq!(stats.raw_data_size, 11);
+    }
+
+    #[test]
+    fn test_raw_data_size_all_nulls() {
+        // Test case: all values are null - raw_data_size = 0
+        let mut collector = BinaryStatsCollector::default();
+        let data: Vec<Option<&[u8]>> = vec![None, None, None];
+        let array = BinaryArray::from_opt_vec(data);
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        assert_eq!(stats.total_count, 3);
+        assert_eq!(stats.null_count, 3);
+        // raw_data_size should be 0 when all values are null
+        assert_eq!(stats.raw_data_size, 0);
+    }
+
+    #[test]
+    fn test_raw_data_size_empty_dataset() {
+        // Test case: no data processed - raw_data_size = 0
+        let mut collector = BinaryStatsCollector::default();
+        let data: Vec<&[u8]> = vec![];
+        let array = BinaryArray::from_vec(data);
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        assert_eq!(stats.total_count, 0);
+        assert_eq!(stats.null_count, 0);
+        // raw_data_size should be 0 when no data is processed
+        assert_eq!(stats.raw_data_size, 0);
+    }
+
+    #[test]
+    fn test_raw_data_size_large_null_bitmap() {
+        // Test case: large dataset to verify null bitmap calculation with multiple bytes
+        let mut collector = BinaryStatsCollector::default();
+        let mut data: Vec<Option<&[u8]>> = vec![];
+
+        // Create 17 values (needs 3 bytes for null bitmap: 17 bits = 3 bytes when rounded up)
+        for i in 0..17 {
+            if i % 3 == 0 {
+                data.push(None); // Every 3rd value is null
+            } else {
+                data.push(Some(b"test" as &[u8])); // 4 bytes each
+            }
+        }
+
+        let array = BinaryArray::from_opt_vec(data);
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        assert_eq!(stats.total_count, 17);
+        assert_eq!(stats.null_count, 6); // Positions 0, 3, 6, 9, 12, 15
+        // raw_data_size should be:
+        // Data: 11 non-null values * 4 bytes = 44 bytes
+        // Null bitmap: 17 bits = 3 bytes (rounded up from 2.125)
+        // Total: 44 + 3 = 47 bytes
+        assert_eq!(stats.raw_data_size, 47);
     }
 }

@@ -127,6 +127,23 @@ impl DecimalStatsCollector {
     /// # Returns
     /// A `DecimalStats` struct containing the collected statistics
     pub fn finalize(self) -> DecimalStats {
+        // If all values are null, no data storage is needed at all
+        let raw_data_size = if self.total_count == self.null_count {
+            0 // No data and no null bitmap needed when everything is null
+        } else {
+            // Calculate data size: non-null values * 16 bytes (d128 is 128-bit)
+            let non_null_count = self.total_count - self.null_count;
+            let data_size = non_null_count * 16;
+
+            // Calculate null bitmap overhead if there are any null values
+            let null_bitmap_size = if self.null_count > 0 {
+                self.total_count.div_ceil(8) // ceil(total_count / 8)
+            } else {
+                0
+            };
+            data_size + null_bitmap_size
+        };
+
         DecimalStats {
             min_value: self.min_value,
             max_value: self.max_value,
@@ -136,6 +153,7 @@ impl DecimalStatsCollector {
             positive_count: self.positive_count,
             negative_count: self.negative_count,
             nan_count: self.nan_count,
+            raw_data_size,
         }
     }
 }
@@ -161,6 +179,8 @@ pub struct DecimalStats {
     pub negative_count: u64,
     /// Number of decimal values that are NaN (Not a Number).
     pub nan_count: u64,
+    /// Total size of raw data in bytes (actual data + null bitmap overhead if nulls present).
+    pub raw_data_size: u64,
 }
 
 impl DecimalStats {
@@ -175,6 +195,7 @@ impl DecimalStats {
             positive_count: 0,
             negative_count: 0,
             nan_count: 0,
+            raw_data_size: 0,
         }
     }
 
@@ -305,5 +326,26 @@ mod tests {
         // Verify that min/max are not affected by NaN values
         assert_eq!(stats.min_value, Some(d128::from_str("-50.00").unwrap()));
         assert_eq!(stats.max_value, Some(d128::from_str("123.45").unwrap()));
+    }
+
+    #[test]
+    fn test_decimal_stats_raw_data_size_all_nulls() {
+        let mut collector = DecimalStatsCollector::new();
+
+        // Process only null values
+        collector.process_nulls(100);
+
+        let stats = collector.finalize();
+
+        assert_eq!(stats.total_count, 100);
+        assert_eq!(stats.null_count, 100);
+        assert_eq!(stats.zero_count, 0);
+        assert_eq!(stats.positive_count, 0);
+        assert_eq!(stats.negative_count, 0);
+        assert_eq!(stats.nan_count, 0);
+        assert_eq!(stats.min_value, None);
+        assert_eq!(stats.max_value, None);
+        // When all values are null, no storage is needed at all
+        assert_eq!(stats.raw_data_size, 0);
     }
 }

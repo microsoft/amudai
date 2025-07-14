@@ -19,6 +19,7 @@ pub struct FloatingStatsCollector {
     nan_count: u64,
     positive_infinity_count: u64,
     negative_infinity_count: u64,
+    data_size_bytes: u64,
 }
 
 impl FloatingStatsCollector {
@@ -33,6 +34,7 @@ impl FloatingStatsCollector {
     /// * `value` - The f32 value to process
     pub fn process_f32_value(&mut self, value: f32) {
         self.total_count += 1;
+        self.data_size_bytes += 4; // f32 is 4 bytes
         self.update_stats(value as f64);
     }
 
@@ -42,6 +44,7 @@ impl FloatingStatsCollector {
     /// * `value` - The f64 value to process
     pub fn process_f64_value(&mut self, value: f64) {
         self.total_count += 1;
+        self.data_size_bytes += 8; // f64 is 8 bytes
         self.update_stats(value);
     }
 
@@ -180,6 +183,22 @@ impl FloatingStatsCollector {
     /// # Returns
     /// A `FloatingStats` struct containing the collected statistics
     pub fn finalize(self) -> FloatingStats {
+        // If all values are null, no data storage is needed at all
+        let raw_data_size = if self.total_count == self.null_count {
+            0 // No data and no null bitmap needed when everything is null
+        } else {
+            // Calculate data size for non-null values
+            let data_size = self.data_size_bytes;
+
+            // Calculate null bitmap overhead if there are any null values
+            let null_bitmap_size = if self.null_count > 0 {
+                self.total_count.div_ceil(8) // ceil(total_count / 8)
+            } else {
+                0
+            };
+            data_size + null_bitmap_size
+        };
+
         FloatingStats {
             min_value: self.min_value,
             max_value: self.max_value,
@@ -191,6 +210,7 @@ impl FloatingStatsCollector {
             nan_count: self.nan_count,
             positive_infinity_count: self.positive_infinity_count,
             negative_infinity_count: self.negative_infinity_count,
+            raw_data_size,
         }
     }
 }
@@ -221,6 +241,8 @@ pub struct FloatingStats {
     pub positive_infinity_count: u64,
     /// Number of floating-point values that are negative infinity.
     pub negative_infinity_count: u64,
+    /// Total size of raw data in bytes (actual data + null bitmap overhead if nulls present).
+    pub raw_data_size: u64,
 }
 
 impl FloatingStats {
@@ -237,6 +259,7 @@ impl FloatingStats {
             nan_count: 0,
             positive_infinity_count: 0,
             negative_infinity_count: 0,
+            raw_data_size: 0,
         }
     }
 
@@ -387,5 +410,28 @@ mod tests {
         assert_eq!(stats.positive_count, 4);
         assert_eq!(stats.min_value, Some(1.0));
         assert_eq!(stats.max_value, Some(6.0));
+    }
+
+    #[test]
+    fn test_floating_stats_raw_data_size_all_nulls() {
+        let mut collector = FloatingStatsCollector::new();
+
+        // Process only null values
+        collector.process_nulls(100);
+
+        let stats = collector.finalize();
+
+        assert_eq!(stats.total_count, 100);
+        assert_eq!(stats.null_count, 100);
+        assert_eq!(stats.positive_count, 0);
+        assert_eq!(stats.negative_count, 0);
+        assert_eq!(stats.zero_count, 0);
+        assert_eq!(stats.finite_count(), 0);
+        assert_eq!(stats.infinity_count(), 0);
+        assert_eq!(stats.nan_count, 0);
+        assert_eq!(stats.min_value, None);
+        assert_eq!(stats.max_value, None);
+        // When all values are null, no storage is needed at all
+        assert_eq!(stats.raw_data_size, 0);
     }
 }

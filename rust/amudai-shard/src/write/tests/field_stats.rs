@@ -68,6 +68,11 @@ fn test_end_to_end_statistics_integration() -> Result<()> {
         panic!("Expected I64Value for max");
     }
 
+    // Verify raw_data_size is present and reasonable for int32 values
+    // Expected: 5 values * 4 bytes each = 20 bytes (no nulls, so no null bitmap overhead)
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 20);
+
     println!("✓ End-to-end statistics integration test passed!");
     Ok(())
 }
@@ -155,6 +160,11 @@ fn test_statistics_aggregation_across_stripes() -> Result<()> {
         panic!("Expected I64Value for aggregated max");
     }
 
+    // Verify aggregated raw_data_size
+    // Expected: 9 int32 values * 4 bytes each = 36 bytes (no nulls, so no null bitmap overhead)
+    assert!(shard_field_desc.raw_data_size.is_some());
+    assert_eq!(shard_field_desc.raw_data_size.unwrap(), 36);
+
     println!("✓ Statistics aggregation across stripes test passed!");
     Ok(())
 }
@@ -219,6 +229,11 @@ fn test_string_statistics_integration() -> Result<()> {
     } else {
         panic!("Expected string statistics in type_specific field");
     }
+
+    // Verify raw_data_size for string field
+    // Expected: sum of string byte lengths = 5+5+4+1+13 = 28 bytes (no nulls, so no null bitmap overhead)
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 28);
 
     println!("✓ String statistics integration test passed!");
     Ok(())
@@ -299,6 +314,11 @@ fn test_string_statistics_aggregation_across_stripes() -> Result<()> {
         panic!("Expected string statistics in type_specific field");
     }
 
+    // Verify aggregated raw_data_size for string field
+    // Expected: sum of all string byte lengths = (1+2+3)+(4+5)+(0+6+7) = 6+9+13 = 28 bytes (no nulls, so no null bitmap overhead)
+    assert!(shard_field_desc.raw_data_size.is_some());
+    assert_eq!(shard_field_desc.raw_data_size.unwrap(), 28);
+
     println!("✓ String statistics aggregation across stripes test passed!");
     Ok(())
 }
@@ -361,6 +381,11 @@ fn test_boolean_statistics_integration() -> Result<()> {
     } else {
         panic!("Expected boolean statistics in type_specific field");
     }
+
+    // Verify raw_data_size for boolean field with nulls
+    // Expected: ceil(5/8) = 1 byte for boolean data + ceil(5/8) = 1 byte for null bitmap = 2 bytes total
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 2);
 
     println!("✓ Boolean statistics integration test passed!");
     Ok(())
@@ -436,6 +461,11 @@ fn test_boolean_statistics_aggregation_across_stripes() -> Result<()> {
     } else {
         panic!("Expected boolean statistics in type_specific field");
     }
+
+    // Verify aggregated raw_data_size for boolean field with nulls
+    // Expected: Sum of individual stripe raw_data_sizes: (2+1+2) = 5 bytes
+    assert!(shard_field_desc.raw_data_size.is_some());
+    assert_eq!(shard_field_desc.raw_data_size.unwrap(), 5);
 
     println!("✓ Boolean statistics aggregation across stripes test passed!");
     Ok(())
@@ -516,6 +546,11 @@ fn test_datetime_statistics_integration() -> Result<()> {
     } else {
         panic!("Expected U64Value for max, got: {:?}", max_val.kind);
     }
+
+    // Verify raw_data_size for datetime field (3 non-null DateTime values)
+    // Expected: 3 values * 8 bytes each = 24 bytes (no nulls, so no null bitmap overhead)
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 24);
 
     println!("✓ DateTime statistics integration test passed!");
     Ok(())
@@ -609,6 +644,11 @@ fn test_datetime_statistics_aggregation_across_stripes() -> Result<()> {
         );
     }
 
+    // Verify aggregated raw_data_size for datetime field (6 non-null DateTime values)
+    // Expected: 6 values * 8 bytes each = 48 bytes (no nulls, so no null bitmap overhead)
+    assert!(shard_field_desc.raw_data_size.is_some());
+    assert_eq!(shard_field_desc.raw_data_size.unwrap(), 48);
+
     println!("✓ DateTime statistics aggregation across stripes test passed!");
     Ok(())
 }
@@ -682,6 +722,11 @@ fn test_float64_statistics_integration_with_edge_cases() -> Result<()> {
     } else {
         panic!("Expected DoubleValue for max");
     }
+
+    // Verify raw_data_size for float64 field with nulls and special values
+    // Expected: 6 non-null values * 8 bytes each + ceil(7/8) = 1 byte for null bitmap = 48 + 1 = 49 bytes
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 49);
 
     println!("✓ Float64 statistics integration and edge cases test passed!");
     Ok(())
@@ -766,6 +811,11 @@ fn test_float64_statistics_aggregation_across_stripes() -> Result<()> {
         panic!("Expected DoubleValue for aggregated max");
     }
 
+    // Verify aggregated raw_data_size for float64 field with nulls
+    // Expected: 7 non-null values * 8 bytes each + ceil(8/8) = 1 byte for null bitmap = 56 + 1 = 57 bytes
+    assert!(shard_field_desc.raw_data_size.is_some());
+    assert_eq!(shard_field_desc.raw_data_size.unwrap(), 57);
+
     println!("✓ Float64 statistics aggregation across stripes test passed!");
     Ok(())
 }
@@ -822,6 +872,11 @@ fn test_binary_statistics_integration_and_edge_cases() -> Result<()> {
     } else {
         panic!("Expected binary statistics in type_specific field");
     }
+
+    // Verify raw_data_size for binary field with nulls
+    // Expected: sum of non-null binary lengths = 3 + 0 + 18 = 21 bytes + ceil(4/8) = 1 byte for null bitmap = 22 bytes
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 22);
 
     println!("✓ Binary statistics integration and edge cases test passed!");
     Ok(())
@@ -895,6 +950,11 @@ fn test_binary_statistics_aggregation_across_stripes() -> Result<()> {
         panic!("Expected binary statistics in type_specific field");
     }
 
+    // Verify aggregated raw_data_size for binary field with nulls
+    // Expected: sum of all non-null binary lengths = (1+2+3)+(4+5)+(0+6+7) = 3+7+6 = 16 bytes + ceil(7/8) = 1 byte for null bitmap = 17 bytes
+    assert!(shard_field_desc.raw_data_size.is_some());
+    assert_eq!(shard_field_desc.raw_data_size.unwrap(), 17);
+
     println!("✓ Binary statistics aggregation across stripes test passed!");
     Ok(())
 }
@@ -949,6 +1009,11 @@ fn test_int64_statistics_integration() -> Result<()> {
         panic!("Expected I64Value for max");
     }
 
+    // Verify raw_data_size for int64 field with nulls
+    // Expected: 4 non-null values * 8 bytes each + ceil(5/8) = 1 byte for null bitmap = 32 + 1 = 33 bytes
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 33);
+
     println!("✓ Int64 statistics integration test passed!");
     Ok(())
 }
@@ -997,6 +1062,11 @@ fn test_float32_statistics_with_nan() -> Result<()> {
         panic!("Expected FloatingStats for float32 field");
     }
 
+    // Verify raw_data_size for float32 field with nulls
+    // Expected: 3 non-null values * 4 bytes each + ceil(4/8) = 1 byte for null bitmap = 12 + 1 = 13 bytes
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 13);
+
     println!("✓ Float32 statistics with NaN test passed!");
     Ok(())
 }
@@ -1041,6 +1111,11 @@ fn test_edge_case_all_null_batch() -> Result<()> {
     } else {
         println!("No range stats for all-null batch (expected)");
     }
+
+    // Verify raw_data_size for all-null batch
+    // Expected: 0 bytes for data since all values are null (optimized: no null bitmap stored for all-null arrays)
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 0);
 
     println!("✓ Edge case all-null batch test passed!");
     Ok(())
@@ -1091,6 +1166,11 @@ fn test_edge_case_single_value_batch() -> Result<()> {
     } else {
         panic!("Expected I64Value for max");
     }
+
+    // Verify raw_data_size for single-value batch
+    // Expected: 1 value * 4 bytes = 4 bytes (no nulls, so no null bitmap overhead)
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 4);
 
     println!("✓ Edge case single-value batch test passed!");
     Ok(())
@@ -1152,6 +1232,13 @@ fn test_string_statistics_with_unicode() -> Result<()> {
         panic!("Expected string statistics in type_specific field");
     }
 
+    // Note: raw_data_size for Unicode strings depends on actual UTF-8 byte lengths
+    // We just verify that raw_data_size is present and reasonable
+    assert!(field_descriptor.raw_data_size.is_some());
+    let raw_size = field_descriptor.raw_data_size.unwrap();
+    // Should be at least the sum of ASCII string lengths: 5 + 0 = 5 bytes, but likely more due to Unicode
+    assert!(raw_size >= 5);
+
     println!("✓ String statistics with Unicode test passed!");
     Ok(())
 }
@@ -1205,6 +1292,11 @@ fn test_int8_statistics_integration() -> Result<()> {
     } else {
         panic!("Expected I64Value for max");
     }
+
+    // Verify raw_data_size for int8 field with nulls
+    // Expected: 4 non-null values * 1 byte each + ceil(5/8) = 1 byte for null bitmap = 4 + 1 = 5 bytes
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 5);
 
     println!("✓ Int8 statistics integration test passed!");
     Ok(())
@@ -1260,6 +1352,11 @@ fn test_uint32_statistics_integration() -> Result<()> {
     } else {
         panic!("Expected U64Value for max");
     }
+
+    // Verify raw_data_size for uint32 field (no nulls)
+    // Expected: 5 values * 4 bytes each = 20 bytes (no nulls, so no null bitmap overhead)
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 20);
 
     println!("✓ UInt32 statistics integration test passed!");
     Ok(())
@@ -1360,6 +1457,11 @@ fn test_mixed_nullable_non_nullable_aggregation() -> Result<()> {
         panic!("Expected I64Value for max");
     }
 
+    // Verify aggregated raw_data_size for mixed nullable/non-nullable field
+    // Expected: Stripe 1 (3 non-null values * 4 bytes = 12 bytes) + Stripe 2 (2 non-null values * 4 bytes + 1 byte null bitmap = 9 bytes) = 21 bytes
+    assert!(shard_field_desc.raw_data_size.is_some());
+    assert_eq!(shard_field_desc.raw_data_size.unwrap(), 21);
+
     println!("✓ Mixed nullable/non-nullable aggregation test passed!");
     Ok(())
 }
@@ -1412,6 +1514,11 @@ fn test_large_batch_statistics() -> Result<()> {
         panic!("Expected I64Value for max");
     }
 
+    // Verify raw_data_size for large batch
+    // Expected: 1000 values * 8 bytes each = 8000 bytes (no nulls, so no null bitmap overhead)
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 8000);
+
     println!("✓ Large batch statistics test passed!");
     Ok(())
 }
@@ -1459,6 +1566,11 @@ fn test_empty_batch_statistics() -> Result<()> {
     } else {
         println!("No range stats for empty batch (expected)");
     }
+
+    // Verify raw_data_size for empty batch
+    // Expected: 0 bytes for data since there are no values
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 0);
 
     println!("✓ Empty batch statistics test passed!");
     Ok(())
@@ -1580,6 +1692,11 @@ fn test_decimal_statistics_integration() -> Result<()> {
         panic!("Expected DecimalStats in type_specific field");
     }
 
+    // Verify raw_data_size for decimal field (no nulls)
+    // Expected: 4 values * 16 bytes each = 64 bytes (no nulls, so no null bitmap overhead)
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 64);
+
     println!("✓ Decimal statistics integration test passed!");
     Ok(())
 }
@@ -1627,6 +1744,11 @@ fn test_decimal_statistics_all_null() -> Result<()> {
     } else {
         panic!("Expected DecimalStats in type_specific field");
     }
+
+    // Verify raw_data_size for all-null decimal field
+    // Expected: 0 bytes - when all values are null, no storage is needed at all
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 0);
 
     println!("✓ Decimal statistics all-null test passed!");
     Ok(())
@@ -1676,6 +1798,11 @@ fn test_decimal_statistics_single_value() -> Result<()> {
     } else {
         panic!("Expected DecimalStats in type_specific field");
     }
+
+    // Verify raw_data_size for single decimal value (no nulls)
+    // Expected: 1 value * 16 bytes = 16 bytes (no nulls, so no null bitmap overhead)
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 16);
 
     println!("✓ Decimal statistics single-value test passed!");
     Ok(())
@@ -1738,6 +1865,11 @@ fn test_decimal_statistics_mixed_nulls() -> Result<()> {
     } else {
         panic!("Expected DecimalStats in type_specific field");
     }
+
+    // Verify raw_data_size for decimal field with nulls
+    // Expected: 3 non-null values * 16 bytes each + ceil(5/8) = 1 byte for null bitmap = 48 + 1 = 49 bytes
+    assert!(field_descriptor.raw_data_size.is_some());
+    assert_eq!(field_descriptor.raw_data_size.unwrap(), 49);
 
     println!("✓ Decimal statistics mixed-null test passed!");
     Ok(())
@@ -1822,6 +1954,11 @@ fn test_decimal_statistics_aggregation() -> Result<()> {
     } else {
         panic!("Expected DecimalStats in type_specific field");
     }
+
+    // Verify aggregated raw_data_size for decimal field with nulls
+    // Expected: 6 non-null values * 16 bytes each + ceil(7/8) = 1 byte for null bitmap = 96 + 1 = 97 bytes
+    assert!(shard_field_desc.raw_data_size.is_some());
+    assert_eq!(shard_field_desc.raw_data_size.unwrap(), 97);
 
     println!("✓ Decimal statistics aggregation test passed!");
     Ok(())

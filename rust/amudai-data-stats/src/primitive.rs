@@ -113,11 +113,38 @@ impl PrimitiveStatsCollector {
     /// A `Result` containing the collected `PrimitiveStats` or an error.
     pub fn finish(mut self) -> Result<PrimitiveStats> {
         let range_stats = self.range_stats.finalize();
+
+        // Calculate raw_data_size according to proto specification:
+        // For fixed-size data types: (count of non-null values) * (size of data type in bytes) + null bitmap overhead
+        let type_size_bytes = self
+            .basic_type
+            .primitive_size()
+            .expect("BasicType should have a primitive size") as u64;
+
+        let count = self.range_stats.get_count() as u64;
+        let null_count = self.range_stats.get_null_count() as u64;
+
+        let raw_data_size = if count == 0 {
+            // No data processed
+            0
+        } else if null_count == count {
+            // All values are null
+            0
+        } else if null_count == 0 {
+            // No null values - just the actual data
+            count * type_size_bytes
+        } else {
+            // Some null values - add null bitmap overhead (N bits = N/8 bytes, rounded up)
+            let null_bitmap_bytes = count.div_ceil(8); // Round up to nearest byte
+            (count - null_count) * type_size_bytes + null_bitmap_bytes
+        };
+
         Ok(PrimitiveStats {
             basic_type: self.basic_type,
             range_stats,
             count: self.range_stats.get_count(),
             null_count: self.range_stats.get_null_count(),
+            raw_data_size,
         })
     }
 }
@@ -129,6 +156,7 @@ pub struct PrimitiveStats {
     pub range_stats: RangeStats,
     pub count: usize,
     pub null_count: usize,
+    pub raw_data_size: u64,
 }
 
 /// A trait for collecting range statistics.
@@ -669,6 +697,8 @@ mod tests {
         assert_eq!(stats.null_count, 4);
         assert!(stats.range_stats.min_value.is_none());
         assert!(stats.range_stats.max_value.is_none());
+        // When all values are null, no storage is needed at all
+        assert_eq!(stats.raw_data_size, 0);
         Ok(())
     }
 

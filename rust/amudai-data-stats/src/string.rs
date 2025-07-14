@@ -13,6 +13,7 @@ pub struct StringStatsCollector {
     ascii_count: u64,
     count: usize,
     null_count: usize,
+    raw_data_size: u64,
     // Bloom filter support
     bloom_filter_collector: Option<BloomFilterCollector>,
 }
@@ -50,6 +51,7 @@ impl StringStatsCollector {
             ascii_count: 0,
             count: 0,
             null_count: 0,
+            raw_data_size: 0,
             bloom_filter_collector,
         }
     }
@@ -125,6 +127,25 @@ impl StringStatsCollector {
             )
         };
 
+        // Calculate raw_data_size according to proto specification:
+        // - If no nulls: just the sum of string lengths
+        // - If some nulls: sum of string lengths + N bits for null bitmap (where N = total_count)
+        // - If all nulls: 0
+        let raw_data_size = if self.count == 0 {
+            // No data processed
+            0
+        } else if self.null_count == self.count {
+            // All values are null
+            0
+        } else if self.null_count == 0 {
+            // No null values - just the actual data
+            self.raw_data_size
+        } else {
+            // Some null values - add null bitmap overhead (N bits = N/8 bytes, rounded up)
+            let null_bitmap_bytes = (self.count as u64).div_ceil(8); // Round up to nearest byte
+            self.raw_data_size + null_bitmap_bytes
+        };
+
         // Build bloom filter if available
         let bloom_filter = self
             .bloom_filter_collector
@@ -149,6 +170,7 @@ impl StringStatsCollector {
             ascii_count: self.ascii_count,
             count: self.count,
             null_count: self.null_count,
+            raw_data_size,
             bloom_filter,
         })
     }
@@ -202,6 +224,9 @@ impl StringStatsCollector {
             self.ascii_count += 1;
         }
 
+        // Update raw_data_size (sum of UTF-8 byte lengths of all non-null strings)
+        self.raw_data_size += byte_len;
+
         // Update bloom filter if enabled
         if let Some(ref mut collector) = self.bloom_filter_collector {
             collector.process_value(string_val.as_bytes());
@@ -230,6 +255,8 @@ pub struct StringStats {
     pub count: usize,
     /// Count of null values processed.
     pub null_count: usize,
+    /// Sum of the UTF-8 byte lengths of all non-null strings.
+    pub raw_data_size: u64,
     /// Optional bloom filter protobuf if one was successfully constructed during statistics collection.
     pub bloom_filter: Option<amudai_format::defs::shard::SplitBlockBloomFilter>,
 }
@@ -279,6 +306,8 @@ mod tests {
         assert_eq!(stats.ascii_count, 0);
         assert_eq!(stats.count, 3);
         assert_eq!(stats.null_count, 3);
+        // When all values are null, no storage is needed at all
+        assert_eq!(stats.raw_data_size, 0);
     }
 
     #[test]
@@ -408,6 +437,7 @@ mod tests {
             ascii_count: 5,
             count: 8,
             null_count: 1,
+            raw_data_size: 42,
             bloom_filter: None,
         };
 
@@ -698,5 +728,30 @@ mod tests {
         assert_eq!(stats.null_count, 0);
         // High compression encoding should have bloom filter
         assert!(stats.bloom_filter.is_some());
+    }
+
+    #[test]
+    fn test_raw_data_size_calculation() {
+        let mut collector = StringStatsCollector::default();
+        let array = StringArray::from(vec![
+            Some("hello"),      // 5 bytes (UTF-8)
+            None,               // 0 bytes (null)
+            Some("world"),      // 5 bytes (UTF-8)
+            Some(""),           // 0 bytes (empty string)
+            Some("こんにちは"), // 15 bytes (UTF-8)
+        ]);
+        collector.process_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        assert_eq!(stats.count, 5);
+        assert_eq!(stats.null_count, 1);
+        // raw_data_size should be sum of UTF-8 byte lengths of non-null strings + null bitmap overhead
+        // Data: 5 + 5 + 0 + 15 = 25 bytes
+        // Null bitmap: 5 bits = 1 byte (rounded up)
+        // Total: 25 + 1 = 26 bytes
+        assert_eq!(stats.raw_data_size, 26);
+        assert_eq!(stats.min_size, 0); // Empty string
+        assert_eq!(stats.max_size, 15); // "こんにちは"
+        assert_eq!(stats.ascii_count, 3); // "hello", "world", and ""
     }
 }

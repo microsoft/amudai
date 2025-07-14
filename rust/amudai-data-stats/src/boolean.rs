@@ -112,11 +112,28 @@ impl BooleanStatsCollector {
             self.count
         );
 
+        // If all values are null, no data storage is needed at all
+        let raw_data_size = if self.count == self.null_count {
+            0 // No data and no null bitmap needed when everything is null
+        } else {
+            // Calculate data size: boolean values are stored as bits, packed into bytes
+            let data_size = (self.count as u64).div_ceil(8); // ceil(count / 8) bytes for boolean data
+
+            // Calculate null bitmap overhead if there are any null values
+            let null_bitmap_size = if self.null_count > 0 {
+                (self.count as u64).div_ceil(8) // ceil(count / 8)
+            } else {
+                0
+            };
+            data_size + null_bitmap_size
+        };
+
         Ok(BooleanStats {
             count: self.count,
             null_count: self.null_count,
             true_count: self.true_count,
             false_count: self.false_count,
+            raw_data_size,
         })
     }
 }
@@ -134,6 +151,8 @@ pub struct BooleanStats {
     pub null_count: usize,
     pub true_count: usize,
     pub false_count: usize,
+    /// Total size of raw data in bytes (actual data + null bitmap overhead if nulls present).
+    pub raw_data_size: u64,
 }
 
 impl BooleanStats {
@@ -148,6 +167,7 @@ impl BooleanStats {
             null_count: 0,
             true_count: 0,
             false_count: 0,
+            raw_data_size: 0,
         }
     }
 
@@ -517,5 +537,22 @@ mod tests {
         assert_eq!(stats.false_count, 0);
         assert!(stats.is_all_nulls());
         assert_eq!(stats.non_null_count(), 0);
+    }
+
+    #[test]
+    fn test_boolean_stats_raw_data_size_all_nulls() -> Result<()> {
+        let mut collector = BooleanStatsCollector::new();
+        let array = BooleanArray::from(vec![None::<bool>; 100]);
+        collector.process_array(&array)?;
+        let stats = collector.finish()?;
+
+        assert_eq!(stats.count, 100);
+        assert_eq!(stats.null_count, 100);
+        assert_eq!(stats.true_count, 0);
+        assert_eq!(stats.false_count, 0);
+        assert!(stats.is_all_nulls());
+        // When all values are null, no storage is needed at all
+        assert_eq!(stats.raw_data_size, 0);
+        Ok(())
     }
 }
