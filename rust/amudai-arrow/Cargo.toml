@@ -1,0 +1,27 @@
+[package]
+name = "amudai-arrow"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+amudai-arrow-compat = { workspace = true }
+amudai-collections = { workspace = true }
+amudai-common = { workspace = true }
+amudai-encodings = { workspace = true }
+amudai-format = { workspace = true }
+amudai-io = { workspace = true }
+amudai-objectstore = { workspace = true }
+amudai-sequence = { workspace = true }
+amudai-shard = { workspace = true }
+
+arrow = { workspace = true }
+itertools = { workspace = true }
+
+[dev-dependencies]
+amudai-testkit = { workspace = true }
+amudai-arrow-processing = { workspace = true }
+arrow-json = { workspace = true }

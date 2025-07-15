@@ -1,0 +1,19 @@
+[package]
+name = "amudai-arrow-builders"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ahash = { workspace = true }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-schema = { workspace = true }
+
+amudai-arrow-builders-macros = { workspace = true }
+
+[dev-dependencies]
+amudai-arrow-processing = { workspace = true }

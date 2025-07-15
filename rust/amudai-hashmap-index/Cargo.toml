@@ -1,0 +1,28 @@
+[package]
+name = "amudai-hashmap-index"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+rayon = { workspace = true }
+
+amudai-arrow = { workspace = true }
+amudai-arrow-compat = { workspace = true }
+amudai-collections = { workspace = true }
+amudai-common = { workspace = true }
+amudai-format = { workspace = true }
+amudai-index-core = { workspace = true }
+amudai-io = { workspace = true }
+amudai-objectstore = { workspace = true }
+amudai-shard = { workspace = true }
+
+[dev-dependencies]
+fastrand = { workspace = true }
+
+amudai-io-impl = { workspace = true }

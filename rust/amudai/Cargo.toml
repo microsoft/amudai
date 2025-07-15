@@ -1,0 +1,35 @@
+[package]
+name = "amudai"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+amudai-arrow = { workspace = true }
+amudai-arrow-builders = { workspace = true }
+amudai-arrow-builders-macros = { workspace = true }
+amudai-arrow-compat = { workspace = true }
+amudai-arrow-processing = { workspace = true }
+amudai-blockstream = { workspace = true }
+amudai-bloom-filters = { workspace = true }
+amudai-budget-tracker = { workspace = true }
+amudai-bytes = { workspace = true }
+amudai-collections = { workspace = true }
+amudai-common = { workspace = true }
+amudai-spill-data = { workspace = true }
+amudai-data-stats = { workspace = true }
+amudai-encodings = { workspace = true }
+amudai-format = { workspace = true }
+amudai-hashmap-index = { workspace = true }
+amudai-index-core = { workspace = true }
+amudai-io = { workspace = true }
+amudai-io-impl = { workspace = true }
+amudai-keyed-vector = { workspace = true }
+amudai-objectstore = { workspace = true }
+amudai-sequence = { workspace = true }
+amudai-shard = { workspace = true }
+amudai-text-index = { workspace = true }
+amudai-workflow = { workspace = true }

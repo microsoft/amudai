@@ -1,0 +1,71 @@
+# Rust
+target
+Cargo.lock
+
+
+# Build outputs
+/bin
+/obj
+/ipch
+/nuget-source
+.vs
+obj-dnc/
+**/.DS_Store
+**/cmake-build*/*
+**/output
+CMakeCache.txt
+**/CMakeFiles
+node_modules
+*.nupkg
+project.lock.json
+project.assets.json
+*.nuget.props
+
+
+# IDE configuration
+**/.idea
+**/.idea/*
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.clion*
+*.vs
+.vscode/
+.vscode
+.mono/
+*.nupkg
+**/packages/*
+*.nuget.props
+*.nuget.targets
+
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+**/Properties/launchSettings.json
+
+**/bin
+**/ bin-dotnet
+**/obj
+**/obj-dotnet
+**/ipch
+bin-dotnet/
+
+
+# Object, library and executable files
+*_i.c
+*_p.c
+*_i.h
+*.ilk
+*.meta
+*.obj
+*.pch
+*.log
+*.binlog
+*.dll
+*.exe
+*.a
+*.so
+*.o

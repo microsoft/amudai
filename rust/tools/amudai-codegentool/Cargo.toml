@@ -1,0 +1,14 @@
+[package]
+name = "amudai-codegentool"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+clap = { workspace = true }
+prost-build = { workspace = true }
+xshell = { workspace = true }

@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package amudai.common;
+
+// `UInt64Range` is designed to represent a range of `u64` values with non-negative boundaries,
+// which can also be empty.
+// It can be used for various purposes, such as indicating a range of logical value positions within
+// an array or specifying a range of byte positions in a storage blob.
+message UInt64Range {
+    // Inclusive
+    fixed64 start = 1;
+    
+    // Exclusive
+    fixed64 end = 2;
+}
+
+// `UInt32Range` is designed to represent a range of `u32` value with non-negative boundaries,
+// which can also be empty.
+message UInt32Range {
+    // Inclusive
+    fixed32 start = 1;
+    
+    // Exclusive
+    fixed32 end = 2;
+}
+
+// `DataRef` provides a generic way to reference any piece of data within an Amudai shard.
+message DataRef {
+    // Reference to content within the blob specified by `url` (either relative or absolute one).
+    // Empty url means self-reference (data range in the "current" blob).
+    string url = 1;
+
+    // Data byte range, with absolute positions within the containing blob.
+    // `start` is inclusive, `end` is exclusive.
+    // An empty range is valid (`start == end`).
+    UInt64Range range = 2;
+}
+
+// `DataRefArray` provides a "shredded" layout of `DataRef` collection for more efficient handling.
+message DataRefArray {
+    repeated string url = 2;
+    repeated fixed64 start = 3;
+    repeated fixed64 end = 4;
+}
+
+// `BytesList` is designed to efficiently handle sequences of variable-sized buffers
+// (either string or binary) by reducing the overhead associated with deserialization
+// and memory allocation.
+message BytesList {
+    // List of offsets within the data buffer. The first offset, `offsets[0]`, is always zero,
+    // and the length of offsets is one more than the number of buffers it represents.
+    repeated fixed64 offsets = 1;
+    // `data` contains all the buffers concatenated together. Each buffer can be accessed
+    // using the formula `value[i] = data[offsets[i]..offsets[i + 1]]`.
+    bytes data = 2;
+}
+
+// Arbitrary primitive or composite constant value. This is a generalization of the built-in
+// Protobuf `Value` message, adapted to represent any scalar value within the basic Amudai
+// type system.
+message AnyValue {
+    oneof kind {
+        UnitValue null_value = 1;
+        bool bool_value = 2;
+        uint64 u64_value = 3;
+        int64 i64_value = 4;
+        double double_value = 5;
+        DateTimeUtc datetime_value = 6; 
+        TimeSpan timespan_value = 7; 
+        string string_value = 8;
+        bytes bytes_value = 9;
+        bytes decimal_value = 10;  // 16-byte d128 decimal representation
+        ListValue list_value = 20;
+        StructValue struct_value = 21;
+        DataRef data_ref = 22;
+    }
+    
+    // An optional annotation, URL or resource name that identifies
+    // the semantic type of this value.
+    optional string annotation = 30;
+}
+
+message UnitValue {}
+
+// `DateTime` as defined in the `Type System` chapter
+message DateTimeUtc {
+    // 100-nansosecond ticks passed since 0001-01-01
+    fixed64 ticks = 1;
+}
+
+// `TimeSpan` as defined in the `Type System` chapter
+message TimeSpan {
+    // 100-nansosecond ticks
+    fixed64 ticks = 1;
+}
+
+message ListValue {
+    repeated AnyValue elements = 1;
+}
+
+message StructValue {
+    repeated NameValuePair fields = 1;
+}
+
+message NameValuePair {
+    string name = 1;
+    AnyValue value = 2;
+}

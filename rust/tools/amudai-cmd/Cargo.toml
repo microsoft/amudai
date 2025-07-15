@@ -1,0 +1,37 @@
+[package]
+name = "amudai-cmd"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+arrow = { workspace = true, features = ["json", "csv"] }
+arrow-csv = { workspace = true }
+arrow-json = { workspace = true }
+arrow-schema = { workspace = true, features = ["serde"] }
+clap = { workspace = true }
+fastrand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+
+amudai-arrow = { workspace = true }
+amudai-arrow-compat = { workspace = true }
+amudai-blockstream = { workspace = true }
+amudai-collections = { workspace = true }
+amudai-common = { workspace = true }
+amudai-encodings = { workspace = true }
+amudai-format = { workspace = true }
+amudai-io = { workspace = true }
+amudai-io-impl = { workspace = true }
+amudai-objectstore = { workspace = true }
+amudai-shard = { workspace = true }
+amudai-text-index = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

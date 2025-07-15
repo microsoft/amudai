@@ -1,0 +1,427 @@
+syntax = "proto3";
+
+import "common.proto";
+
+package amudai.shard;
+
+// Shard Directory serves as the starting point for accessing any shard operation.
+// It can be saved either in its own file, as part of a larger "shard directory"
+// file, or within the entire encoded shard blob.
+message ShardDirectory {
+    // Reference to a `Schema` message.
+    amudai.common.DataRef schema_ref = 1;
+    
+    // Reference to a `ShardProperties` message.
+    amudai.common.DataRef properties_ref = 2;
+    
+    // Reference to a `DataRefArray` (list of field descriptor refs).
+    amudai.common.DataRef field_list_ref = 3;
+    
+    // Reference to a `StripeList` message.
+    amudai.common.DataRef stripe_list_ref = 4;
+    
+    // Reference to a `UrlList` message.
+    amudai.common.DataRef url_list_ref = 5;
+    
+    // Reference to a shard-scoped `IndexCollection` message.
+    amudai.common.DataRef indexes_ref = 6;
+
+    fixed64 total_record_count = 7;
+    fixed64 deleted_record_count = 8;
+    fixed64 stripe_count = 9;
+    
+    optional fixed64 stored_data_size = 10;
+    optional fixed64 stored_index_size = 11;
+    optional fixed64 plain_data_size = 12;
+}
+
+// Standard and custom name-value pairs associated with the shard.
+message ShardProperties {
+    // `creation_min` and `creation_max` define the range of timestamps marking
+    // the shard's creation period. When a shard is first created, both timestamps
+    // are identical. However, they may vary as shards undergo merging.
+    amudai.common.DateTimeUtc creation_min = 1;
+    amudai.common.DateTimeUtc creation_max = 2;
+    repeated amudai.common.NameValuePair standard_properties = 3;
+    repeated amudai.common.NameValuePair custom_properties = 4;
+}
+
+// A list of all unique artifact URLs used within this shard, meaning they are referenced
+// by any of its `DataRef` elements.
+message UrlList {
+    repeated string urls = 1;
+}
+
+// The records within a shard are segmented into multiple horizontal data stripes.
+// Each shard contains at least one data stripe, with no set limit on stripe size;
+// a single stripe can encompass an entire shard.
+message StripeList {
+    repeated StripeDirectory stripes = 1;
+}
+
+// A complete directory of a stripe.
+message StripeDirectory {
+    // Reference to a `StripeProperties` message.
+    amudai.common.DataRef properties_ref = 1;
+    
+    // Reference to a `DataRefArray` stripe field descriptors list.
+    amudai.common.DataRef field_list_ref = 2;
+    
+    // Reference to a stripe-scoped `IndexCollection` message.
+    amudai.common.DataRef indexes_ref = 3;
+
+    fixed64 total_record_count = 4;
+    fixed64 deleted_record_count = 5;
+    
+    optional fixed64 stored_data_size = 6;
+    optional fixed64 stored_index_size = 7;
+    optional fixed64 plain_data_size = 8;
+
+    // The logical offset of the first record in this stripe within the
+    // containing shard.
+    // This value does not account for deleted records in preceding stripes.
+    fixed64 record_offset = 9;
+}
+
+message StripeProperties {
+    repeated amudai.common.NameValuePair standard_properties = 1;
+    repeated amudai.common.NameValuePair custom_properties = 2;
+}
+
+// At the stripe level, a FieldDescriptor connects an abstract schema field definition
+// with its actual storage representation, including statistics and summaries of the values
+// in that stripe.
+// At the shard level, the FieldDescriptor only contains statistics for the field across
+// the entire shard.
+message FieldDescriptor {
+    // Indicates the number of logical "value slots" (logical positions)
+    // in this field's stored sequence. 
+    fixed64 position_count = 1;
+    // If present, this specifies the number of logical value slots containing `null` values.
+    optional fixed64 null_count = 2;    
+    // If present, this indicates that all value slots contain the same value,
+    // including the possibility that all values are null. Such a field might
+    // not have any data encodings at the stripe level.
+    optional amudai.common.AnyValue constant_value = 3;
+    // Dictionary size
+    optional fixed64 dictionary_size = 4;
+    // Provides the minimum and maximum values for the stored sequence, where the range bounds
+    // may be inclusive or exclusive.
+    optional RangeStats range_stats = 6;
+    // Estimates the number of distinct values in the field, with null counted as a single
+    // distinct value.
+    optional CardinalityInfo cardinality = 7;
+    // Optional approximate membership query (AMQ) filters for the values of the field.
+    // Some MembershipFilters (notably SBBF) are only populated at the stripe level, not at the shard level.
+    // To determine if a value exists in a shard, queries must check the membership filters
+    // across all relevant stripes.
+    optional MembershipFilters membership_filters = 8;
+    // Optional indexes specific to the field (these can exist alongside multi-field indexes
+    // at the shard or stripe level).
+    optional IndexCollection indexes = 9;
+    // Additional properties associated with the field.
+    repeated amudai.common.NameValuePair properties = 10;
+    
+    oneof type_specific {
+        // Applicable only for the string type. All sizes are measured in bytes, not code points.
+        StringStats string_stats = 20;
+        // Relevant for variable-length List, Map, and binary types (where binary is treated
+        // as a container of bytes).
+        ContainerStats container_stats = 21;
+        // Statistics specific to boolean fields.
+        BooleanStats boolean_stats = 22;
+        // Statistics specific to decimal fields (128-bit precision).
+        DecimalStats decimal_stats = 23;
+        // Statistics specific to floating-point fields (f32, f64).
+        FloatingStats floating_stats = 24;
+    }
+    
+    repeated amudai.common.NameValuePair custom_properties = 40;
+
+    // Size of the data in its raw, uncompressed format in bytes.
+    // This represents the theoretical size of the data before any encoding, compression,
+    // or optimization is applied. The calculation includes both the actual data and
+    // null value metadata when applicable.
+    //
+    // For fixed-size data types (int32, int64, float32, float64, bool, etc.):
+    //   - Data size = (count of non-null values) * (size of data type in bytes)
+    //   - Example: 100 non-null int64 values = 100 * 8 = 800 bytes
+    //
+    // For variable-length data types (string, binary, lists, maps):
+    //   - Data size = sum of the length in bytes of all non-null values
+    //   - For strings: sum of UTF-8 byte lengths of all non-null strings
+    //   - For binary: sum of byte lengths of all non-null binary values
+    //   - For lists/maps: sum of the serialized byte lengths of all non-null containers
+    //
+    // Null value handling adds metadata overhead when nulls are present:
+    //   - If no null values: raw_data_size = data size only
+    //   - If some null values: raw_data_size = data size + null bitmap overhead
+    //     where null bitmap overhead = ceil(total_count / 8) bytes
+    //     (one bit per value position to indicate null/non-null, rounded up to byte boundary)
+    //   - If all values are null: raw_data_size = 0 (no data or bitmap needed)
+    //
+    // Examples:
+    //   - 1000 non-null int64 values: 1000 * 8 = 8000 bytes
+    //   - 1000 int64 values with 100 nulls: (900 * 8) + ceil(1000/8) = 7200 + 125 = 7325 bytes
+    //   - 1000 all-null values: 0 bytes
+    optional fixed64 raw_data_size = 41;
+}
+
+// Provides the minimum and maximum values for the stored sequence.
+//  - For all data types, these stats ignore null values.
+//  - For floating-point types, these stats ignore NaN values but consider
+//    positive and negative infinity.
+//  - For binary and string types, the min and max values are computed
+//    based on byte-lexicographic ordering.
+message RangeStats {
+    amudai.common.AnyValue min_value = 1;
+    bool min_inclusive = 2;
+    amudai.common.AnyValue max_value = 3;
+    bool max_inclusive = 4;
+}
+
+// Applicable only for the `string` type. All sizes are measured in bytes, not code points.
+message StringStats {
+    // Indicates the minimum size of the string, in bytes.
+    fixed64 min_size = 1;
+    // Indicates the minimum size of a non-empty string, in bytes.
+    optional fixed64 min_non_empty_size = 2;
+    // Indicates the maximum size of the string, in bytes.
+    fixed64 max_size = 3;
+    // Represents the number of value slots containing ASCII-only strings
+    // (strings with only code points below 128).
+    optional fixed64 ascii_count = 4;
+}
+
+// Statistics specific to boolean fields.
+message BooleanStats {
+    // The number of true values in the boolean field.
+    fixed64 true_count = 1;
+    // The number of false values in the boolean field.
+    fixed64 false_count = 2;
+}
+
+// Relevant for variable-length List, Map, and binary types
+// (where binary is treated as a container of bytes).
+message ContainerStats {
+    // Minimum length of the container (`List`, `Map` or `Binary`).
+    fixed64 min_length = 1;
+    // Minimum length of non-empty container.
+    optional fixed64 min_non_empty_length = 2;
+    // Maximum length of the container (`List`, `Map` or `Binary`).
+    fixed64 max_length = 3;
+}
+
+// Statistics specific to decimal fields (128-bit precision).
+message DecimalStats {
+    // Number of decimal values that are zero.
+    fixed64 zero_count = 1;
+    // Number of decimal values that are positive (greater than zero).
+    fixed64 positive_count = 2;
+    // Number of decimal values that are negative (less than zero).
+    fixed64 negative_count = 3;
+    // Number of decimal values that are NaN (Not a Number).
+    fixed64 nan_count = 4;
+}
+
+// Statistics specific to floating-point fields (f32, f64).
+message FloatingStats {
+    // Number of floating-point values that are zero.
+    fixed64 zero_count = 1;
+    // Number of floating-point values that are positive (greater than zero).
+    fixed64 positive_count = 2;
+    // Number of floating-point values that are negative (less than zero).
+    fixed64 negative_count = 3;
+    // Number of floating-point values that are NaN (Not a Number).
+    fixed64 nan_count = 4;
+    // Number of floating-point values that are positive infinity.
+    fixed64 positive_infinity_count = 5;
+    // Number of floating-point values that are negative infinity.
+    fixed64 negative_infinity_count = 6;
+}
+
+message CardinalityInfo {
+    optional fixed64 count = 1;
+    bool is_estimate = 2;
+    optional amudai.common.AnyValue hll_sketch = 3;
+}
+
+message MembershipFilters {
+    // Bloom filter sketches.
+    // Note: These filters exist only at the stripe level. To determine if a value
+    // exists in a shard, queries must probe all stripe-level filters across all stripes.
+    optional SplitBlockBloomFilter sbbf = 1;
+}
+
+// Split-Block Bloom Filter (SBBF) for efficient approximate membership queries.
+// Provides cache-efficient membership testing with configurable false positive rates.
+// This message is typically serialized and stored within a MembershipFilters.sbbf
+message SplitBlockBloomFilter {
+    // Number of 256-bit (32 bytes) blocks in the filter
+    fixed64 num_blocks = 1;
+    
+    // Target false positive probability (e.g., 0.01 for 1%)
+    double target_fpp = 2;
+    
+    // Number of distinct values inserted into the filter
+    fixed64 num_values = 3;
+    
+    // Hash algorithm used (e.g., "xxh3_64")
+    string hash_algorithm = 4;
+
+    // The filter data as a sequence of 256-bit blocks
+    bytes data = 5;
+}
+
+// Stripe-level field descriptor: stats and encoding.
+message StripeFieldDescriptor {
+    FieldDescriptor field = 1;
+    // A list of data encodings, each offering an alternative way to represent the sequence
+    // of values. Typically, there is just one DataEncoding in this list.
+    repeated DataEncoding encodings = 2;
+}
+
+// The data encoding for a field can be either native to Amudai, or it can reference data
+// stored externally in a different format.
+message DataEncoding {
+    oneof kind {
+        NativeDataEncoding native = 1;
+        ExternalParquetDataEncoding parquet = 2;
+    }
+}
+
+// NativeDataEncoding of a field, expressed through one or more encoded buffers.
+message NativeDataEncoding {
+    repeated EncodedBuffer buffers = 1;
+    bool packed_group = 10;
+}
+
+// Descriptor of a single Encoded Buffer: a stripe-scoped sequence of primitive values.
+message EncodedBuffer {
+    // Specifies the type of buffer and its function within the data encoding scheme
+    // for the specified field.
+    BufferKind kind = 1;
+    // A reference to the entire encoded buffer, covering both the compressed data part
+    // and the block map if present.
+    amudai.common.DataRef buffer = 2;
+    // A reference to the block map, which is the tail end of the encoded buffer.
+    optional amudai.common.DataRef block_map = 3;
+    // The total number of independently compressed blocks in the buffer, applicable
+    // if a block-based structure is used.
+    optional fixed64 block_count = 4;
+    // When block-based compression is applied (block_count != 0), this specifies whether
+    // checksums are appended to each encoded block. These checksums cover the block header
+    // and block data.
+    bool block_checksums = 5;
+    // If true, presence information (i.e., nulls) is embedded in the value blocks.
+    bool embedded_presence = 6;
+    // If true, offsets for variable-sized values are stored within each block rather than
+    // as a separate encoded buffer.
+    // This is relevant only for string and binary fields and is only valid within a buffer
+    // with `BufferKind::DATA`.
+    bool embedded_offsets = 7;
+    // An optional numerical buffer identifier. If present, it must be unique within the
+    // containing DataEncoding.
+    // This ID can reference a specific auxiliary encoded buffer from within the encoded
+    // blocks of the primary data buffer (e.g., referencing a specific value dictionary
+    // if there are multiple).
+    optional fixed32 buffer_id = 20;
+    // Index of the corresponding block for the "virtual" buffer within the packed group.
+    optional fixed32 packed_group_index = 21;
+}
+
+enum BufferKind {
+    // Stores the sequence of actual values, which can be either fixed-size primitives
+    // or variable-sized byte slices concatenated in sequence.
+    DATA = 0;
+    // Indicates the presence of null values within the field. It stores presence flags
+    // for each logical position, conceptually as a sequence of bool values, where `true`
+    // indicates the presence of a value at the corresponding position and `false`
+    // indicates a null.
+    PRESENCE = 1;
+    // Works alongside the DATA buffer for variable-sized types such as string and binary.
+    // It stores the end-of-value offsets of the corresponding byte slices in the DATA buffer.
+    // Logically, this is a sequence of `uint64` values starting from zero, with a length
+    // one greater than the number of value slots.
+    // A variable-sized value at logical position `i` has a byte range `offsets[i]..offsets[i + 1]`
+    // in the DATA buffer.
+    OFFSETS = 2;
+    // Supports the dictionary encoding of values. It associates a unique integer ID (`uint32`)
+    // with each distinct value of the field within the stripe, while the DATA buffer stores
+    // a sequence of these dictionary IDs.
+    VALUE_DICTIONARY = 3;
+    // An opaque dictionary buffer used by the general-purpose block compressor as a shared
+    // dictionary across multiple blocks. A block that uses this dictionary will reference
+    // the corresponding dictionary buffer in its header.
+    OPAQUE_DICTIONARY = 4;
+    // Stores numeric range index data for numeric fields.
+    RANGE_INDEX = 5;
+}
+
+message ValueDictionaryHeader {
+    fixed32 value_type = 1;
+    optional fixed32 null_id = 2;
+    amudai.common.DataRef values_section_ref = 3;
+    optional amudai.common.DataRef sorted_ids_section_ref = 4;
+}
+
+message DictionaryVarSizeValuesSection {
+    amudai.common.BytesList values = 1;
+}
+
+message DictionaryFixedSizeValuesSection {
+    bytes values = 1;
+}
+
+message DictionarySortedIdsSection {
+    repeated fixed32 sorted_ids = 1;
+}
+
+message ExternalParquetDataEncoding {
+    repeated ParquetFileColumnRef file_column_refs = 1;
+}
+
+message ParquetFileColumnRef {
+    amudai.common.DataRef file_ref = 1;
+    repeated ParquetColumnChunkRef column_chunks = 2;
+}
+
+message ParquetColumnChunkRef {
+    ParquetStorageType storage_type = 1;
+    fixed32 schema_element_id = 2;
+    fixed32 row_group_id = 3;
+    fixed32 column_chunk_id = 4;
+    optional string file_url = 5;
+    amudai.common.UInt64Range data_pages_range = 6;
+    fixed64 data_page_count = 7;
+    optional amudai.common.UInt64Range dictionary_range = 8;
+    optional amudai.common.DataRef data_page_map = 9;
+}
+
+enum ParquetStorageType {
+    BOOLEAN = 0;
+    INT32 = 1;
+    INT64 = 2;
+    INT96 = 3;
+    FLOAT = 4;
+    DOUBLE = 5;
+    BYTE_ARRAY = 6;
+    FIXED_LEN_BYTE_ARRAY = 7;
+}
+
+message IndexCollection {
+    repeated IndexDescriptor index_descriptors = 1;
+}
+
+// Outlines the key characteristics of an index. Most details are specific to the type of index.
+message IndexDescriptor {
+    string index_type = 1;
+    repeated amudai.common.NameValuePair properties = 2;
+    repeated IndexedField indexed_fields = 3;
+    repeated amudai.common.DataRef artifacts = 4;
+    optional fixed64 index_size = 5;
+}
+
+message IndexedField {
+    repeated fixed32 schema_ids = 1;
+}

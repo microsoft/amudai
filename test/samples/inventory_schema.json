@@ -1,0 +1,29 @@
+{
+    "fields": [
+        {
+            "name": "id",
+            "data_type": "Int64",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "value",
+            "data_type": "Int64",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        },
+        {
+            "name": "text",
+            "data_type": "Utf8",
+            "nullable": true,
+            "dict_id": 0,
+            "dict_is_ordered": false,
+            "metadata": {}
+        }
+    ],
+    "metadata": {}
+}
