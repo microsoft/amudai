@@ -361,8 +361,9 @@ enum BufferKind {
 message ValueDictionaryHeader {
     fixed32 value_type = 1;
     optional fixed32 null_id = 2;
-    amudai.common.DataRef values_section_ref = 3;
-    optional amudai.common.DataRef sorted_ids_section_ref = 4;
+    optional fixed32 fixed_value_size = 3;
+    amudai.common.UInt64Range values_section_range = 4;
+    optional amudai.common.UInt64Range sorted_ids_section_range = 5;
 }
 
 message DictionaryVarSizeValuesSection {

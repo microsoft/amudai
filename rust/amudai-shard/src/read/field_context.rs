@@ -13,7 +13,8 @@ use super::{
     artifact_reader::ArtifactReader,
     field_decoder::{
         FieldDecoder, boolean::BooleanFieldDecoder, bytes::BytesFieldDecoder,
-        list::ListFieldDecoder, primitive::PrimitiveFieldDecoder, unit::StructFieldDecoder,
+        dictionary::DictionaryFieldDecoder, list::ListFieldDecoder,
+        primitive::PrimitiveFieldDecoder, unit::StructFieldDecoder,
     },
     stripe::StripeFieldDescriptor,
     stripe_context::StripeContext,
@@ -134,6 +135,12 @@ impl FieldContext {
 
         if descriptor.constant_value.is_some() {
             return Err(Error::not_implemented("constant field decoder"));
+        }
+
+        // Check if this field uses dictionary encoding
+        if descriptor.dictionary_size.is_some() {
+            let decoder = DictionaryFieldDecoder::from_field(self)?;
+            return Ok(FieldDecoder::Dictionary(decoder));
         }
 
         match basic_type.basic_type {

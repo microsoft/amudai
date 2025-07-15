@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use amudai_arrow_compat::arrow_to_amudai_schema::FromArrowSchema;
-use amudai_format::{schema::BasicType, schema_builder::SchemaBuilder};
+use amudai_format::{defs::shard::BufferKind, schema::BasicType, schema_builder::SchemaBuilder};
 use amudai_io_impl::temp_file_store;
 use amudai_objectstore::null_store::NullObjectStore;
 use arrow_array::{
@@ -494,6 +494,128 @@ fn test_decimal_encoding() {
     );
 }
 
+#[test]
+fn test_dictionary_encoding() {
+    let shard_store = ShardStore::new();
+
+    let records_count = 10000;
+    let category_expected_nulls = records_count / 5; // 20% nulls
+    let status_expected_nulls = records_count / 10; // 10% nulls
+
+    let dict_data = generate_dictionary_data(records_count);
+    let schema = dict_data.schema().clone();
+
+    let shard_ref = shard_store.ingest_shard_from_record_batches(RecordBatchIterator::new(
+        std::iter::once(dict_data).map(Ok),
+        schema,
+    ));
+
+    let shard = shard_store.open_shard(&shard_ref.url);
+    let stripe = shard.open_stripe(0).unwrap();
+    let schema = stripe.fetch_schema().unwrap();
+
+    // Test id field (should not benefit from dictionary encoding)
+    let id_field = schema.find_field("id").unwrap().unwrap().1;
+    let id_field_decoder = stripe.open_field(id_field.data_type().unwrap()).unwrap();
+    assert_eq!(
+        id_field_decoder.data_type().basic_type().unwrap(),
+        BasicType::String
+    );
+    assert_eq!(id_field_decoder.position_count(), records_count as u64);
+    assert_eq!(id_field_decoder.get_encoded_buffers().unwrap().len(), 1);
+
+    // Test category field (should benefit from dictionary encoding)
+    let category_field = schema.find_field("category").unwrap().unwrap().1;
+    let category_field_decoder = stripe
+        .open_field(category_field.data_type().unwrap())
+        .unwrap();
+    assert_eq!(
+        category_field_decoder.data_type().basic_type().unwrap(),
+        BasicType::String
+    );
+    assert_eq!(
+        category_field_decoder.position_count(),
+        records_count as u64
+    );
+    assert_eq!(
+        category_field_decoder.get_encoded_buffers().unwrap().len(),
+        2
+    );
+    assert!(
+        category_field_decoder
+            .get_encoded_buffers()
+            .unwrap()
+            .iter()
+            .any(|b| b.kind() == BufferKind::ValueDictionary)
+    );
+
+    // Test status field (should also benefit from dictionary encoding)
+    let status_field = schema.find_field("status").unwrap().unwrap().1;
+    let status_field_decoder = stripe
+        .open_field(status_field.data_type().unwrap())
+        .unwrap();
+    assert_eq!(
+        status_field_decoder.data_type().basic_type().unwrap(),
+        BasicType::String
+    );
+    assert_eq!(status_field_decoder.position_count(), records_count as u64);
+    assert_eq!(status_field_decoder.get_encoded_buffers().unwrap().len(), 2);
+    assert!(
+        status_field_decoder
+            .get_encoded_buffers()
+            .unwrap()
+            .iter()
+            .any(|b| b.kind() == BufferKind::ValueDictionary)
+    );
+
+    // Read back the category data to verify round-trip integrity
+    let mut category_reader = category_field_decoder
+        .create_decoder()
+        .unwrap()
+        .create_reader(std::iter::empty())
+        .unwrap();
+    let category_seq = category_reader.read(0..records_count as u64).unwrap();
+    assert_eq!(category_seq.type_desc.basic_type, BasicType::String);
+    assert_eq!(
+        category_seq.presence.count_non_nulls(),
+        records_count - category_expected_nulls
+    );
+    assert_eq!(category_seq.presence.count_nulls(), category_expected_nulls);
+
+    // Read back the status data to verify round-trip integrity
+    let mut status_reader = status_field_decoder
+        .create_decoder()
+        .unwrap()
+        .create_reader(std::iter::empty())
+        .unwrap();
+    let status_seq = status_reader.read(0..records_count as u64).unwrap();
+    assert_eq!(status_seq.type_desc.basic_type, BasicType::String);
+    assert_eq!(
+        status_seq.presence.count_non_nulls(),
+        records_count - status_expected_nulls
+    );
+    assert_eq!(status_seq.presence.count_nulls(), status_expected_nulls);
+
+    // Verify field statistics if available
+    if let Some(field_desc) = category_field_decoder.descriptor().field.as_ref() {
+        if let Some(amudai_format::defs::shard::field_descriptor::TypeSpecific::StringStats(
+            string_stats,
+        )) = &field_desc.type_specific
+        {
+            assert_eq!(string_stats.min_size, 4); // "Food"
+            assert_eq!(string_stats.max_size, 8); // "Clothing"
+            assert_eq!(string_stats.min_non_empty_size, Some(4)); // "Food"
+            // All non-null strings are ASCII
+            assert_eq!(
+                string_stats.ascii_count,
+                Some((records_count - category_expected_nulls) as u64)
+            );
+        } else {
+            panic!("Expected string statistics for 'category' field");
+        }
+    }
+}
+
 fn generate_list_data(count: usize) -> arrow_array::RecordBatch {
     use arrow_array::builder::{Int32Builder, ListBuilder};
 
@@ -647,4 +769,51 @@ fn create_id_name_test_schema() -> Arc<Schema> {
             },
         ),
     ]))
+}
+
+fn generate_dictionary_data(count: usize) -> arrow_array::RecordBatch {
+    use arrow_array::builder::StringBuilder;
+
+    // Create categories with limited unique values (perfect for dictionary encoding)
+    let categories = ["Electronics", "Clothing", "Books", "Food", "Sports"];
+    let statuses = ["Active", "Inactive", "Pending"];
+
+    let mut id_builder = StringBuilder::new();
+    let mut category_builder = StringBuilder::new();
+    let mut status_builder = StringBuilder::new();
+
+    for i in 0..count {
+        // ID field
+        id_builder.append_value(i.to_string());
+
+        // Category field with 20% nulls and repeating values
+        if i % 5 == 0 {
+            category_builder.append_null();
+        } else {
+            let category = categories[i % categories.len()];
+            category_builder.append_value(category);
+        }
+
+        // Status field with 10% nulls and repeating values
+        if i % 10 == 0 {
+            status_builder.append_null();
+        } else {
+            let status = statuses[i % statuses.len()];
+            status_builder.append_value(status);
+        }
+    }
+
+    let id_array = id_builder.finish();
+    let category_array = category_builder.finish();
+    let status_array = status_builder.finish();
+
+    arrow_array::RecordBatch::try_from_iter(vec![
+        ("id", Arc::new(id_array) as arrow_array::ArrayRef),
+        (
+            "category",
+            Arc::new(category_array) as arrow_array::ArrayRef,
+        ),
+        ("status", Arc::new(status_array) as arrow_array::ArrayRef),
+    ])
+    .unwrap()
 }

@@ -69,21 +69,34 @@ where
     fn encode(
         &self,
         values: &[T],
-        _null_mask: &NullMask,
+        null_mask: &NullMask,
         target: &mut AlignedByteVec,
         plan: &EncodingPlan,
-        _context: &EncodingContext,
+        context: &EncodingContext,
     ) -> amudai_common::Result<usize> {
+        let values_bytes = values.as_byte_slice();
+        if values_bytes.len() < E::MINIMAL_DATA_SIZE {
+            // Fallback to plain encoding if the data is too small.
+            return context.numeric_encoders.get::<T>().encode(
+                values,
+                null_mask,
+                target,
+                &EncodingPlan {
+                    encoding: EncodingKind::Plain,
+                    parameters: Default::default(),
+                    cascading_encodings: vec![],
+                },
+                context,
+            );
+        }
+
         let initial_size = target.len();
         target.write_value::<u16>(self.kind() as u16);
 
         EmptyMetadata::initialize(target).finalize(target);
 
-        self.encoder.encode(
-            values.as_byte_slice(),
-            &mut *target,
-            plan.parameters.as_ref(),
-        )?;
+        self.encoder
+            .encode(values_bytes, &mut *target, plan.parameters.as_ref())?;
         Ok(target.len() - initial_size)
     }
 
@@ -113,6 +126,11 @@ where
 }
 
 pub trait GenericEncoder: Sync + Send {
+    /// The threshold in terms of data size that is considered
+    /// to be minimal for achieving a descent compression ratio with
+    /// this encoding.
+    const MINIMAL_DATA_SIZE: usize;
+
     fn encoding_kind(&self) -> EncodingKind;
 
     /// Encodes bytes slice into `target`.
@@ -130,6 +148,8 @@ pub trait GenericEncoder: Sync + Send {
 pub struct ZSTDEncoder;
 
 impl GenericEncoder for ZSTDEncoder {
+    const MINIMAL_DATA_SIZE: usize = 4096;
+
     fn encoding_kind(&self) -> EncodingKind {
         EncodingKind::Zstd
     }
@@ -163,6 +183,8 @@ impl GenericEncoder for ZSTDEncoder {
 pub struct LZ4Encoder;
 
 impl GenericEncoder for LZ4Encoder {
+    const MINIMAL_DATA_SIZE: usize = 2048;
+
     fn encoding_kind(&self) -> EncodingKind {
         EncodingKind::Lz4
     }

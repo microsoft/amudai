@@ -741,8 +741,9 @@ The value dictionary is stored as a contiguous buffer containing two or more Pro
 message ValueDictionaryHeader {
     DataType value_type = 1;
     optional fixed32 null_id = 2;
-    DataRef values_section_ref = 3;
-    optional DataRef sorted_ids_section_ref = 4;
+    optional fixed32 fixed_value_size = 3;
+    UInt64Range values_section_range = 4;
+    optional UInt64Range sorted_ids_section_range = 5;
 }
 
 message DictionaryVarSizeValuesSection {
@@ -760,8 +761,9 @@ message DictionarySortedIdsSection {
 
 - `value_type`: This indicates the data type of the values in the dictionary. It can be any of the following primitive types: `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `f32`, `f64`, `String`, `Binary`, `FixedSizeBinary<N>`, `GUID`, `DateTime`. The type should match the formal type of the schema element whose values are dictionary-encoded.
     - `null_id`: If present, this specifies the dictionary ID for the `null` value.
-    - `values_section_ref`: This is a reference to a dictionary values section. For fixed-size types, the referenced message is `DictionaryFixedSizeValuesSection`. For variable-size types, it is `DictionaryVarSizeValuesSection`.
-    - `sorted_ids_section_ref`: This is an optional reference to a `DictionarySortedIdsSection`, which contains the list of dictionary IDs representing the sorted order of values.
+    - `fixed_value_size`: For fixed-sized values, it's set to the value size. Otherwise, it's set to None.
+    - `values_section_range`: Range of the values section in the dictionary buffer relative to the end position of the `ValueDictionaryHeader` section (range start is always 0). For fixed-size types, the referenced message is `DictionaryFixedSizeValuesSection`. For variable-size types, it is `DictionaryVarSizeValuesSection`.
+    - `sorted_ids_section_range`: This is an optional range of `DictionarySortedIdsSection`, which contains the list of dictionary IDs representing the sorted order of values. The range is relative to the end position of the `ValueDictionaryHeader` section.
 - `DictionaryVarSizeValuesSection`
     - `values`: A list of `Binary` or `String` values, where the ordinal position of each value corresponds to its dictionary ID.
 - `DictionaryFixedSizeValuesSection`

@@ -77,6 +77,7 @@ impl DecimalFieldEncoder {
             index_builder,
         }))
     }
+
     /// Converts an Arrow array to d128 representation and creates a FixedSizeBinary array.
     /// Statistics collection is done separately after conversion.
     fn convert_to_d128_array(&mut self, array: &dyn Array) -> Result<Arc<dyn Array>> {
@@ -118,6 +119,7 @@ impl DecimalFieldEncoder {
 
         Ok(d128_array)
     }
+
     /// Converts Decimal128Array to FixedSizeBinary array with d128 data.
     fn convert_decimal128_to_binary(&mut self, array: &Decimal128Array) -> Result<Arc<dyn Array>> {
         let mut builder = arrow_array::builder::FixedSizeBinaryBuilder::new(16);
@@ -139,6 +141,7 @@ impl DecimalFieldEncoder {
 
         Ok(Arc::new(builder.finish()) as Arc<dyn Array>)
     }
+
     /// Converts Decimal256Array to FixedSizeBinary array with d128 data.
     fn convert_decimal256_to_binary(&mut self, array: &Decimal256Array) -> Result<Arc<dyn Array>> {
         let mut builder = arrow_array::builder::FixedSizeBinaryBuilder::new(16);
@@ -319,6 +322,7 @@ impl FieldEncoderOps for DecimalFieldEncoder {
         Ok(EncodedField {
             buffers,
             statistics,
+            dictionary_size: None,
         })
     }
 }
@@ -326,6 +330,7 @@ impl FieldEncoderOps for DecimalFieldEncoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::write::field_encoder::DictionaryEncoding;
     use amudai_format::defs::schema_ext::{BasicTypeDescriptor, KnownExtendedType};
     use amudai_format::schema::BasicType;
     use amudai_io_impl::temp_file_store;
@@ -345,6 +350,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         };
 
         let mut encoder = DecimalFieldEncoder::create(&params)?;
@@ -372,6 +378,7 @@ mod tests {
 
         Ok(())
     }
+
     #[test]
     fn test_decimal_field_encoder_with_nulls() -> Result<()> {
         let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
@@ -386,6 +393,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         };
 
         let mut encoder = DecimalFieldEncoder::create(&params)?;
@@ -430,6 +438,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         };
 
         let mut encoder = DecimalFieldEncoder::create(&params)?;
@@ -470,6 +479,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         };
 
         let mut encoder = DecimalFieldEncoder::create(&params)?;
@@ -527,6 +537,7 @@ mod tests {
             basic_type,
             temp_store: temp_store.clone(),
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         };
 
         let mut encoder = DecimalFieldEncoder::create(&params)?;
@@ -653,6 +664,7 @@ mod tests {
             basic_type,
             temp_store: temp_store.clone(),
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         };
 
         let mut encoder = DecimalFieldEncoder::create(&params)?;
@@ -729,6 +741,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: amudai_encodings::block_encoder::BlockEncodingProfile::Balanced, // Use Balanced to enable index
+            dictionary_encoding: DictionaryEncoding::Enabled,
         };
 
         let mut encoder = DecimalFieldEncoder::create(&params)?;
@@ -779,6 +792,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: amudai_encodings::block_encoder::BlockEncodingProfile::Balanced, // Use Balanced to enable index
+            dictionary_encoding: DictionaryEncoding::Enabled,
         };
 
         let mut encoder = DecimalFieldEncoder::create(&params)?;

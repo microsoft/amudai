@@ -320,6 +320,7 @@ impl FieldEncoderOps for PrimitiveFieldEncoder {
         Ok(EncodedField {
             buffers,
             statistics,
+            dictionary_size: None,
         })
     }
 }
@@ -327,6 +328,7 @@ impl FieldEncoderOps for PrimitiveFieldEncoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::write::field_encoder::DictionaryEncoding;
     use amudai_blockstream::read::block_stream::BlockReaderPrefetch;
     use amudai_blockstream::read::primitive_buffer::PrimitiveBufferDecoder;
     use amudai_encodings::block_encoder::BlockEncodingProfile;
@@ -353,6 +355,7 @@ mod tests {
                 basic_type,
                 temp_store,
                 encoding_profile: Default::default(),
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::UInt64,
         )?;
@@ -424,6 +427,7 @@ mod tests {
                 basic_type,
                 temp_store,
                 encoding_profile: Default::default(),
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::Int32,
         )?;
@@ -480,6 +484,7 @@ mod tests {
                 basic_type,
                 temp_store,
                 encoding_profile: Default::default(),
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::Float32,
         )?;
@@ -541,6 +546,7 @@ mod tests {
                 basic_type,
                 temp_store,
                 encoding_profile: Default::default(),
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::Int32,
         )?;
@@ -578,6 +584,7 @@ mod tests {
                 basic_type,
                 temp_store,
                 encoding_profile: Default::default(),
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::Int32,
         )?;
@@ -627,6 +634,7 @@ mod tests {
                 basic_type,
                 temp_store: temp_store.clone(),
                 encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable indexing
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::Int32,
         )?;
@@ -688,6 +696,7 @@ mod tests {
                 basic_type,
                 temp_store: temp_store.clone(),
                 encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::Int32,
         )?;
@@ -740,6 +749,7 @@ mod tests {
                 basic_type,
                 temp_store: temp_store.clone(),
                 encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::Float32,
         )?;
@@ -795,6 +805,7 @@ mod tests {
                 basic_type,
                 temp_store: temp_store.clone(),
                 encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::UInt64,
         )?;
@@ -849,6 +860,7 @@ mod tests {
                 basic_type,
                 temp_store: temp_store.clone(),
                 encoding_profile: Default::default(), // Default is Balanced profile - indexing enabled
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::Int32,
         )?;
@@ -894,6 +906,7 @@ mod tests {
                 basic_type,
                 temp_store: temp_store.clone(),
                 encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::Int32,
         )?;
@@ -940,6 +953,7 @@ mod tests {
                 basic_type,
                 temp_store: temp_store.clone(),
                 encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::Int64,
         )?;
@@ -993,6 +1007,7 @@ mod tests {
                 basic_type,
                 temp_store: temp_store.clone(),
                 encoding_profile: BlockEncodingProfile::Plain, // Plain profile should NOT create indexes
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::Int32,
         )?;
@@ -1031,6 +1046,7 @@ mod tests {
                 basic_type,
                 temp_store: temp_store.clone(),
                 encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::Int32,
         )?;
@@ -1078,6 +1094,7 @@ mod tests {
                 basic_type,
                 temp_store: temp_store.clone(),
                 encoding_profile: BlockEncodingProfile::Balanced, // Use Balanced to enable index
+                dictionary_encoding: DictionaryEncoding::Enabled,
             },
             arrow_schema::DataType::Float32,
         )?;

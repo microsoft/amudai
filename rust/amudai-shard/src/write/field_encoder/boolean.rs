@@ -144,6 +144,7 @@ impl FieldEncoderOps for BooleanFieldEncoder {
         Ok(EncodedField {
             buffers,
             statistics,
+            dictionary_size: None,
         })
     }
 }
@@ -151,13 +152,16 @@ impl FieldEncoderOps for BooleanFieldEncoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::write::field_encoder::{EncodedFieldStatistics, FieldEncoderParams};
+    use crate::write::field_encoder::{
+        DictionaryEncoding, EncodedFieldStatistics, FieldEncoderParams,
+    };
     use amudai_format::defs::schema_ext::BasicTypeDescriptor;
 
     use amudai_format::schema::BasicType;
     use amudai_io_impl::temp_file_store;
     use arrow_array::BooleanArray;
     use std::sync::Arc;
+
     #[test]
     fn test_boolean_field_encoder_with_statistics() -> amudai_common::Result<()> {
         // Create a temporary store for testing
@@ -175,6 +179,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         })?;
 
         // Test data with mixed true/false values and nulls
@@ -272,6 +277,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         })?;
 
         // All true values
@@ -308,6 +314,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         })?;
 
         // All false values
@@ -329,6 +336,7 @@ mod tests {
 
         Ok(())
     }
+
     #[test]
     fn test_boolean_field_encoder_all_nulls() -> amudai_common::Result<()> {
         let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
@@ -344,6 +352,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         })?;
 
         // All null values
@@ -382,6 +391,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         })?;
 
         // No arrays pushed

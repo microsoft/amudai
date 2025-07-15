@@ -106,6 +106,21 @@ impl StringStatsCollector {
         // No changes to size-related statistics since nulls don't contribute to min/max sizes
     }
 
+    /// Processes a single non-null string value repeated `count` times.
+    ///
+    /// This method is primarily used for cases where you want to process individual string values
+    /// without going through an entire array.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - A reference to the string value to be processed
+    /// * `count` - The number of times this value should be counted in the statistics
+    pub fn process_value(&mut self, value: &str, count: usize) -> Result<()> {
+        self.count += count;
+        self.update_stats_for_string(value, count as u64);
+        Ok(())
+    }
+
     /// Finalizes the statistics collection and returns the collected statistics.
     ///
     /// # Returns
@@ -181,7 +196,7 @@ impl StringStatsCollector {
         self.null_count += array.null_count();
 
         for string_val in array.iter().flatten() {
-            self.update_stats_for_string(string_val);
+            self.update_stats_for_string(string_val, 1);
         }
     }
     /// Processes a LargeStringArray (large UTF-8).
@@ -190,7 +205,7 @@ impl StringStatsCollector {
         self.null_count += array.null_count();
 
         for string_val in array.iter().flatten() {
-            self.update_stats_for_string(string_val);
+            self.update_stats_for_string(string_val, 1);
         }
     }
     /// Processes a StringViewArray.
@@ -199,12 +214,12 @@ impl StringStatsCollector {
         self.null_count += array.null_count();
 
         for string_val in array.iter().flatten() {
-            self.update_stats_for_string(string_val);
+            self.update_stats_for_string(string_val, 1);
         }
     }
 
     /// Updates statistics for a single string value.
-    fn update_stats_for_string(&mut self, string_val: &str) {
+    fn update_stats_for_string(&mut self, string_val: &str, count: u64) {
         let byte_len = string_val.len() as u64;
 
         // Update min/max size
@@ -221,11 +236,11 @@ impl StringStatsCollector {
 
         // Check if string contains only ASCII characters
         if string_val.is_ascii() {
-            self.ascii_count += 1;
+            self.ascii_count += count;
         }
 
         // Update raw_data_size (sum of UTF-8 byte lengths of all non-null strings)
-        self.raw_data_size += byte_len;
+        self.raw_data_size += byte_len * count;
 
         // Update bloom filter if enabled
         if let Some(ref mut collector) = self.bloom_filter_collector {
@@ -262,6 +277,23 @@ pub struct StringStats {
 }
 
 impl StringStats {
+    /// Creates empty string statistics (no data processed).
+    ///
+    /// # Returns
+    /// A `StringStats` instance with default values
+    pub fn empty() -> Self {
+        Self {
+            min_size: 0,
+            min_non_empty_size: None,
+            max_size: 0,
+            ascii_count: 0,
+            count: 0,
+            null_count: 0,
+            raw_data_size: 0,
+            bloom_filter: None,
+        }
+    }
+
     /// Converts to the protobuf StringStats format.
     pub fn to_proto(&self) -> ProtoStringStats {
         ProtoStringStats {

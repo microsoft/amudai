@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use crate::write::field_encoder::{EncodedFieldStatistics, FieldEncoder, FieldEncoderParams};
+use crate::write::field_encoder::{
+    DictionaryEncoding, EncodedFieldStatistics, FieldEncoder, FieldEncoderParams,
+};
 use amudai_common::Result;
 use amudai_data_stats::floating::FloatingStatsCollector;
 use amudai_format::defs::schema_ext::BasicTypeDescriptor;
@@ -24,6 +26,7 @@ fn test_floating_statistics_integration_f32() -> Result<()> {
         basic_type,
         temp_store,
         encoding_profile: Default::default(),
+        dictionary_encoding: DictionaryEncoding::Enabled,
     })?;
 
     // Create test data with various floating-point values
@@ -85,6 +88,7 @@ fn test_floating_statistics_integration_f64() -> Result<()> {
         basic_type,
         temp_store,
         encoding_profile: Default::default(),
+        dictionary_encoding: DictionaryEncoding::Enabled,
     })?;
 
     // Create test data with finite values only

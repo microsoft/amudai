@@ -60,11 +60,9 @@ impl StringEncoding for SingleValueEncoding {
         _plan: &EncodingPlan,
         context: &EncodingContext,
     ) -> amudai_common::Result<usize> {
-        // Quickly validate that the values are all the same
-        // and fallback to dictionary encoding in case they are not.
         let first = values.get(0);
         if values.iter().skip(1).any(|v| v != first) {
-            // Fallback to dictionary encoding.
+            // Fallback to dictionary encoding if the values are not all the same.
             return context.binary_encoders.encode(
                 values,
                 null_mask,

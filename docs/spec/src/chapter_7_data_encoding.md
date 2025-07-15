@@ -117,13 +117,12 @@ Encoding types are translated into their respective integer value codes:
 |11|`TruncateU64`|[Truncate Encoding](#truncate-encoding)|
 |12|`ALP`|[Adaptive Lossless Floating Point Encoding](#adaptive-lossless-floating-point-encoding-alp)|
 |13|`ALPRD`|[Adaptive Lossless Floating Point For Real Doubles Encoding](#adaptive-lossles-floating-point-for-real-doubles-encoding-alprd)|
-|14|`Dictionary`|[Dictionary encoding](#dictionary-encoding)|
-|15|`SharedDictionary`|[Shared Dictionary encoding](#shared-dictionary-encoding)|
-|16|`FSST`|[Fast Static Symbol Table Encoding](#fast-static-symbol-table-fsst)|
-|17|`ZSTD`|[Zstd Encoding](#general-purpose-encodings)|
-|18|`LZ4`|[LZ4 Encoding](#general-purpose-encodings)|
-|19|`ZigZag`|[ZigZag Encoding](#zigzag-encoding)|
-|20|`Sparse`|[Sparse Encoding](#sparse-encoding)|
+|14|`BlockDictionary`|[Block Dictionary encoding](#block-dictionary-encoding)|
+|15|`FSST`|[Fast Static Symbol Table Encoding](#fast-static-symbol-table-fsst)|
+|16|`ZSTD`|[Zstd Encoding](#general-purpose-encodings)|
+|17|`LZ4`|[LZ4 Encoding](#general-purpose-encodings)|
+|18|`ZigZag`|[ZigZag Encoding](#zigzag-encoding)|
+|19|`Sparse`|[Sparse Encoding](#sparse-encoding)|
 
 
 Since for dictionary and for generic-scheme encodings all stripe blocks are encoded using the same method, there's
@@ -373,18 +372,13 @@ This is an extension of [ALP](#adaptive-lossless-floating-point-encoding-alp) us
 [Original paper](https://www.vldb.org/pvldb/vol15/p3058-liakos.pdf)
 
 
-### Dictionary Encoding
+### Block Dictionary Encoding
 
  - **Use Case**: Applicable for columns with numerous repeated values.
  - **Method**: Values are substituted with indices that reference a dictionary containing unique values.
  - **Suitable Data Types**: Applicable to all data types except `Boolean`.
 
 This encoding embeds the dictionary (unique values and their respective codes) into the encoded block.
-
-
-### Shared Dictionary Encoding
-
-The same as [Dictionary Encoding](#dictionary-encoding), but the decision on using dictionary encoding is made at the upper level for all the blocks in current stripe. This allows to store dictionary outside of encoded block and be shared among different blocks.
 
 
 ### Fast Static Symbol Table (FSST)

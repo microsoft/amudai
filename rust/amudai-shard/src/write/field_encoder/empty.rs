@@ -24,6 +24,7 @@ impl FieldEncoderOps for EmptyFieldEncoder {
         Ok(super::EncodedField {
             buffers: vec![],
             statistics: None,
+            dictionary_size: None,
         })
     }
 }

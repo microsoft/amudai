@@ -16,6 +16,7 @@ mod tests {
         let encoded_field = EncodedField {
             buffers: vec![],
             statistics: None,
+            dictionary_size: None,
         };
         let descriptor = create_with_stats(100, &encoded_field);
 
@@ -53,6 +54,7 @@ mod tests {
         let encoded_field = EncodedField {
             buffers: vec![],
             statistics: Some(EncodedFieldStatistics::Primitive(primitive_stats)),
+            dictionary_size: Some(10),
         };
 
         let descriptor = create_with_stats(50, &encoded_field);
@@ -60,6 +62,7 @@ mod tests {
         assert_eq!(descriptor.position_count, 50);
         assert_eq!(descriptor.null_count, Some(5));
         assert!(descriptor.range_stats.is_some());
+        assert_eq!(descriptor.dictionary_size, Some(10));
 
         let range_stats = descriptor.range_stats.unwrap();
         assert!(range_stats.min_value.is_some());
@@ -89,6 +92,7 @@ mod tests {
         let encoded_field = EncodedField {
             buffers: vec![],
             statistics: Some(EncodedFieldStatistics::Primitive(primitive_stats)),
+            dictionary_size: None,
         };
 
         let mut descriptor = shard::FieldDescriptor {
@@ -210,6 +214,7 @@ mod tests {
         let encoded_field = EncodedField {
             buffers: vec![],
             statistics: Some(EncodedFieldStatistics::String(string_stats)),
+            dictionary_size: None,
         };
 
         let descriptor = create_with_stats(10, &encoded_field);
@@ -246,6 +251,7 @@ mod tests {
         let encoded_field = EncodedField {
             buffers: vec![],
             statistics: Some(EncodedFieldStatistics::String(string_stats)),
+            dictionary_size: None,
         };
 
         let mut descriptor = shard::FieldDescriptor {
@@ -342,6 +348,7 @@ mod tests {
         let encoded_field = EncodedField {
             buffers: vec![],
             statistics: Some(EncodedFieldStatistics::Floating(floating_stats.clone())),
+            dictionary_size: None,
         };
         populate_statistics(&mut descriptor, &encoded_field);
 
@@ -379,6 +386,7 @@ mod tests {
         let encoded_field = EncodedField {
             buffers: vec![],
             statistics: Some(EncodedFieldStatistics::Primitive(int32_stats)),
+            dictionary_size: None,
         };
         populate_statistics(&mut descriptor, &encoded_field);
 
@@ -438,6 +446,7 @@ mod tests {
             statistics: Some(EncodedFieldStatistics::Primitive(
                 primitive_stats_empty_range,
             )),
+            dictionary_size: None,
         };
         populate_statistics(&mut descriptor, &encoded_field);
 
@@ -453,6 +462,7 @@ mod tests {
             statistics: Some(EncodedFieldStatistics::Primitive(
                 primitive_stats_with_range,
             )),
+            dictionary_size: None,
         };
         populate_statistics(&mut descriptor, &encoded_field);
 
@@ -1525,6 +1535,7 @@ mod tests {
         let encoded_field = EncodedField {
             buffers: vec![],
             statistics: Some(EncodedFieldStatistics::Boolean(boolean_stats)),
+            dictionary_size: None,
         };
 
         let descriptor = create_with_stats(10, &encoded_field);
@@ -1555,6 +1566,7 @@ mod tests {
         let encoded_field = EncodedField {
             buffers: vec![],
             statistics: Some(EncodedFieldStatistics::Boolean(boolean_stats)),
+            dictionary_size: None,
         };
 
         let mut descriptor = shard::FieldDescriptor {
@@ -1659,6 +1671,7 @@ mod tests {
         let encoded_field = EncodedField {
             buffers: vec![],
             statistics: Some(EncodedFieldStatistics::Decimal(decimal_stats)),
+            dictionary_size: None,
         };
 
         // Create a field descriptor and populate it
@@ -1868,6 +1881,7 @@ mod tests {
         let encoded_field = EncodedField {
             buffers: vec![],
             statistics: Some(EncodedFieldStatistics::Primitive(primitive_stats)),
+            dictionary_size: None,
         };
 
         let descriptor = create_with_stats(100, &encoded_field);
@@ -1888,6 +1902,7 @@ mod tests {
         let encoded_field2 = EncodedField {
             buffers: vec![],
             statistics: Some(EncodedFieldStatistics::String(string_stats)),
+            dictionary_size: None,
         };
 
         let descriptor2 = create_with_stats(100, &encoded_field2);

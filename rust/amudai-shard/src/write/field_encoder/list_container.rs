@@ -210,6 +210,7 @@ impl FieldEncoderOps for ListContainerFieldEncoder {
         Ok(EncodedField {
             buffers,
             statistics: None, // Container fields don't collect primitive statistics
+            dictionary_size: None,
         })
     }
 }

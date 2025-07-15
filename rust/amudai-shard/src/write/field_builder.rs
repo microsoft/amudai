@@ -16,7 +16,7 @@ use amudai_keyed_vector::KeyFromValue;
 use amudai_objectstore::url::ObjectUrl;
 use arrow_array::{Array, ArrayRef, cast::AsArray};
 
-use crate::write::field_encoder::FieldEncoderParams;
+use crate::write::field_encoder::{DictionaryEncoding, FieldEncoderParams};
 use crate::write::stripe_builder::create_field_locators;
 
 use super::format_elements_ext::CompactDataRefs;
@@ -53,6 +53,7 @@ impl FieldBuilder {
             basic_type,
             temp_store: params.temp_store.clone(),
             encoding_profile: params.encoding_profile,
+            dictionary_encoding: DictionaryEncoding::Enabled,
         };
         let encoder = FieldEncoder::new(encoder_params)?;
         let children = FieldBuilders::new(&params.data_type)?;

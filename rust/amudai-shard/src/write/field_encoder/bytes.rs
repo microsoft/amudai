@@ -23,7 +23,7 @@ use super::{EncodedField, EncodedFieldStatistics, FieldEncoderOps};
 
 /// Statistics collector that dispatches to either String or Binary statistics
 /// based on the field type.
-enum BytesStatsCollector {
+pub enum BytesStatsCollector {
     None,
     String(StringStatsCollector),
     Binary(BinaryStatsCollector),
@@ -47,6 +47,7 @@ impl BytesStatsCollector {
             _ => Self::None,
         }
     }
+
     /// Process an array and update statistics.
     pub fn process_array(&mut self, array: &dyn Array) -> Result<()> {
         match self {
@@ -55,6 +56,7 @@ impl BytesStatsCollector {
             Self::Binary(collector) => collector.process_array(array),
         }
     }
+
     /// Process null values efficiently without creating an array.
     ///
     /// This method directly updates null counts without processing array data,
@@ -67,6 +69,31 @@ impl BytesStatsCollector {
         }
         Ok(())
     }
+
+    /// Process a single non-null binary value repeated `count` times.
+    ///
+    /// This method is primarily used for cases where you want to process individual binary values
+    /// without going through an entire array.
+    ///
+    /// If the collector is for `string` type, the value is assumed as valid UTF-8
+    /// without further validation.
+    ///
+    /// # Arguments
+    /// * `value` - A reference to the binary value to be processed
+    /// * `count` - The number of times this value should be counted in statistics
+    ///
+    /// # Returns
+    /// A `Result` indicating success or failure
+    pub fn process_value(&mut self, value: &[u8], count: usize) -> Result<()> {
+        match self {
+            Self::None => Ok(()),
+            Self::String(collector) => {
+                collector.process_value(unsafe { std::str::from_utf8_unchecked(value) }, count)
+            }
+            Self::Binary(collector) => collector.process_value(value, count),
+        }
+    }
+
     /// Finish statistics collection and return the appropriate statistics.
     pub fn finish(self) -> Result<Option<EncodedFieldStatistics>> {
         match self {
@@ -267,6 +294,7 @@ impl FieldEncoderOps for BytesFieldEncoder {
         Ok(EncodedField {
             buffers: vec![encoded_buffer],
             statistics,
+            dictionary_size: None,
         })
     }
 }
@@ -274,7 +302,9 @@ impl FieldEncoderOps for BytesFieldEncoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::write::field_encoder::{EncodedFieldStatistics, FieldEncoderParams};
+    use crate::write::field_encoder::{
+        DictionaryEncoding, EncodedFieldStatistics, FieldEncoderParams,
+    };
     use amudai_format::defs::schema_ext::BasicTypeDescriptor;
     use amudai_format::schema::BasicType;
     use amudai_io_impl::temp_file_store;
@@ -296,6 +326,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         })?;
 
         // Test data with various binary values and nulls
@@ -362,6 +393,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         })?;
 
         // FixedSizeBinary arrays - all values have the same length
@@ -400,6 +432,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         })?;
 
         // GUID data (16 bytes each)
@@ -440,6 +473,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         })?;
 
         let array = Arc::new(arrow_array::StringArray::from(vec!["hello", "world"]));
@@ -512,6 +546,7 @@ mod tests {
             basic_type,
             temp_store,
             encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
         });
     }
 }

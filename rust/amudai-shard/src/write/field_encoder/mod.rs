@@ -4,6 +4,7 @@
 mod boolean;
 mod bytes;
 mod decimal;
+mod dictionary;
 mod empty;
 mod list_container;
 mod primitive;
@@ -78,7 +79,7 @@ impl FieldEncoder {
 }
 
 impl FieldEncoder {
-    fn create_encoder(params: &FieldEncoderParams) -> Result<Box<dyn FieldEncoderOps>> {
+    pub(crate) fn create_encoder(params: &FieldEncoderParams) -> Result<Box<dyn FieldEncoderOps>> {
         let basic_type = params.basic_type;
         match basic_type.basic_type {
             BasicType::Unit => Ok(empty::EmptyFieldEncoder::create()),
@@ -125,12 +126,18 @@ impl FieldEncoder {
                 primitive::PrimitiveFieldEncoder::create(params, arrow_schema::DataType::UInt64)
             }
             BasicType::Binary | BasicType::String | BasicType::Guid => {
-                bytes::BytesFieldEncoder::create(params)
+                if params.dictionary_encoding == DictionaryEncoding::Enabled {
+                    dictionary::AdaptiveDictionaryFieldEncoder::create(params)
+                } else {
+                    bytes::BytesFieldEncoder::create(params)
+                }
             }
             BasicType::FixedSizeBinary => {
                 // Check if this is a decimal type
                 if basic_type.extended_type == KnownExtendedType::KustoDecimal {
                     decimal::DecimalFieldEncoder::create(params)
+                } else if params.dictionary_encoding == DictionaryEncoding::Enabled {
+                    dictionary::AdaptiveDictionaryFieldEncoder::create(params)
                 } else {
                     bytes::BytesFieldEncoder::create(params)
                 }
@@ -173,6 +180,8 @@ pub struct EncodedField {
     pub buffers: Vec<PreparedEncodedBuffer>,
     /// Optional statistics collected during encoding for primitive types
     pub statistics: Option<EncodedFieldStatistics>,
+    /// The size of the dictionary, if dictionary encoding was used.
+    pub dictionary_size: Option<u64>,
 }
 
 /// Statistics collected during field encoding
@@ -303,10 +312,25 @@ pub struct FieldEncoderParams {
     /// provides this capability through either in-memory buffers or temporary files
     /// on disk, depending on the implementation.
     pub temp_store: Arc<dyn TemporaryFileStore>,
+
     /// Block encoding profile that controls the trade-off between compression ratio
     /// and performance.
     /// See [`ShardBuilderParams::encoding_profile`](`crate::write::shard_builder::ShardBuilderParams::encoding_profile`)
     pub encoding_profile: BlockEncodingProfile,
+
+    /// Whether to attempt dictionary encoding for this field.
+    ///
+    /// This is typically enabled for string and binary types
+    /// where dictionary compression can significantly reduce storage size
+    /// and improve performance.
+    pub dictionary_encoding: DictionaryEncoding,
+}
+
+/// Controls whether dictionary encoding is enabled for a field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DictionaryEncoding {
+    Enabled,
+    Disabled,
 }
 
 pub(crate) trait FieldEncoderOps: Send + Sync + 'static {

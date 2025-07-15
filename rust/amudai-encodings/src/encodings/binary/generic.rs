@@ -74,11 +74,27 @@ where
     fn encode(
         &self,
         values: &BinaryValuesSequence,
-        _null_mask: &NullMask,
+        null_mask: &NullMask,
         target: &mut AlignedByteVec,
         plan: &EncodingPlan,
         context: &EncodingContext,
     ) -> amudai_common::Result<usize> {
+        let values_bytes = values.values();
+        if values_bytes.len() < E::MINIMAL_DATA_SIZE {
+            // Fallback to plain encoding if the data is too small.
+            return context.binary_encoders.encode(
+                values,
+                null_mask,
+                target,
+                &EncodingPlan {
+                    encoding: EncodingKind::Plain,
+                    parameters: Default::default(),
+                    cascading_encodings: vec![],
+                },
+                context,
+            );
+        }
+
         let initial_size = target.len();
         target.write_value::<u16>(self.kind() as u16);
 
@@ -86,7 +102,7 @@ where
 
         let prev_pos = target.len();
         self.encoder
-            .encode(values.values(), &mut *target, plan.parameters.as_ref())?;
+            .encode(values_bytes, &mut *target, plan.parameters.as_ref())?;
         metadata.values_size = target.len() - prev_pos;
 
         let alignment = target.len().next_multiple_of(ALIGNMENT_BYTES);

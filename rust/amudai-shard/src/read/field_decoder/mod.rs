@@ -6,12 +6,14 @@ use amudai_common::Result;
 use amudai_sequence::sequence::ValueSequence;
 use boolean::BooleanFieldDecoder;
 use bytes::BytesFieldDecoder;
+use dictionary::DictionaryFieldDecoder;
 use list::ListFieldDecoder;
 use primitive::PrimitiveFieldDecoder;
 use unit::StructFieldDecoder;
 
 pub mod boolean;
 pub mod bytes;
+pub mod dictionary;
 pub mod list;
 pub mod primitive;
 pub mod unit;
@@ -29,6 +31,8 @@ pub enum FieldDecoder {
     Boolean(BooleanFieldDecoder),
     /// Decoder for bytes-like fields (strings, binary, GUID, etc.)
     Bytes(BytesFieldDecoder),
+    /// Decoder for dictionary-encoded fields
+    Dictionary(DictionaryFieldDecoder),
     /// List offsets decoder
     List(ListFieldDecoder),
     /// Struct presence decoder
@@ -55,6 +59,7 @@ impl FieldDecoder {
             FieldDecoder::Primitive(decoder) => decoder.create_reader(pos_ranges_hint),
             FieldDecoder::Boolean(decoder) => decoder.create_reader(pos_ranges_hint),
             FieldDecoder::Bytes(decoder) => decoder.create_reader(pos_ranges_hint),
+            FieldDecoder::Dictionary(decoder) => decoder.create_reader(pos_ranges_hint),
             FieldDecoder::List(decoder) => decoder.create_reader(pos_ranges_hint),
             FieldDecoder::Struct(decoder) => decoder.create_reader(pos_ranges_hint),
         }

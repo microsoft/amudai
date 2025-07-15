@@ -138,8 +138,8 @@ where
             .expect("Values sequence must not be empty");
         let width = T::BITS_COUNT - min_leading_zeroes as usize;
 
-        // Fallback to SingleValue encoding if the width is zero, which means that all values are 0.
         if width == 0 {
+            // Fallback to SingleValue encoding if the width is zero, which means that all values are 0.
             return context.numeric_encoders.get::<T>().encode(
                 values,
                 null_mask,

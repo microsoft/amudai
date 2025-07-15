@@ -19,6 +19,7 @@ fastrand = { workspace = true }
 prost = { workspace = true }
 tempfile = { workspace = true }
 
+amudai-arrow-builders = { workspace = true }
 amudai-arrow-compat = { workspace = true }
 amudai-arrow-processing = { workspace = true }
 amudai-blockstream = { workspace = true }

@@ -12,9 +12,15 @@ use amudai_encodings::{
     block_encoder::{BlockEncodingParameters, PresenceEncoding},
     primitive_block_decoder::PrimitiveBlockDecoder,
 };
-use amudai_format::defs::{common::DataRef, shard::ShardDirectory};
+use amudai_format::{
+    defs::{
+        common::DataRef,
+        shard::{BufferKind, EncodedBuffer, ShardDirectory},
+    },
+    schema::BasicTypeDescriptor,
+};
 use amudai_objectstore::{ObjectStore, local_store::LocalFsObjectStore, url::ObjectUrl};
-use amudai_shard::read::shard::ShardOptions;
+use amudai_shard::read::{field::Field, shard::ShardOptions, stripe::Stripe};
 
 use crate::commands::file_path_to_object_url;
 
@@ -117,6 +123,16 @@ struct EncodingInfo {
     kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     buffer_count: Option<usize>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    buffers: Vec<BufferInfo>,
+}
+
+#[derive(Serialize)]
+struct BufferInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    size: Option<u64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     block_stats: Vec<BlockStatistics>,
 }
@@ -576,8 +592,8 @@ fn traverse_data_type_tree(
                     (None, None)
                 };
 
-                let encoding_stats = if verbose >= 3 {
-                    gather_field_encoding_statistics(data_type, stripe)?
+                let buffers_info = if verbose >= 3 {
+                    gather_field_buffers_info(data_type, stripe)?
                 } else {
                     vec![]
                 };
@@ -586,7 +602,7 @@ fn traverse_data_type_tree(
                     index: i,
                     kind,
                     buffer_count,
-                    block_stats: encoding_stats,
+                    buffers: buffers_info,
                 });
             }
         }
@@ -614,85 +630,120 @@ fn traverse_data_type_tree(
     Ok(())
 }
 
-/// Gathers encoding statistics for a specific field in a stripe.
+/// Gathers information about all buffers for a specific field in a stripe.
+fn gather_field_buffers_info(
+    data_type: &amudai_format::schema::DataType,
+    stripe: &Stripe,
+) -> Result<Vec<BufferInfo>> {
+    let field = stripe.open_field(data_type.clone())?;
+    let mut buffer_infos = vec![];
+    for encoded_buffer in field.get_encoded_buffers()? {
+        let block_stats = gather_field_encoding_statistics(&field, encoded_buffer)?;
+        buffer_infos.push(BufferInfo {
+            kind: Some(encoded_buffer.kind().as_str_name().to_string()),
+            size: encoded_buffer.buffer.as_ref().map(|b| b.len()),
+            block_stats,
+        });
+    }
+    Ok(buffer_infos)
+}
+
+/// Gathers encoding statistics for the given encoded buffer of a field.
 ///
-/// This function analyzes all encoded buffers for a given field and collects
-/// statistics about the encoding plans used, including the number of blocks
+/// This function analyzes the encoded buffer and collects statistics
+/// about the encoding plans used, including the number of blocks
 /// that use each specific encoding configuration.
 ///
 /// # Arguments
-/// * `data_type` - The data type definition for the field
-/// * `stripe` - The stripe containing the field data
+/// * `field`: The field for which to gather encoding statistics.
+/// * `encoded_buffer`: The encoded buffer to analyze.
 ///
 /// # Returns
 /// A vector of encoding statistics sorted by block count (descending)
 fn gather_field_encoding_statistics(
-    data_type: &amudai_format::schema::DataType,
-    stripe: &amudai_shard::read::stripe::Stripe,
+    field: &Field,
+    encoded_buffer: &EncodedBuffer,
 ) -> Result<Vec<BlockStatistics>> {
     use amudai_format::schema::BasicType;
 
     let mut stats = HashMap::new();
-    let basic_type = data_type.basic_type()?;
-    let type_desc = data_type.describe()?;
-    let field = stripe.open_field(data_type.clone())?;
 
-    for encoded_buffer in field.get_encoded_buffers()? {
-        if encoded_buffer.kind() != amudai_format::defs::shard::BufferKind::Data {
-            continue;
-        }
+    let type_desc = field.data_type().describe()?;
+    let field_desc = field.descriptor().field.as_ref().unwrap();
 
-        let decoder = field.open_block_stream(encoded_buffer)?;
+    if encoded_buffer.kind() != BufferKind::Data
+        && encoded_buffer.kind() != BufferKind::Offsets
+        && encoded_buffer.kind() != BufferKind::Presence
+    {
+        // Not a block-encoding buffer, skip inspection.
+        return Ok(vec![]);
+    }
 
-        let parameters = BlockEncodingParameters {
-            checksum: decoder.checksum_config(),
-            presence: if encoded_buffer.embedded_presence {
-                PresenceEncoding::Enabled
-            } else {
-                PresenceEncoding::Disabled
+    // Support dictionary-encoded fields
+    let (basic_type, type_desc) = if field_desc.dictionary_size.is_some() {
+        // Values codes buffer.
+        (
+            BasicType::Int32,
+            BasicTypeDescriptor {
+                basic_type: BasicType::Int32,
+                fixed_size: 0,
+                signed: false,
+                extended_type: Default::default(),
             },
-        };
+        )
+    } else {
+        (type_desc.basic_type, type_desc)
+    };
 
-        let block_decoder: Arc<dyn BlockDecoder> = match basic_type {
-            BasicType::Binary
-            | BasicType::FixedSizeBinary
-            | BasicType::String
-            | BasicType::Guid => Arc::new(BinaryBlockDecoder::new(
+    let decoder = field.open_block_stream(encoded_buffer)?;
+
+    let parameters = BlockEncodingParameters {
+        checksum: decoder.checksum_config(),
+        presence: if encoded_buffer.embedded_presence {
+            PresenceEncoding::Enabled
+        } else {
+            PresenceEncoding::Disabled
+        },
+    };
+
+    let block_decoder: Arc<dyn BlockDecoder> = match basic_type {
+        BasicType::Binary | BasicType::FixedSizeBinary | BasicType::String | BasicType::Guid => {
+            Arc::new(BinaryBlockDecoder::new(
                 parameters,
                 type_desc,
                 Arc::new(Default::default()),
-            )),
-            BasicType::Int8
-            | BasicType::Int16
-            | BasicType::Int32
-            | BasicType::Int64
-            | BasicType::Float32
-            | BasicType::Float64
-            | BasicType::DateTime => Arc::new(PrimitiveBlockDecoder::new(
-                parameters,
-                type_desc,
-                Arc::new(Default::default()),
-            )),
-            BasicType::Unit
-            | BasicType::Boolean
-            | BasicType::FixedSizeList
-            | BasicType::List
-            | BasicType::Struct
-            | BasicType::Map
-            | BasicType::Union => {
-                break;
-            }
-        };
-
-        let mut reader =
-            decoder.create_reader_with_block_ranges(vec![], BlockReaderPrefetch::Enabled)?;
-
-        let block_count = decoder.block_map().block_count()?;
-        for block_idx in 0..block_count {
-            let block = reader.read_block(block_idx as u32)?;
-            let encoding_plan = block_decoder.inspect(block.data())?;
-            *stats.entry(encoding_plan.clone()).or_insert(0) += 1;
+            ))
         }
+        BasicType::Int8
+        | BasicType::Int16
+        | BasicType::Int32
+        | BasicType::Int64
+        | BasicType::Float32
+        | BasicType::Float64
+        | BasicType::DateTime => Arc::new(PrimitiveBlockDecoder::new(
+            parameters,
+            type_desc,
+            Arc::new(Default::default()),
+        )),
+        BasicType::Unit
+        | BasicType::Boolean
+        | BasicType::FixedSizeList
+        | BasicType::List
+        | BasicType::Struct
+        | BasicType::Map
+        | BasicType::Union => {
+            return Ok(vec![]); // Unsupported types for block inspection
+        }
+    };
+
+    let mut reader =
+        decoder.create_reader_with_block_ranges(vec![], BlockReaderPrefetch::Enabled)?;
+
+    let block_count = decoder.block_map().block_count()?;
+    for block_idx in 0..block_count {
+        let block = reader.read_block(block_idx as u32)?;
+        let encoding_plan = block_decoder.inspect(block.data())?;
+        *stats.entry(encoding_plan.clone()).or_insert(0) += 1;
     }
 
     let mut stats = stats

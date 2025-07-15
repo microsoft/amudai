@@ -84,7 +84,7 @@ impl BinaryStatsCollector {
             } else {
                 let value = array.value(i);
                 let length = value.len() as u64;
-                self.update_lengths(length)?;
+                self.update_lengths(length, 1)?;
 
                 // Update bloom filter if enabled
                 if let Some(ref mut collector) = self.bloom_filter_collector {
@@ -114,7 +114,7 @@ impl BinaryStatsCollector {
             } else {
                 let value = array.value(i);
                 let length = value.len() as u64;
-                self.update_lengths(length)?;
+                self.update_lengths(length, 1)?;
 
                 // Update bloom filter if enabled
                 if let Some(ref mut collector) = self.bloom_filter_collector {
@@ -144,7 +144,7 @@ impl BinaryStatsCollector {
                 self.null_count += 1;
             } else {
                 let value = array.value(i);
-                self.update_lengths(fixed_length)?;
+                self.update_lengths(fixed_length, 1)?;
 
                 // Update bloom filter if enabled
                 if let Some(ref mut collector) = self.bloom_filter_collector {
@@ -221,14 +221,39 @@ impl BinaryStatsCollector {
         // No changes to length-related statistics since nulls don't contribute to min/max lengths
     }
 
+    /// Processes a single non-null binary value repeated `count` times.
+    ///
+    /// This method is primarily used for cases where you want to process individual binary values
+    /// without going through an entire array.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - A reference to the binary value to be processed
+    /// * `count` - The number of times this value should be counted in the statistics
+    #[inline]
+    pub fn process_value(&mut self, value: &[u8], count: usize) -> Result<()> {
+        self.total_count += count as u64;
+
+        self.update_lengths(value.len() as u64, count as u64)?;
+
+        // Update bloom filter if enabled
+        if let Some(ref mut collector) = self.bloom_filter_collector {
+            if self.collect_bloom_filters {
+                collector.process_value(value);
+            }
+        }
+        Ok(())
+    }
+
     /// Updates the length statistics with a new binary value length.
     ///
     /// # Arguments
     /// * `length` - The length of the binary value
+    /// * `count` - The number of times this length should be counted (for repeated values)
     ///
     /// # Returns
     /// A `Result` indicating success or failure
-    fn update_lengths(&mut self, length: u64) -> Result<()> {
+    fn update_lengths(&mut self, length: u64, count: u64) -> Result<()> {
         // Update min_length
         self.min_length = Some(match self.min_length {
             Some(current_min) => current_min.min(length),
@@ -250,7 +275,7 @@ impl BinaryStatsCollector {
         }
 
         // Update raw_data_size (sum of lengths of all non-null values)
-        self.raw_data_size += length;
+        self.raw_data_size += length * count;
 
         Ok(())
     }

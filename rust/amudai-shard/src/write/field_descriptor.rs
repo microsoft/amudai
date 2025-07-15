@@ -29,6 +29,8 @@ pub fn create_with_stats(
     };
 
     populate_statistics(&mut descriptor, encoded_field);
+
+    descriptor.dictionary_size = encoded_field.dictionary_size;
     descriptor
 }
 
@@ -106,6 +108,8 @@ pub fn merge(
         // we must clear the membership filters, as shard-level descriptors
         // must not contain them.
         accumulated.membership_filters = None;
+        // Also clear dictionary size from the shard-level descriptor.
+        accumulated.dictionary_size = None;
         return Ok(());
     }
 

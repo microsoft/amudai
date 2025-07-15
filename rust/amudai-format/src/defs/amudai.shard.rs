@@ -410,16 +410,18 @@ pub struct EncodedBuffer {
     #[prost(fixed32, optional, tag = "21")]
     pub packed_group_index: ::core::option::Option<u32>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct ValueDictionaryHeader {
     #[prost(fixed32, tag = "1")]
     pub value_type: u32,
     #[prost(fixed32, optional, tag = "2")]
     pub null_id: ::core::option::Option<u32>,
-    #[prost(message, optional, tag = "3")]
-    pub values_section_ref: ::core::option::Option<super::common::DataRef>,
+    #[prost(fixed32, optional, tag = "3")]
+    pub fixed_value_size: ::core::option::Option<u32>,
     #[prost(message, optional, tag = "4")]
-    pub sorted_ids_section_ref: ::core::option::Option<super::common::DataRef>,
+    pub values_section_range: ::core::option::Option<super::common::UInt64Range>,
+    #[prost(message, optional, tag = "5")]
+    pub sorted_ids_section_range: ::core::option::Option<super::common::UInt64Range>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DictionaryVarSizeValuesSection {
