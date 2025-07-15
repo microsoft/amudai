@@ -26,13 +26,10 @@
 //! 2. **Dispatch to worker**: If available, send the task to a worker thread
 //! 3. **Fallback to sync**: If all workers are busy, execute synchronously on the caller's thread
 
-use std::{
-    sync::{
-        Arc, OnceLock,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
-        mpsc::{Receiver, SyncSender},
-    },
-    usize,
+use std::sync::{
+    Arc, OnceLock,
+    atomic::{AtomicU64, AtomicUsize, Ordering},
+    mpsc::{Receiver, SyncSender},
 };
 
 use amudai_collections::atomic_bit_set::AtomicBitSet;
@@ -431,7 +428,7 @@ impl EagerPool {
         let size = GLOBAL_POOL_SIZE.load(Ordering::SeqCst);
         if size == 0 {
             std::thread::available_parallelism()
-                .map(|n| (n.get() * 3 + 1) / 2)
+                .map(|n| (n.get() * 3).div_ceil(2))
                 .unwrap_or(8)
         } else {
             size
@@ -503,6 +500,7 @@ impl<'scope, 'env> Scope<'scope, 'env> {
                 };
                 let work_fn = Box::into_raw(Box::new(work_fn) as Box<dyn FnOnce() + Send>);
                 // casting away the 'scope lifetime, pretending our F is 'static.
+                #[allow(clippy::unnecessary_cast)]
                 let work_fn =
                     unsafe { Box::from_raw(work_fn as *mut (dyn FnOnce() + Send + 'static)) };
                 self.workers.spawn(index, work_fn);
@@ -638,10 +636,8 @@ impl ScopeTracker {
         let prev_state = self.state.fetch_sub(1, Ordering::SeqCst);
         assert_ne!(prev_state, 0);
         assert_ne!(prev_state, Self::WAIT_STATE);
-        if prev_state > Self::WAIT_STATE {
-            if prev_state - Self::WAIT_STATE == 1 {
-                let _ = self.completion.set(());
-            }
+        if prev_state > Self::WAIT_STATE && prev_state - Self::WAIT_STATE == 1 {
+            let _ = self.completion.set(());
         }
     }
 

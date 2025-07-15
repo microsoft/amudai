@@ -230,7 +230,7 @@ impl ThreadPool {
         let size = GLOBAL_POOL_SIZE.load(Ordering::SeqCst);
         if size == 0 {
             std::thread::available_parallelism()
-                .map(|n| (n.get() * 3 + 1) / 2)
+                .map(|n| (n.get() * 3).div_ceil(2))
                 .unwrap_or(8)
         } else {
             size

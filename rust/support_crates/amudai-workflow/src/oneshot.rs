@@ -138,8 +138,13 @@ impl<T> OneshotReceiver<T> {
     /// Returns `Ok(Some(value))` if a value was received within the timeout,
     /// `Ok(None)` if the channel was closed, or `Err(())` if the timeout
     /// was reached while the channel was still pending.
-    pub fn recv_timeout(&self, timeout: Duration) -> Result<Option<T>, ()> {
-        self.0.wait_for(timeout)
+    pub fn recv_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<Option<T>, std::sync::mpsc::RecvTimeoutError> {
+        self.0
+            .wait_for(timeout)
+            .map_err(|_| std::sync::mpsc::RecvTimeoutError::Timeout)
     }
 
     /// Attempts to receive a value without blocking.
@@ -147,8 +152,10 @@ impl<T> OneshotReceiver<T> {
     /// Returns `Ok(Some(value))` if a value is immediately available,
     /// `Ok(None)` if the channel is closed, or `Err(())` if the channel
     /// is still pending.
-    pub fn try_recv(&self) -> Result<Option<T>, ()> {
-        self.0.try_take()
+    pub fn try_recv(&self) -> Result<Option<T>, std::sync::mpsc::TryRecvError> {
+        self.0
+            .try_take()
+            .map_err(|_| std::sync::mpsc::TryRecvError::Empty)
     }
 
     /// Checks if the channel is still pending (no value received yet).
@@ -280,12 +287,6 @@ impl<T> OneshotCell<T> {
 /// - `Pending` -> `Ready(T)` when a value is sent
 /// - `Pending` -> `Consumed` when the channel is cancelled
 /// - `Ready(T)` -> `Consumed` when the value is taken
-/// Internal state representation for the oneshot channel.
-///
-/// The state transitions are:
-/// - `Pending` -> `Ready(T)` when a value is sent
-/// - `Pending` -> `Consumed` when the channel is cancelled
-/// - `Ready(T)` -> `Consumed` when the value is taken
 enum State<T> {
     /// No value has been sent yet, channel is open for sending.
     Pending,
@@ -298,10 +299,7 @@ enum State<T> {
 impl<T> State<T> {
     /// Returns true if the state is pending (no value sent yet).
     fn is_pending(&self) -> bool {
-        match self {
-            State::Pending => true,
-            _ => false,
-        }
+        matches!(self, State::Pending)
     }
 
     /// Attempts to set a value in the state.

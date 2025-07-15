@@ -213,7 +213,7 @@ impl DictionaryFieldReader {
         // Read and validate the dictionary header.
         let header_buf = amudai_format::checksum::validate_message(&dictionary_buf)?;
         let header = ValueDictionaryHeader::decode(header_buf).map_err(|e| {
-            Error::invalid_format(format!("Failed to decode dictionary header: {}", e))
+            Error::invalid_format(format!("Failed to decode dictionary header: {e}"))
         })?;
 
         // Skip the header bytes as all the other section ranges are relative
@@ -232,14 +232,13 @@ impl DictionaryFieldReader {
         if let Some(fixed_value_size) = header.fixed_value_size {
             assert_eq!(self.basic_type.fixed_size, fixed_value_size);
             let values = DictionaryFixedSizeValuesSection::decode(values_buf).map_err(|e| {
-                Error::invalid_format(format!("Failed to decode fixed-size values section: {}", e))
+                Error::invalid_format(format!("Failed to decode fixed-size values section: {e}"))
             })?;
             self.dictionary_buffers = Some(values.values);
         } else {
             let mut values = DictionaryVarSizeValuesSection::decode(values_buf).map_err(|e| {
                 Error::invalid_format(format!(
-                    "Failed to decode variable-size values section: {}",
-                    e
+                    "Failed to decode variable-size values section: {e}"
                 ))
             })?;
             if let Some(values) = values.values.take() {
@@ -256,7 +255,7 @@ impl DictionaryFieldReader {
             let sorted_ids =
                 amudai_format::defs::shard::DictionarySortedIdsSection::decode(sorted_ids_buf)
                     .map_err(|e| {
-                        Error::invalid_format(format!("Failed to decode sorted IDs section: {}", e))
+                        Error::invalid_format(format!("Failed to decode sorted IDs section: {e}"))
                     })?;
             self.sorted_ids = Some(sorted_ids.sorted_ids);
         }
@@ -311,16 +310,11 @@ impl DictionaryFieldReader {
                     presence.add_null();
                 } else {
                     let start_index = (code as usize) * value_size;
-                    if start_index + value_size > dictionary_buffers.len() {
-                        return Err(Error::invalid_format(format!(
-                            "Out of bounds dictionary code: {}",
-                            code
-                        )));
-                    }
-                    // The check above ensures that we do not read out of bounds.
-                    let value = unsafe {
-                        dictionary_buffers.get_unchecked(start_index..start_index + value_size)
-                    };
+                    let value = dictionary_buffers
+                        .get(start_index..start_index + value_size)
+                        .ok_or_else(|| {
+                            Error::invalid_format(format!("Out of bounds dictionary code: {code}"))
+                        })?;
                     values.extend_from_slice(value);
                     presence.add_non_null();
                 }
@@ -329,16 +323,11 @@ impl DictionaryFieldReader {
         } else {
             for &code in codes_slice {
                 let start_index = (code as usize) * value_size;
-                if start_index + value_size > dictionary_buffers.len() {
-                    return Err(Error::invalid_format(format!(
-                        "Out of bounds dictionary code: {}",
-                        code
-                    )));
-                }
-                // The check above ensures that we do not read out of bounds.
-                let value = unsafe {
-                    dictionary_buffers.get_unchecked(start_index..start_index + value_size)
-                };
+                let value = dictionary_buffers
+                    .get(start_index..start_index + value_size)
+                    .ok_or_else(|| {
+                        Error::invalid_format(format!("Out of bounds dictionary code: {code}"))
+                    })?;
                 values.extend_from_slice(value);
             }
             Presence::Trivial(codes_slice.len())
@@ -375,8 +364,7 @@ impl DictionaryFieldReader {
                 } else {
                     if code as usize >= dictionary_offsets.len() - 1 {
                         return Err(Error::invalid_format(format!(
-                            "Out of bounds dictionary code: {}",
-                            code
+                            "Out of bounds dictionary code: {code}"
                         )));
                     }
                     let value_start = dictionary_offsets[code as usize] as usize;
@@ -392,8 +380,7 @@ impl DictionaryFieldReader {
             for &code in codes_slice {
                 if code as usize >= dictionary_offsets.len() - 1 {
                     return Err(Error::invalid_format(format!(
-                        "Out of bounds dictionary code: {}",
-                        code
+                        "Out of bounds dictionary code: {code}"
                     )));
                 }
                 let value_start = dictionary_offsets[code as usize] as usize;

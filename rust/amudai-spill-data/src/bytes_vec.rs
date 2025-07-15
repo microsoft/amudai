@@ -157,6 +157,60 @@ impl BytesCollector {
         &mut self.data.as_mut_slice()[start..end]
     }
 
+    /// Resizes the `BytesCollector` in-place so that `len` is equal to `new_len`.
+    ///
+    /// If `new_len` is greater than `len`, the collector is extended by the
+    /// difference, with each additional slot filled with `value`.
+    /// If `new_len` is less than `len`, the collector is simply truncated.
+    ///
+    /// If you only need to resize to a smaller size, use [`BytesCollector::truncate`].
+    pub fn resize(&mut self, new_len: usize, value: impl AsRef<[u8]>) {
+        if new_len < self.len() {
+            self.truncate(new_len);
+        } else if new_len > self.len() {
+            let additional = new_len - self.len();
+            let value = value.as_ref();
+            if value.is_empty() {
+                self.offsets
+                    .resize(new_len + 1, *self.offsets.last().unwrap());
+            } else {
+                self.offsets.reserve(additional);
+                self.data.reserve(additional * value.len());
+                for _ in 0..additional {
+                    self.push(value);
+                }
+            }
+        }
+    }
+
+    /// Sets the length of the `BytesCollector` to the specified value.
+    ///
+    /// This method modifies the `BytesCollector` length, either by truncating it if
+    /// `new_len` is smaller than the current length, or by extending it with empty
+    /// buffers if `new_len` is larger.
+    ///
+    /// # Parameters
+    ///
+    /// * `new_len` - The desired new length of the `BytesCollector`
+    pub fn resize_with_empty(&mut self, new_len: usize) {
+        self.resize(new_len, []);
+    }
+
+    /// Shortens the `BytesCollector`, keeping the first `len` elements and dropping
+    /// the rest.
+    ///
+    /// If `len` is greater or equal to the collector's current length, this has
+    /// no effect.
+    ///
+    /// Note that this method has no effect on the allocated capacity of the collector.
+    pub fn truncate(&mut self, len: usize) {
+        if len < self.len() {
+            self.offsets.truncate(len + 1);
+            let data_size = self.offsets[len] as usize;
+            self.data.truncate(data_size);
+        }
+    }
+
     /// Clears the collector, removing all values.
     pub fn clear(&mut self) {
         self.offsets.truncate(1);
@@ -178,7 +232,21 @@ impl std::ops::Index<usize> for BytesCollector {
     }
 }
 
+impl std::ops::IndexMut<usize> for BytesCollector {
+    #[inline]
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.get_at_mut(index)
+    }
+}
+
+impl Default for BytesCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Collection for BytesCollector {
+    #[inline]
     fn len(&self) -> usize {
         BytesCollector::len(self)
     }
@@ -203,8 +271,13 @@ impl Collector for BytesCollector {
         BytesCollector::reserve_data(self, additional_bytes);
     }
 
+    #[inline]
     fn push(&mut self, value: &Self::Item) {
         BytesCollector::push(self, value);
+    }
+
+    fn set_len(&mut self, new_len: usize) {
+        BytesCollector::resize_with_empty(self, new_len);
     }
 
     fn clear(&mut self) {
@@ -296,7 +369,7 @@ impl BytesView {
     /// Panics if `offsets` is empty, or if the offsets are inconsistent with
     /// the length of the `data` view.
     pub fn new(offsets: PodView<u64>, data: PodView<u8>) -> BytesView {
-        assert!(offsets.len() >= 1);
+        assert!(!offsets.is_empty());
         let data_len = *offsets.last().unwrap() - offsets[0];
         assert!(data.len() >= data_len as usize);
         BytesView { offsets, data }
@@ -329,6 +402,7 @@ impl BytesView {
 }
 
 impl Collection for BytesView {
+    #[inline]
     fn len(&self) -> usize {
         BytesView::len(self)
     }

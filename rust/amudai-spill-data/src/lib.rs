@@ -436,6 +436,11 @@ pub trait Collection {
     /// This operation should be O(1) - implementations should cache the length
     /// or design their data structures so that the length can be computed efficiently.
     fn len(&self) -> usize;
+
+    /// Checks whether the collection length is zero.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// Trait for mutable collections that support appending elements.
@@ -551,5 +556,19 @@ pub trait Collector: Collection {
     /// or [`reserve_data()`](Collector::reserve_data) to minimize reallocations.
     fn push(&mut self, value: &Self::Item);
 
+    /// Sets the length of the collection to the specified value.
+    ///
+    /// This method modifies the collection's length, either by truncating it if
+    /// `new_len` is smaller than the current length, or by extending it with
+    /// default values if `new_len` is larger.
+    ///
+    /// # Parameters
+    ///
+    /// * `new_len` - The desired new length of the collection
+    fn set_len(&mut self, new_len: usize);
+
+    /// Clears the collector, removing all values.
+    ///
+    /// This method usually retains the allocated capacity of the collector.
     fn clear(&mut self);
 }

@@ -153,6 +153,19 @@ where
         self.data.resize_typed(new_count, value);
     }
 
+    /// Resizes the collector so that `len` is equal to `new_count`.
+    ///
+    /// If `new_count` is greater than the current length, the collector is extended by the
+    /// difference, with each additional slot filled with zero value. If `new_count` is less than
+    /// the current length, the collector is simply truncated.
+    ///
+    /// # Parameters
+    ///
+    /// * `new_count` - The new length of the collector
+    pub fn resize_zeroed(&mut self, new_count: usize) {
+        self.data.resize_zeroed::<T>(new_count);
+    }
+
     /// Extends the collector with the contents of a slice.
     ///
     /// # Parameters
@@ -204,9 +217,7 @@ where
         let len = self.len();
         assert!(
             index < len,
-            "swap_remove index (is {}) should be < len (is {})",
-            index,
-            len
+            "swap_remove index (is {index}) should be < len (is {len})"
         );
 
         let slice = self.as_mut_slice();
@@ -296,6 +307,13 @@ impl<T: bytemuck::Pod> std::ops::Index<usize> for PodCollector<T> {
     }
 }
 
+impl<T: bytemuck::Pod> std::ops::IndexMut<usize> for PodCollector<T> {
+    #[inline]
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.as_mut_slice()[index]
+    }
+}
+
 impl<T: bytemuck::Pod> std::ops::Deref for PodCollector<T> {
     type Target = [T];
 
@@ -363,6 +381,7 @@ impl<T: bytemuck::Pod, const N: usize> From<[T; N]> for PodCollector<T> {
 }
 
 impl<T: bytemuck::Pod> Collection for PodCollector<T> {
+    #[inline]
     fn len(&self) -> usize {
         PodCollector::len(self)
     }
@@ -387,8 +406,13 @@ impl<T: bytemuck::Pod> Collector for PodCollector<T> {
         self.reserve(additional_bytes / std::mem::size_of::<T>());
     }
 
+    #[inline]
     fn push(&mut self, value: &Self::Item) {
         PodCollector::push(self, *value);
+    }
+
+    fn set_len(&mut self, new_len: usize) {
+        PodCollector::resize_zeroed(self, new_len);
     }
 
     fn clear(&mut self) {
@@ -426,8 +450,7 @@ where
         let this = self.as_slice();
         let bytes = bytemuck::cast_slice::<_, u8>(this);
         let chunk_size = align_down_u64(writer.storage_profile().max_io_size as u64, PAGE_SIZE)
-            .min(4 * 1024 * 1024)
-            .max(PAGE_SIZE * 16) as usize;
+            .clamp(PAGE_SIZE * 16, 4 * 1024 * 1024) as usize;
         let mut pos = 0u64;
         for chunk in bytes.chunks(chunk_size) {
             writer.write_at(pos, chunk)?;
@@ -608,6 +631,7 @@ impl<T> PodView<T> {
 }
 
 impl<T> Collection for PodView<T> {
+    #[inline]
     fn len(&self) -> usize {
         PodView::len(self)
     }
@@ -769,7 +793,7 @@ mod details {
 
         #[inline]
         fn as_slice(&self) -> &[Self::Item] {
-            &*self
+            self
         }
     }
 
@@ -778,7 +802,7 @@ mod details {
 
         #[inline]
         fn as_slice(&self) -> &[Self::Item] {
-            &*self
+            self
         }
     }
 
@@ -787,7 +811,7 @@ mod details {
 
         #[inline]
         fn as_slice(&self) -> &[Self::Item] {
-            &*self
+            self
         }
     }
 
@@ -796,7 +820,7 @@ mod details {
 
         #[inline]
         fn as_slice(&self) -> &[Self::Item] {
-            &*self
+            self
         }
     }
 }

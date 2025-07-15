@@ -50,7 +50,7 @@ impl AtomicBitSet {
     ///
     /// A new `AtomicBitSet` with all bits initialized to false.
     pub fn new(size: usize) -> Self {
-        let vec_len = (size + 63) / 64;
+        let vec_len = size.div_ceil(64);
         AtomicBitSet((0..vec_len).map(|_| AtomicU64::new(0)).collect(), size)
     }
 
@@ -62,6 +62,12 @@ impl AtomicBitSet {
     #[inline]
     pub fn len(&self) -> usize {
         self.1
+    }
+
+    /// Checks whether the bit set has zero length.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Atomically reads the value of a bit at the specified index.

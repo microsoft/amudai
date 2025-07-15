@@ -8,10 +8,11 @@ use std::sync::Arc;
 
 use amudai_bytes::align::is_aligned_u64;
 use amudai_io::{SlicedFile, WriteAt, verify};
+use amudai_workflow::data_parallel;
 
 use crate::{
     Collection, Collector, Dump, Load,
-    manifest::{Manifest, PAGE_SIZE},
+    manifest::{Manifest, NestedManifest, PAGE_SIZE},
 };
 
 /// An appendable collection with indexed access built on top of uniformly-sized contiguous segments.
@@ -203,6 +204,12 @@ where
     }
 }
 
+impl<C> Default for SegmentedVec<C> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<C> TryFrom<Vec<C>> for SegmentedVec<C>
 where
     C: Collection,
@@ -261,6 +268,82 @@ where
         self.len += 1;
     }
 
+    /// Sets the length of the segmented vector to the specified value.
+    ///
+    /// This method modifies the vector's length, either by truncating it if
+    /// `new_len` is smaller than the current length, or by extending it with
+    /// default values if `new_len` is larger.
+    ///
+    /// # Parameters
+    ///
+    /// * `new_len` - The desired new length of the vector
+    pub fn set_len(&mut self, new_len: usize) {
+        if new_len == self.len {
+            return;
+        }
+
+        if new_len < self.len {
+            // Truncate to new_len
+            self.truncate(new_len);
+        } else {
+            // Extend to new_len using default values
+            let items_to_add = new_len - self.len;
+
+            // If we have no segments yet, add one
+            if self.segments.is_empty() {
+                self.append_segment();
+            }
+
+            // Add items using resize_with_default on individual segments
+            let mut remaining = items_to_add;
+
+            while remaining > 0 {
+                let last_segment = self.segments.last_mut().unwrap();
+                let current_segment_len = last_segment.len();
+                let space_in_current = self.segment_size - current_segment_len;
+
+                if space_in_current == 0 {
+                    // Current segment is full, add a new one
+                    self.append_segment();
+                    continue;
+                }
+
+                // Fill current segment with default values
+                let items_to_add_to_segment = remaining.min(space_in_current);
+                last_segment.set_len(current_segment_len + items_to_add_to_segment);
+
+                remaining -= items_to_add_to_segment;
+            }
+
+            self.len = new_len;
+        }
+    }
+
+    /// Truncates the segmented vector to the specified length.
+    ///
+    /// If `len` is greater than the current length, this has no effect.
+    fn truncate(&mut self, len: usize) {
+        if len >= self.len {
+            return;
+        }
+
+        if len == 0 {
+            self.clear();
+            return;
+        }
+
+        // Find which segment contains the new end
+        let (target_segment_idx, offset_in_segment) = self.map_index(len - 1);
+
+        // Truncate segments after the target segment
+        self.segments.truncate(target_segment_idx + 1);
+
+        // Truncate the target segment to the correct size
+        let segment = &mut self.segments[target_segment_idx];
+        segment.set_len(offset_in_segment + 1);
+        self.len = len;
+    }
+
     /// Allocates and appends a new segment to the segments vector.
     ///
     /// This is called when the current segment is full and more capacity is needed.
@@ -295,7 +378,30 @@ where
     }
 }
 
-impl<C: Dump> Dump for SegmentedVec<C> {
+impl<C> std::ops::IndexMut<usize> for SegmentedVec<C>
+where
+    C: std::ops::IndexMut<usize>,
+{
+    /// Performs the mutable indexing (container[index]) operation.
+    ///
+    /// Uses bit-shift operations to map the linear index to the appropriate
+    /// segment and offset within that segment.
+    ///
+    /// # Parameters
+    ///
+    /// * `index` - The linear index of the element to access
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds, same as standard vector indexing.
+    #[inline]
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        let (sid, offset) = self.map_index(index);
+        &mut self.segments[sid][offset]
+    }
+}
+
+impl<C: Dump + Send + Sync> Dump for SegmentedVec<C> {
     /// Computes the total size required to dump this segmented vector.
     ///
     /// This is the sum of the dump sizes of all individual segments.
@@ -332,24 +438,73 @@ impl<C: Dump> Dump for SegmentedVec<C> {
     where
         W: amudai_io::WriteAt + Clone,
     {
-        // TODO: parallel
-        let mut manifest = Manifest::default();
-        let mut pos = 0u64;
-        for segment in self.segments.iter() {
-            let next_pos = pos + segment.compute_size();
-            let child_manifest = segment
-                .dump(writer.slice(pos..next_pos)?)?
-                .into_nested(pos..next_pos);
-            manifest.child_list.push(child_manifest);
-            pos = next_pos;
-        }
+        let child_list = self.dump_segments_parallel(writer.clone())?;
+        let mut manifest = Manifest {
+            child_list,
+            ..Default::default()
+        };
         manifest.put("len", self.len() as u64);
         manifest.put("segment_size", self.segment_size() as u64);
         Ok(manifest)
     }
 }
 
-impl<C: Load + Collection> Load for SegmentedVec<C> {
+impl<C: Dump> SegmentedVec<C> {
+    #[allow(dead_code)]
+    fn dump_segments<W>(
+        &self,
+        writer: amudai_io::SlicedFile<W>,
+    ) -> std::io::Result<Vec<NestedManifest>>
+    where
+        W: amudai_io::WriteAt + Clone,
+    {
+        let mut pos = 0u64;
+        let mut manifests = Vec::with_capacity(self.segments.len());
+        for segment in self.segments.iter() {
+            let next_pos = pos + segment.compute_size();
+            let child_manifest = segment
+                .dump(writer.slice(pos..next_pos)?)?
+                .into_nested(pos..next_pos);
+            manifests.push(child_manifest);
+            pos = next_pos;
+        }
+        Ok(manifests)
+    }
+}
+
+impl<C: Dump + Send + Sync> SegmentedVec<C> {
+    fn dump_segments_parallel<W>(
+        &self,
+        writer: amudai_io::SlicedFile<W>,
+    ) -> std::io::Result<Vec<NestedManifest>>
+    where
+        W: amudai_io::WriteAt + Clone,
+    {
+        let ranges = self
+            .segments
+            .iter()
+            .scan(0u64, |pos, segment| {
+                let size = segment.compute_size();
+                let range = *pos..*pos + size;
+                *pos = range.end;
+                Some(range)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(ranges.len(), self.segments.len());
+
+        data_parallel::map(
+            None,
+            self.segments.iter().zip(ranges),
+            |(segment, range)| {
+                let manifest = segment.dump(writer.slice(range.clone())?)?;
+                Ok::<_, std::io::Error>(manifest.into_nested(range))
+            },
+        )
+        .collect::<std::io::Result<Vec<_>>>()
+    }
+}
+
+impl<C: Load + Collection + Send + Sync> Load for SegmentedVec<C> {
     /// Loads a segmented vector from external storage.
     ///
     /// Reconstructs the segmented vector from a manifest and reader, loading
@@ -388,22 +543,54 @@ impl<C: Load + Collection> Load for SegmentedVec<C> {
         verify!(segment_size > 1);
         verify!(segment_size.is_power_of_two());
 
-        let mut segments = Vec::with_capacity(manifest.child_list.len());
-        let mut len = 0;
-        for child_manifest in manifest.child_list.iter() {
-            let segment = C::load(
-                reader.slice(child_manifest.range.clone())?,
-                &child_manifest.manifest,
-            )?;
-            len += segment.len();
-            segments.push(segment);
-        }
+        let segments = Self::load_segments_parallel(reader.clone(), manifest)?;
+        let len = segments.iter().map(|segment| segment.len()).sum::<usize>();
         verify!(len == expected_len);
         SegmentedVec::from_segments(segments, segment_size)
     }
 }
 
+impl<C: Load + Collection> SegmentedVec<C> {
+    #[allow(dead_code)]
+    fn load_segments<R>(
+        reader: amudai_io::SlicedFile<R>,
+        manifest: &Manifest,
+    ) -> std::io::Result<Vec<C>>
+    where
+        R: amudai_io::ReadAt + Clone,
+    {
+        let mut segments = Vec::with_capacity(manifest.child_list.len());
+        for child_manifest in manifest.child_list.iter() {
+            let segment = C::load(
+                reader.slice(child_manifest.range.clone())?,
+                &child_manifest.manifest,
+            )?;
+            segments.push(segment);
+        }
+        Ok(segments)
+    }
+}
+
+impl<C: Load + Collection + Send + Sync> SegmentedVec<C> {
+    fn load_segments_parallel<R>(
+        reader: amudai_io::SlicedFile<R>,
+        manifest: &Manifest,
+    ) -> std::io::Result<Vec<C>>
+    where
+        R: amudai_io::ReadAt + Clone,
+    {
+        data_parallel::map(None, manifest.child_list.iter(), |child_manifest| {
+            C::load(
+                reader.slice(child_manifest.range.clone())?,
+                &child_manifest.manifest,
+            )
+        })
+        .collect::<std::io::Result<Vec<_>>>()
+    }
+}
+
 impl<C> Collection for SegmentedVec<C> {
+    #[inline]
     fn len(&self) -> usize {
         SegmentedVec::len(self)
     }
@@ -424,8 +611,13 @@ impl<C: Collector> Collector for SegmentedVec<C> {
 
     fn reserve_data(&mut self, _additional_bytes: usize) {}
 
+    #[inline]
     fn push(&mut self, value: &Self::Item) {
         SegmentedVec::push(self, value);
+    }
+
+    fn set_len(&mut self, new_len: usize) {
+        SegmentedVec::set_len(self, new_len);
     }
 
     fn clear(&mut self) {
@@ -2434,6 +2626,70 @@ mod tests {
             for (i, &expected) in test_points.iter().enumerate() {
                 assert_eq!(loaded[i], expected);
             }
+        }
+    }
+
+    #[test]
+    fn test_set_len() {
+        // Test with PodCollector
+        let mut segmented: SegmentedVec<PodCollector<u32>> = SegmentedVec::with_segment_size(4);
+
+        // Test empty resize
+        segmented.set_len(0);
+        assert_eq!(segmented.len(), 0);
+        assert!(segmented.is_empty());
+
+        // Test resize to single segment
+        segmented.set_len(3);
+        assert_eq!(segmented.len(), 3);
+        assert_eq!(segmented.segments().len(), 1);
+        assert_eq!(segmented[0], 0);
+        assert_eq!(segmented[1], 0);
+        assert_eq!(segmented[2], 0);
+
+        // Test resize to exactly segment boundary
+        segmented.set_len(4);
+        assert_eq!(segmented.len(), 4);
+        assert_eq!(segmented.segments().len(), 1);
+        assert_eq!(segmented[3], 0);
+
+        // Test resize across segment boundary
+        segmented.set_len(7);
+        assert_eq!(segmented.len(), 7);
+        assert_eq!(segmented.segments().len(), 2);
+        assert_eq!(segmented[4], 0);
+        assert_eq!(segmented[5], 0);
+        assert_eq!(segmented[6], 0);
+
+        // Add some non-default values
+        segmented[0] = 100;
+        segmented[4] = 200;
+
+        // Test resize smaller (truncation)
+        segmented.set_len(5);
+        assert_eq!(segmented.len(), 5);
+        assert_eq!(segmented.segments().len(), 2);
+        assert_eq!(segmented[0], 100);
+        assert_eq!(segmented[4], 200);
+
+        // Test resize smaller to single segment
+        segmented.set_len(2);
+        assert_eq!(segmented.len(), 2);
+        assert_eq!(segmented.segments().len(), 1);
+        assert_eq!(segmented[0], 100);
+        assert_eq!(segmented[1], 0);
+
+        // Test resize back to zero
+        segmented.set_len(0);
+        assert_eq!(segmented.len(), 0);
+        assert!(segmented.is_empty());
+
+        // Test resize from empty
+        segmented.set_len(10);
+        assert_eq!(segmented.len(), 10);
+        assert_eq!(segmented.segments().len(), 3); // 4 + 4 + 2
+        for i in 0..10 {
+            assert_eq!(segmented[i], 0);
         }
     }
 }

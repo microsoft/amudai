@@ -239,7 +239,7 @@ impl Manifest {
     /// is corrupted or incompatible.
     pub fn from_slice(slice: &[u8]) -> std::io::Result<Manifest> {
         bincode::decode_from_slice(slice, Self::binc_config())
-            .map_err(|e| Error::other(e))
+            .map_err(Error::other)
             .map(|(manifest, _)| manifest)
     }
 
@@ -516,7 +516,7 @@ impl Manifest {
     ///
     /// A byte vector containing the serialized manifest data.
     pub fn to_vec(&self) -> std::io::Result<Vec<u8>> {
-        bincode::encode_to_vec(self, Self::binc_config()).map_err(|e| Error::other(e))
+        bincode::encode_to_vec(self, Self::binc_config()).map_err(Error::other)
     }
 
     /// Saves this manifest as a footer at the end of a storage writer.

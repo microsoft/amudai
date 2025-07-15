@@ -186,7 +186,7 @@ impl DictionaryFieldEncoder<Vec<u8>> {
 
         // A new item, not yet in the dictionary.
         let id = self.next_id;
-        assert!(id < std::u32::MAX);
+        assert!(id < u32::MAX);
         self.next_id += 1;
         let entry = DictionaryEntry { id, count: 1 };
         self.active_entries.insert(value.to_vec(), entry);
@@ -316,8 +316,7 @@ impl DictionaryFieldEncoder<Vec<u8>> {
         }
 
         // Sort by frequency (descending)
-        self.freq_buf
-            .sort_unstable_by_key(|e| u32::max_value() - e.1);
+        self.freq_buf.sort_unstable_by_key(|e| u32::MAX - e.1);
     }
 
     // Prepares the remapping buffer, that takes us from the currently assigned
@@ -430,9 +429,7 @@ impl DictionaryFieldEncoder<Vec<u8>> {
 
         // Write all the sections into the temporary buffer.
         let mut buffer = self.params.temp_store.allocate_stream(Some(
-            header_section.len()
-                + values_section.len() as usize
-                + sorted_ids_section.len() as usize,
+            header_section.len() + values_section.len() + sorted_ids_section.len(),
         ))?;
         buffer.write_all(&header_section)?;
         buffer.write_all(&values_section)?;
@@ -444,12 +441,12 @@ impl DictionaryFieldEncoder<Vec<u8>> {
         buffer.write_all(&alignment_buf)?;
 
         // Create the PreparedEncodedBuffer
-        let data_size = buffer.current_size() as u64;
+        let data_size = buffer.current_size();
         let data = buffer.into_read_at()?;
         let data_ref = DataRef::new("", 0..data_size);
         let prepared_buffer = PreparedEncodedBuffer {
             data,
-            data_size: data_size,
+            data_size,
             block_map_size: 0,
             descriptor: EncodedBuffer {
                 kind: BufferKind::ValueDictionary as i32,
@@ -528,7 +525,7 @@ impl DictionaryFieldEncoder<Vec<u8>> {
         sorted_ids_section_range: amudai_format::defs::common::UInt64Range,
     ) -> Vec<u8> {
         let fixed_value_size = if self.params.basic_type.fixed_size > 0 {
-            Some(self.params.basic_type.fixed_size as u32)
+            Some(self.params.basic_type.fixed_size)
         } else {
             None
         };
@@ -548,7 +545,7 @@ impl DictionaryFieldEncoder<Vec<u8>> {
     /// # Arguments
     ///
     /// * `force` - If true, forces the evaluation even if the number of processed values
-    ///     is less than the minimum threshold.
+    ///   is less than the minimum threshold.
     fn is_efficient(&self, force: bool) -> bool {
         // Minimum values to observe before evaluating efficiency.
         const EFFICIENCY_EVAL_MIN_VALUES: usize = 10 * 1024;
