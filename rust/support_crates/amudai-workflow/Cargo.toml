@@ -8,3 +8,4 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+amudai-collections = { workspace = true }

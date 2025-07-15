@@ -10,6 +10,7 @@ use std::{
 
 use amudai_bytes::Bytes;
 use amudai_io::ReadAt;
+use amudai_workflow::thread_pool::ThreadPool;
 
 /// Thread pool for asynchronous background I/O operations with a bounded queue size.
 ///
@@ -18,7 +19,7 @@ use amudai_io::ReadAt;
 /// memory growth during high load situations.
 pub struct IoPool {
     /// The underlying thread pool that executes I/O operations.
-    thread_pool: rayon::ThreadPool,
+    thread_pool: ThreadPool,
     /// Atomic counter tracking the current number of queued operations.
     queue_size: AtomicUsize,
 }
@@ -46,8 +47,8 @@ impl IoPool {
     ///
     /// # Returns
     ///
-    /// A reference to the rayon `ThreadPool` used by this `IoPool`.
-    pub fn thread_pool(&self) -> &rayon::ThreadPool {
+    /// A reference to the `ThreadPool` used by this `IoPool`.
+    pub fn thread_pool(&self) -> &ThreadPool {
         &self.thread_pool
     }
 
@@ -57,11 +58,8 @@ impl IoPool {
     ///
     /// An `Arc` containing the newly created `IoPool`.
     fn start() -> Arc<IoPool> {
-        let thread_pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(Self::NUM_THREADS)
-            .thread_name(|i| format!("amudai_io_thread_{i}"))
-            .build()
-            .expect("thread pool");
+        let thread_pool =
+            ThreadPool::with_thread_name(Self::NUM_THREADS, |i| format!("amudai_io_thread_{i}"));
         Arc::new(IoPool {
             thread_pool,
             queue_size: AtomicUsize::new(0),
@@ -87,8 +85,10 @@ impl IoPool {
         }
 
         let this = self.clone();
+        // self.thread_pool
+        //     .spawn_fifo(move || Self::perform_op(this, op));
         self.thread_pool
-            .spawn_fifo(move || Self::perform_op(this, op));
+            .spawn_detached(move || Self::perform_op(this, op));
         true
     }
 

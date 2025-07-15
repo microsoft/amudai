@@ -12,8 +12,8 @@ amudai-budget-tracker = { workspace = true }
 amudai-bytes = { workspace = true }
 amudai-common = { workspace = true }
 amudai-io = { workspace = true }
+amudai-workflow = { workspace = true }
 fastrand = { workspace = true }
-rayon = { workspace = true }
 tempfile = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
