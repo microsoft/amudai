@@ -234,6 +234,16 @@ impl Values {
         self.0.extend_from_typed_slice(values);
     }
 
+    /// Extends the container with the contents of a `[u8]` slice.
+    ///
+    /// # Parameters
+    ///
+    /// * `values` - The slice of values to append to the container.
+    #[inline]
+    pub fn extend_from_byte_slice(&mut self, values: &[u8]) {
+        self.0.extend_from_slice(values);
+    }
+
     /// Appends space for `count` elements of type `T` and provides a callback
     /// to write into that space.
     ///

@@ -21,18 +21,21 @@ pub struct AlignedByteVec {
 }
 
 impl AlignedByteVec {
+    /// Required alignment in bytes
+    pub const DEFAULT_ALIGNMENT: usize = 128;
+
     /// Creates a new empty vector with no capacity allocation.
     pub fn new() -> AlignedByteVec {
         AlignedByteVec {
             inner: Vec::new(),
             start: 0,
-            alignment: Self::ALIGNMENT as u32,
+            alignment: Self::DEFAULT_ALIGNMENT as u32,
         }
     }
 
     /// Creates a new vector with the specified capacity, ensuring alignment requirements are met.
     pub fn with_capacity(capacity: usize) -> AlignedByteVec {
-        Self::with_capacity_and_alignment(capacity, Self::ALIGNMENT)
+        Self::with_capacity_and_alignment(capacity, Self::DEFAULT_ALIGNMENT)
     }
 
     /// Creates a new vector with the specified capacity and alignment.
@@ -309,14 +312,12 @@ impl AlignedByteVec {
 }
 
 impl AlignedByteVec {
-    /// Required alignment in bytes
-    const ALIGNMENT: usize = 128;
     /// Block size for capacity calculations
     const BLOCK_SIZE: usize = 64;
 
     /// Creates a new vector with the specified capacity, ensuring alignment requirements.
     fn make(capacity: usize, alignment: usize) -> AlignedByteVec {
-        let alignment = alignment.max(Self::ALIGNMENT);
+        let alignment = alignment.max(Self::DEFAULT_ALIGNMENT);
         assert!(alignment.is_power_of_two());
 
         if capacity == 0 {
@@ -599,7 +600,7 @@ impl Buffer {
     /// A new buffer that is either a slice of the current buffer with the specified alignment
     /// or a copy if the alignment requirements are not met.
     pub fn aligned_slice(&self, range: impl RangeBounds<usize>, alignment: usize) -> Self {
-        assert!(alignment <= AlignedByteVec::ALIGNMENT && alignment.is_power_of_two());
+        assert!(alignment <= AlignedByteVec::DEFAULT_ALIGNMENT && alignment.is_power_of_two());
         let range = self.verify_range(range);
         if self.is_aligned_index(range.start, alignment) {
             self.make_slice(range)
@@ -1030,20 +1031,23 @@ mod tests {
     #[test]
     fn test_aligned_vec_alignment_guarantees() {
         let mut vec = AlignedByteVec::with_capacity(1000);
-        assert!(is_aligned(vec.as_ptr(), AlignedByteVec::ALIGNMENT));
+        assert!(is_aligned(vec.as_ptr(), AlignedByteVec::DEFAULT_ALIGNMENT));
 
         // Check alignment after various operations
         vec.extend_from_slice(&[1; 100]);
-        assert!(is_aligned(vec.as_ptr(), AlignedByteVec::ALIGNMENT));
+        assert!(is_aligned(vec.as_ptr(), AlignedByteVec::DEFAULT_ALIGNMENT));
 
         vec.resize(500, 0);
-        assert!(is_aligned(vec.as_ptr(), AlignedByteVec::ALIGNMENT));
+        assert!(is_aligned(vec.as_ptr(), AlignedByteVec::DEFAULT_ALIGNMENT));
 
         vec.truncate(50);
-        assert!(is_aligned(vec.as_ptr(), AlignedByteVec::ALIGNMENT));
+        assert!(is_aligned(vec.as_ptr(), AlignedByteVec::DEFAULT_ALIGNMENT));
 
         let clone = vec.clone();
-        assert!(is_aligned(clone.as_ptr(), AlignedByteVec::ALIGNMENT));
+        assert!(is_aligned(
+            clone.as_ptr(),
+            AlignedByteVec::DEFAULT_ALIGNMENT
+        ));
     }
 
     #[test]
@@ -1061,7 +1065,7 @@ mod tests {
         let vec = AlignedByteVec::zeroed(size);
         assert_eq!(vec.len(), size);
         assert!(vec.iter().all(|&x| x == 0));
-        assert!(is_aligned(vec.as_ptr(), AlignedByteVec::ALIGNMENT));
+        assert!(is_aligned(vec.as_ptr(), AlignedByteVec::DEFAULT_ALIGNMENT));
     }
 
     #[test]
@@ -1101,7 +1105,7 @@ mod tests {
             last_capacity = new_capacity;
 
             // Verify alignment is maintained after growth
-            assert!(is_aligned(vec.as_ptr(), AlignedByteVec::ALIGNMENT));
+            assert!(is_aligned(vec.as_ptr(), AlignedByteVec::DEFAULT_ALIGNMENT));
         }
     }
 
@@ -1112,7 +1116,10 @@ mod tests {
 
         let clone = original.clone();
         assert_eq!(original.as_slice(), clone.as_slice());
-        assert!(is_aligned(clone.as_ptr(), AlignedByteVec::ALIGNMENT));
+        assert!(is_aligned(
+            clone.as_ptr(),
+            AlignedByteVec::DEFAULT_ALIGNMENT
+        ));
         assert_eq!(clone.capacity() % AlignedByteVec::BLOCK_SIZE, 0);
     }
 
@@ -1148,7 +1155,7 @@ mod tests {
         // Test reservation when empty
         vec.reserve(100);
         assert!(vec.capacity() >= 100);
-        assert!(is_aligned(vec.as_ptr(), AlignedByteVec::ALIGNMENT));
+        assert!(is_aligned(vec.as_ptr(), AlignedByteVec::DEFAULT_ALIGNMENT));
 
         // Test reservation when partially filled
         vec.extend_from_slice(&[1, 2, 3]);

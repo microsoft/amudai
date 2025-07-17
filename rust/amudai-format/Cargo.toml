@@ -18,3 +18,4 @@ decimal = { workspace = true }
 amudai-bloom-filters = { workspace = true }
 amudai-bytes = { workspace = true }
 amudai-common = { workspace = true }
+amudai-keyed-vector = { workspace = true }

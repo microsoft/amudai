@@ -738,10 +738,6 @@ impl std::io::Write for Tracker {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use amudai_io::SharedIoBuffer;
-
     use crate::manifest::Manifest;
 
     #[test]
@@ -766,7 +762,6 @@ mod tests {
     fn test_manifest_save_load() {
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
         assert_eq!(file.size().unwrap(), 0);
 
         file.write_at(0, &vec![10u8; 1024 * 4 * 5]).unwrap();

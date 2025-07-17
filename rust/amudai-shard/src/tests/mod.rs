@@ -8,6 +8,9 @@ mod bloom_filter_integration;
 mod decimal_integration;
 
 #[cfg(test)]
+mod dictionary;
+
+#[cfg(test)]
 mod floating_integration;
 
 #[cfg(test)]

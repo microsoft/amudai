@@ -453,10 +453,6 @@ fn empty_data(capacity: usize) -> PodCollector<u8> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use amudai_io::SharedIoBuffer;
-
     use crate::{
         Dump, Load,
         bytes_vec::{BytesCollector, BytesView},
@@ -473,7 +469,6 @@ mod tests {
     fn test_bytes_vec_dump_and_load() {
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
         assert_eq!(file.size().unwrap(), 0);
 
         // Create a BytesCollector with various byte sequences
@@ -514,7 +509,6 @@ mod tests {
     fn test_bytes_vec_dump_and_load_large_data() {
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Create a BytesCollector with larger, varied data
         let mut bytes_collector = BytesCollector::with_item_capacity(1000);
@@ -588,7 +582,6 @@ mod tests {
     fn test_bytes_vec_empty_dump_and_load() {
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Create an empty BytesCollector
         let bytes_collector = BytesCollector::new();

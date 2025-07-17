@@ -7,10 +7,10 @@ use amudai_blockstream::read::{
     bytes_buffer::{BytesBufferDecoder, BytesBufferReader},
 };
 use amudai_common::{Result, error::Error};
-use amudai_format::schema::BasicTypeDescriptor;
+use amudai_format::{defs::shard, schema::BasicTypeDescriptor};
 use amudai_sequence::sequence::ValueSequence;
 
-use crate::read::field_context::FieldContext;
+use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
 
 use super::FieldReader;
 
@@ -59,7 +59,7 @@ impl BytesFieldDecoder {
     pub(crate) fn from_field(field: &FieldContext) -> Result<BytesFieldDecoder> {
         let basic_type = field.data_type().describe()?;
 
-        let data_buffer = field.get_encoded_buffer(amudai_format::defs::shard::BufferKind::Data)?;
+        let data_buffer = field.get_encoded_buffer(shard::BufferKind::Data)?;
         let reader = field.open_data_ref(
             data_buffer
                 .buffer
@@ -70,6 +70,25 @@ impl BytesFieldDecoder {
         let bytes_buffer =
             BytesBufferDecoder::from_encoded_buffer(reader.into_inner(), data_buffer, basic_type)?;
 
+        Ok(BytesFieldDecoder::new(bytes_buffer))
+    }
+
+    /// Creates a `BytesFieldDecoder` from an encoded field.
+    ///
+    /// This method creates a decoder from a transient `EncodedField` that contains
+    /// prepared encoded buffers ready for reading. Unlike `from_field`, this method
+    /// works with encoded data that hasn't been written to permanent storage yet.
+    ///
+    /// # Arguments
+    ///
+    /// * `field` - The encoded field containing prepared buffers with primitive data
+    /// * `basic_type` - The basic type descriptor describing the primitive data type
+    pub(crate) fn from_encoded_field(
+        field: &EncodedField,
+        basic_type: BasicTypeDescriptor,
+    ) -> Result<BytesFieldDecoder> {
+        let prepared_buffer = field.get_encoded_buffer(shard::BufferKind::Data)?;
+        let bytes_buffer = BytesBufferDecoder::from_prepared_buffer(prepared_buffer, basic_type)?;
         Ok(BytesFieldDecoder::new(bytes_buffer))
     }
 

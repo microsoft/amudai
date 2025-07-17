@@ -23,8 +23,8 @@ impl TemporaryFileStore for NullTempFileStore {
     fn allocate_shared_buffer(
         &self,
         _size_hint: Option<usize>,
-    ) -> std::io::Result<Box<dyn SharedIoBuffer>> {
-        Ok(Box::new(NullTempBuffer))
+    ) -> std::io::Result<Arc<dyn SharedIoBuffer>> {
+        Ok(Arc::new(NullTempBuffer))
     }
 }
 

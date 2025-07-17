@@ -357,36 +357,67 @@ pub trait SharedIoBuffer: ReadAt + WriteAt {
     fn into_reader(self: Box<Self>) -> std::io::Result<Box<dyn std::io::Read>>;
 }
 
-/// Characterizes the performance aspects of the underlying storage implementation.
+/// Describes the performance characteristics of an underlying storage implementation.
+///
+/// This profile provides guidance to consumers of [`ReadAt`] and [`WriteAt`] traits,
+/// enabling them to make informed decisions about optimal I/O patterns and buffer
+/// sizes for the specific storage backend.
+///
+/// Different storage backends have varying performance characteristics:
+/// - **Local SSDs**: Typically perform well with smaller I/O sizes (4KB-64KB)
+/// - **Network storage**: Often requires larger I/O sizes (1MB-4MB) to amortize
+///   network latency
+/// - **Cloud object stores**: May have high latency per request, favoring larger
+///   transfers (several MB)
+/// - **Memory buffers**: Can handle any size efficiently but may prefer smaller
+///   operations to reduce memory pressure
 #[derive(Debug, Clone)]
 pub struct StorageProfile {
-    /// Suggested minimum size for an effective I/O request.
-    /// Using buffers smaller than this size may be inefficient, as the round-trip time
-    /// could dominate the overall I/O operation time.
+    /// Recommended minimum size for efficient I/O operations.
+    ///
+    /// Operations smaller than this size may be inefficient because the fixed
+    /// overhead (such as network round-trip time or storage device seek time)
+    /// could dominate the total operation time.
+    ///
+    /// For example, making many 1KB reads to a network storage system might be
+    /// much slower than fewer, larger reads due to network latency.
+    ///
+    /// **Note**: When `min_io_size` is very small (less than approximately a couple
+    /// hundred bytes, particularly 1 byte), this effectively means that the underlying
+    /// storage can be treated as an in-memory buffer with minimal I/O overhead.
     pub min_io_size: usize,
 
-    /// Suggested maximum size for a single I/O request.
-    /// Buffers larger than this size won't enhance performance and might even degrade
-    /// the system's efficiency.
+    /// Recommended maximum size for a single I/O operation.
+    ///
+    /// Operations larger than this size typically do not provide additional
+    /// performance benefits and may even hurt performance due to:
+    /// - Memory pressure from large buffers
+    /// - Increased latency for individual operations
+    /// - Resource contention in concurrent scenarios
+    /// - Storage system limitations (e.g., maximum request size)
     pub max_io_size: usize,
 }
 
 impl StorageProfile {
-    /// Clamps a given I/O size to the recommended range defined by this profile.
+    /// Clamps an I/O size to the recommended range defined by this storage profile.
     ///
-    /// This function ensures that the provided `size` is within the bounds of
-    /// `min_io_size` and `max_io_size`, adjusting it if necessary. The minimum
-    /// size is guaranteed to be at least 1, and the maximum size is guaranteed
-    /// to be at least the minimum size.
+    /// This method ensures that the provided `size` falls within the optimal range
+    /// for the storage backend, adjusting it to `min_io_size` or `max_io_size` if
+    /// necessary.
+    ///
+    /// The method guarantees that:
+    /// - The returned size is at least 1 (even if `min_io_size` is 0)
+    /// - The returned size respects the relationship `min_io_size ≤ result ≤ max_io_size`
+    /// - Invalid profiles (where `max_io_size < min_io_size`) are automatically corrected
     ///
     /// # Arguments
     ///
-    /// * `size`: The desired I/O size to clamp.
+    /// * `size` - The desired I/O size to adjust
     ///
     /// # Returns
     ///
-    /// The clamped I/O size, which will be between `min_io_size` and `max_io_size`
-    /// (inclusive), or at least 1 if `min_io_size` or `max_io_size` are zero.
+    /// The adjusted I/O size for this storage profile, guaranteed to be between
+    /// the effective minimum and maximum sizes (inclusive).
     pub fn clamp_io_size(&self, size: usize) -> usize {
         let min = self.min_io_size.max(1).min(self.max_io_size);
         let max = self.max_io_size.max(1).max(min);

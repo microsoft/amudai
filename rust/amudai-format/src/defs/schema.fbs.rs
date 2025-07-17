@@ -5,14 +5,14 @@ const _: () = ::planus::check_version_compatibility("planus-1.1.1");
 /// The root namespace
 ///
 /// Generated from these locations:
-/// * File `/home/evgeneyr/amudai/proto_defs/shard_format/schema.fbs`
+/// * File `C:\dev\amudai\proto_defs\shard_format\schema.fbs`
 #[no_implicit_prelude]
 #[allow(dead_code, clippy::needless_lifetimes)]
 mod root {
     /// The enum `BasicType`
     ///
     /// Generated from these locations:
-    /// * Enum `BasicType` in the file `/home/evgeneyr/amudai/proto_defs/shard_format/schema.fbs:1`
+    /// * Enum `BasicType` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:1`
     #[derive(
         Copy,
         Clone,
@@ -260,7 +260,7 @@ mod root {
     /// The table `DataType`
     ///
     /// Generated from these locations:
-    /// * Table `DataType` in the file `/home/evgeneyr/amudai/proto_defs/shard_format/schema.fbs:23`
+    /// * Table `DataType` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:23`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -269,6 +269,8 @@ mod root {
         pub basic_type: self::BasicType,
         /// The field `schema_id` in the table `DataType`
         pub schema_id: u32,
+        /// The field `parent_schema_id` in the table `DataType`
+        pub parent_schema_id: u32,
         /// The field `field_name` in the table `DataType`
         pub field_name: ::planus::alloc::string::String,
         /// The field `field_aliases` in the table `DataType`
@@ -293,6 +295,7 @@ mod root {
             Self {
                 basic_type: self::BasicType::Unit,
                 schema_id: 0,
+                parent_schema_id: 0,
                 field_name: ::core::default::Default::default(),
                 field_aliases: ::core::default::Default::default(),
                 children: ::core::default::Default::default(),
@@ -316,6 +319,7 @@ mod root {
             builder: &mut ::planus::Builder,
             field_basic_type: impl ::planus::WriteAsDefault<self::BasicType, self::BasicType>,
             field_schema_id: impl ::planus::WriteAsDefault<u32, u32>,
+            field_parent_schema_id: impl ::planus::WriteAsDefault<u32, u32>,
             field_field_name: impl ::planus::WriteAs<::planus::Offset<str>>,
             field_field_aliases: impl ::planus::WriteAsOptional<
                 ::planus::Offset<[::planus::Offset<str>]>,
@@ -330,6 +334,7 @@ mod root {
         ) -> ::planus::Offset<Self> {
             let prepared_basic_type = field_basic_type.prepare(builder, &self::BasicType::Unit);
             let prepared_schema_id = field_schema_id.prepare(builder, &0);
+            let prepared_parent_schema_id = field_parent_schema_id.prepare(builder, &0);
             let prepared_field_name = field_field_name.prepare(builder);
             let prepared_field_aliases = field_field_aliases.prepare(builder);
             let prepared_children = field_children.prepare(builder);
@@ -338,30 +343,33 @@ mod root {
             let prepared_extended_type = field_extended_type.prepare(builder);
             let prepared_lookup = field_lookup.prepare(builder);
 
-            let mut table_writer: ::planus::table_writer::TableWriter<22> =
+            let mut table_writer: ::planus::table_writer::TableWriter<24> =
                 ::core::default::Default::default();
             if prepared_fixed_size.is_some() {
-                table_writer.write_entry::<u64>(6);
+                table_writer.write_entry::<u64>(7);
             }
             if prepared_schema_id.is_some() {
                 table_writer.write_entry::<u32>(1);
             }
-            table_writer.write_entry::<::planus::Offset<str>>(2);
-            if prepared_field_aliases.is_some() {
-                table_writer.write_entry::<::planus::Offset<[::planus::Offset<str>]>>(3);
+            if prepared_parent_schema_id.is_some() {
+                table_writer.write_entry::<u32>(2);
             }
-            table_writer.write_entry::<::planus::Offset<[::planus::Offset<self::DataType>]>>(4);
+            table_writer.write_entry::<::planus::Offset<str>>(3);
+            if prepared_field_aliases.is_some() {
+                table_writer.write_entry::<::planus::Offset<[::planus::Offset<str>]>>(4);
+            }
+            table_writer.write_entry::<::planus::Offset<[::planus::Offset<self::DataType>]>>(5);
             if prepared_extended_type.is_some() {
-                table_writer.write_entry::<::planus::Offset<self::ExtendedTypeAnnotation>>(7);
+                table_writer.write_entry::<::planus::Offset<self::ExtendedTypeAnnotation>>(8);
             }
             if prepared_lookup.is_some() {
-                table_writer.write_entry::<::planus::Offset<self::HashLookup>>(8);
+                table_writer.write_entry::<::planus::Offset<self::HashLookup>>(9);
             }
             if prepared_basic_type.is_some() {
                 table_writer.write_entry::<self::BasicType>(0);
             }
             if prepared_signed.is_some() {
-                table_writer.write_entry::<bool>(5);
+                table_writer.write_entry::<bool>(6);
             }
 
             unsafe {
@@ -371,6 +379,11 @@ mod root {
                     }
                     if let ::core::option::Option::Some(prepared_schema_id) = prepared_schema_id {
                         object_writer.write::<_, _, 4>(&prepared_schema_id);
+                    }
+                    if let ::core::option::Option::Some(prepared_parent_schema_id) =
+                        prepared_parent_schema_id
+                    {
+                        object_writer.write::<_, _, 4>(&prepared_parent_schema_id);
                     }
                     object_writer.write::<_, _, 4>(&prepared_field_name);
                     if let ::core::option::Option::Some(prepared_field_aliases) =
@@ -427,6 +440,7 @@ mod root {
                 builder,
                 self.basic_type,
                 self.schema_id,
+                self.parent_schema_id,
                 &self.field_name,
                 &self.field_aliases,
                 &self.children,
@@ -485,61 +499,83 @@ mod root {
     }
 
     impl<T0, T1> DataTypeBuilder<(T0, T1)> {
-        /// Setter for the [`field_name` field](DataType#structfield.field_name).
+        /// Setter for the [`parent_schema_id` field](DataType#structfield.parent_schema_id).
         #[inline]
         #[allow(clippy::type_complexity)]
-        pub fn field_name<T2>(self, value: T2) -> DataTypeBuilder<(T0, T1, T2)>
+        pub fn parent_schema_id<T2>(self, value: T2) -> DataTypeBuilder<(T0, T1, T2)>
         where
-            T2: ::planus::WriteAs<::planus::Offset<str>>,
+            T2: ::planus::WriteAsDefault<u32, u32>,
         {
             let (v0, v1) = self.0;
             DataTypeBuilder((v0, v1, value))
         }
+
+        /// Sets the [`parent_schema_id` field](DataType#structfield.parent_schema_id) to the default value.
+        #[inline]
+        #[allow(clippy::type_complexity)]
+        pub fn parent_schema_id_as_default(
+            self,
+        ) -> DataTypeBuilder<(T0, T1, ::planus::DefaultValue)> {
+            self.parent_schema_id(::planus::DefaultValue)
+        }
     }
 
     impl<T0, T1, T2> DataTypeBuilder<(T0, T1, T2)> {
-        /// Setter for the [`field_aliases` field](DataType#structfield.field_aliases).
+        /// Setter for the [`field_name` field](DataType#structfield.field_name).
         #[inline]
         #[allow(clippy::type_complexity)]
-        pub fn field_aliases<T3>(self, value: T3) -> DataTypeBuilder<(T0, T1, T2, T3)>
+        pub fn field_name<T3>(self, value: T3) -> DataTypeBuilder<(T0, T1, T2, T3)>
         where
-            T3: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
+            T3: ::planus::WriteAs<::planus::Offset<str>>,
         {
             let (v0, v1, v2) = self.0;
             DataTypeBuilder((v0, v1, v2, value))
+        }
+    }
+
+    impl<T0, T1, T2, T3> DataTypeBuilder<(T0, T1, T2, T3)> {
+        /// Setter for the [`field_aliases` field](DataType#structfield.field_aliases).
+        #[inline]
+        #[allow(clippy::type_complexity)]
+        pub fn field_aliases<T4>(self, value: T4) -> DataTypeBuilder<(T0, T1, T2, T3, T4)>
+        where
+            T4: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
+        {
+            let (v0, v1, v2, v3) = self.0;
+            DataTypeBuilder((v0, v1, v2, v3, value))
         }
 
         /// Sets the [`field_aliases` field](DataType#structfield.field_aliases) to null.
         #[inline]
         #[allow(clippy::type_complexity)]
-        pub fn field_aliases_as_null(self) -> DataTypeBuilder<(T0, T1, T2, ())> {
+        pub fn field_aliases_as_null(self) -> DataTypeBuilder<(T0, T1, T2, T3, ())> {
             self.field_aliases(())
         }
     }
 
-    impl<T0, T1, T2, T3> DataTypeBuilder<(T0, T1, T2, T3)> {
+    impl<T0, T1, T2, T3, T4> DataTypeBuilder<(T0, T1, T2, T3, T4)> {
         /// Setter for the [`children` field](DataType#structfield.children).
         #[inline]
         #[allow(clippy::type_complexity)]
-        pub fn children<T4>(self, value: T4) -> DataTypeBuilder<(T0, T1, T2, T3, T4)>
+        pub fn children<T5>(self, value: T5) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5)>
         where
-            T4: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
-        {
-            let (v0, v1, v2, v3) = self.0;
-            DataTypeBuilder((v0, v1, v2, v3, value))
-        }
-    }
-
-    impl<T0, T1, T2, T3, T4> DataTypeBuilder<(T0, T1, T2, T3, T4)> {
-        /// Setter for the [`signed` field](DataType#structfield.signed).
-        #[inline]
-        #[allow(clippy::type_complexity)]
-        pub fn signed<T5>(self, value: T5) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5)>
-        where
-            T5: ::planus::WriteAsDefault<bool, bool>,
+            T5: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
         {
             let (v0, v1, v2, v3, v4) = self.0;
             DataTypeBuilder((v0, v1, v2, v3, v4, value))
+        }
+    }
+
+    impl<T0, T1, T2, T3, T4, T5> DataTypeBuilder<(T0, T1, T2, T3, T4, T5)> {
+        /// Setter for the [`signed` field](DataType#structfield.signed).
+        #[inline]
+        #[allow(clippy::type_complexity)]
+        pub fn signed<T6>(self, value: T6) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6)>
+        where
+            T6: ::planus::WriteAsDefault<bool, bool>,
+        {
+            let (v0, v1, v2, v3, v4, v5) = self.0;
+            DataTypeBuilder((v0, v1, v2, v3, v4, v5, value))
         }
 
         /// Sets the [`signed` field](DataType#structfield.signed) to the default value.
@@ -547,21 +583,21 @@ mod root {
         #[allow(clippy::type_complexity)]
         pub fn signed_as_default(
             self,
-        ) -> DataTypeBuilder<(T0, T1, T2, T3, T4, ::planus::DefaultValue)> {
+        ) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, ::planus::DefaultValue)> {
             self.signed(::planus::DefaultValue)
         }
     }
 
-    impl<T0, T1, T2, T3, T4, T5> DataTypeBuilder<(T0, T1, T2, T3, T4, T5)> {
+    impl<T0, T1, T2, T3, T4, T5, T6> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6)> {
         /// Setter for the [`fixed_size` field](DataType#structfield.fixed_size).
         #[inline]
         #[allow(clippy::type_complexity)]
-        pub fn fixed_size<T6>(self, value: T6) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6)>
+        pub fn fixed_size<T7>(self, value: T7) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7)>
         where
-            T6: ::planus::WriteAsDefault<u64, u64>,
+            T7: ::planus::WriteAsDefault<u64, u64>,
         {
-            let (v0, v1, v2, v3, v4, v5) = self.0;
-            DataTypeBuilder((v0, v1, v2, v3, v4, v5, value))
+            let (v0, v1, v2, v3, v4, v5, v6) = self.0;
+            DataTypeBuilder((v0, v1, v2, v3, v4, v5, v6, value))
         }
 
         /// Sets the [`fixed_size` field](DataType#structfield.fixed_size) to the default value.
@@ -569,55 +605,62 @@ mod root {
         #[allow(clippy::type_complexity)]
         pub fn fixed_size_as_default(
             self,
-        ) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, ::planus::DefaultValue)> {
+        ) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, ::planus::DefaultValue)> {
             self.fixed_size(::planus::DefaultValue)
         }
     }
 
-    impl<T0, T1, T2, T3, T4, T5, T6> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6)> {
+    impl<T0, T1, T2, T3, T4, T5, T6, T7> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7)> {
         /// Setter for the [`extended_type` field](DataType#structfield.extended_type).
         #[inline]
         #[allow(clippy::type_complexity)]
-        pub fn extended_type<T7>(
+        pub fn extended_type<T8>(
             self,
-            value: T7,
-        ) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7)>
+            value: T8,
+        ) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8)>
         where
-            T7: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
-        {
-            let (v0, v1, v2, v3, v4, v5, v6) = self.0;
-            DataTypeBuilder((v0, v1, v2, v3, v4, v5, v6, value))
-        }
-
-        /// Sets the [`extended_type` field](DataType#structfield.extended_type) to null.
-        #[inline]
-        #[allow(clippy::type_complexity)]
-        pub fn extended_type_as_null(self) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, ())> {
-            self.extended_type(())
-        }
-    }
-
-    impl<T0, T1, T2, T3, T4, T5, T6, T7> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7)> {
-        /// Setter for the [`lookup` field](DataType#structfield.lookup).
-        #[inline]
-        #[allow(clippy::type_complexity)]
-        pub fn lookup<T8>(self, value: T8) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8)>
-        where
-            T8: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
+            T8: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
         {
             let (v0, v1, v2, v3, v4, v5, v6, v7) = self.0;
             DataTypeBuilder((v0, v1, v2, v3, v4, v5, v6, v7, value))
         }
 
-        /// Sets the [`lookup` field](DataType#structfield.lookup) to null.
+        /// Sets the [`extended_type` field](DataType#structfield.extended_type) to null.
         #[inline]
         #[allow(clippy::type_complexity)]
-        pub fn lookup_as_null(self) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, ())> {
-            self.lookup(())
+        pub fn extended_type_as_null(
+            self,
+        ) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, ())> {
+            self.extended_type(())
         }
     }
 
     impl<T0, T1, T2, T3, T4, T5, T6, T7, T8> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8)> {
+        /// Setter for the [`lookup` field](DataType#structfield.lookup).
+        #[inline]
+        #[allow(clippy::type_complexity)]
+        pub fn lookup<T9>(
+            self,
+            value: T9,
+        ) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9)>
+        where
+            T9: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
+        {
+            let (v0, v1, v2, v3, v4, v5, v6, v7, v8) = self.0;
+            DataTypeBuilder((v0, v1, v2, v3, v4, v5, v6, v7, v8, value))
+        }
+
+        /// Sets the [`lookup` field](DataType#structfield.lookup) to null.
+        #[inline]
+        #[allow(clippy::type_complexity)]
+        pub fn lookup_as_null(self) -> DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8, ())> {
+            self.lookup(())
+        }
+    }
+
+    impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9>
+        DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9)>
+    {
         /// Finish writing the builder to get an [Offset](::planus::Offset) to a serialized [DataType].
         #[inline]
         pub fn finish(self, builder: &mut ::planus::Builder) -> ::planus::Offset<DataType>
@@ -631,15 +674,16 @@ mod root {
     impl<
         T0: ::planus::WriteAsDefault<self::BasicType, self::BasicType>,
         T1: ::planus::WriteAsDefault<u32, u32>,
-        T2: ::planus::WriteAs<::planus::Offset<str>>,
-        T3: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
-        T4: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
-        T5: ::planus::WriteAsDefault<bool, bool>,
-        T6: ::planus::WriteAsDefault<u64, u64>,
-        T7: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
-        T8: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
+        T2: ::planus::WriteAsDefault<u32, u32>,
+        T3: ::planus::WriteAs<::planus::Offset<str>>,
+        T4: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
+        T5: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
+        T6: ::planus::WriteAsDefault<bool, bool>,
+        T7: ::planus::WriteAsDefault<u64, u64>,
+        T8: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
+        T9: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
     > ::planus::WriteAs<::planus::Offset<DataType>>
-        for DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8)>
+        for DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9)>
     {
         type Prepared = ::planus::Offset<DataType>;
 
@@ -652,15 +696,16 @@ mod root {
     impl<
         T0: ::planus::WriteAsDefault<self::BasicType, self::BasicType>,
         T1: ::planus::WriteAsDefault<u32, u32>,
-        T2: ::planus::WriteAs<::planus::Offset<str>>,
-        T3: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
-        T4: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
-        T5: ::planus::WriteAsDefault<bool, bool>,
-        T6: ::planus::WriteAsDefault<u64, u64>,
-        T7: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
-        T8: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
+        T2: ::planus::WriteAsDefault<u32, u32>,
+        T3: ::planus::WriteAs<::planus::Offset<str>>,
+        T4: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
+        T5: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
+        T6: ::planus::WriteAsDefault<bool, bool>,
+        T7: ::planus::WriteAsDefault<u64, u64>,
+        T8: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
+        T9: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
     > ::planus::WriteAsOptional<::planus::Offset<DataType>>
-        for DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8)>
+        for DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9)>
     {
         type Prepared = ::planus::Offset<DataType>;
 
@@ -676,19 +721,21 @@ mod root {
     impl<
         T0: ::planus::WriteAsDefault<self::BasicType, self::BasicType>,
         T1: ::planus::WriteAsDefault<u32, u32>,
-        T2: ::planus::WriteAs<::planus::Offset<str>>,
-        T3: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
-        T4: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
-        T5: ::planus::WriteAsDefault<bool, bool>,
-        T6: ::planus::WriteAsDefault<u64, u64>,
-        T7: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
-        T8: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
-    > ::planus::WriteAsOffset<DataType> for DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8)>
+        T2: ::planus::WriteAsDefault<u32, u32>,
+        T3: ::planus::WriteAs<::planus::Offset<str>>,
+        T4: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
+        T5: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
+        T6: ::planus::WriteAsDefault<bool, bool>,
+        T7: ::planus::WriteAsDefault<u64, u64>,
+        T8: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
+        T9: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
+    > ::planus::WriteAsOffset<DataType>
+        for DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9)>
     {
         #[inline]
         fn prepare(&self, builder: &mut ::planus::Builder) -> ::planus::Offset<DataType> {
-            let (v0, v1, v2, v3, v4, v5, v6, v7, v8) = &self.0;
-            DataType::create(builder, v0, v1, v2, v3, v4, v5, v6, v7, v8)
+            let (v0, v1, v2, v3, v4, v5, v6, v7, v8, v9) = &self.0;
+            DataType::create(builder, v0, v1, v2, v3, v4, v5, v6, v7, v8, v9)
         }
     }
 
@@ -713,10 +760,20 @@ mod root {
             ::core::result::Result::Ok(self.0.access(1, "DataType", "schema_id")?.unwrap_or(0))
         }
 
+        /// Getter for the [`parent_schema_id` field](DataType#structfield.parent_schema_id).
+        #[inline]
+        pub fn parent_schema_id(&self) -> ::planus::Result<u32> {
+            ::core::result::Result::Ok(
+                self.0
+                    .access(2, "DataType", "parent_schema_id")?
+                    .unwrap_or(0),
+            )
+        }
+
         /// Getter for the [`field_name` field](DataType#structfield.field_name).
         #[inline]
         pub fn field_name(&self) -> ::planus::Result<&'a ::core::primitive::str> {
-            self.0.access_required(2, "DataType", "field_name")
+            self.0.access_required(3, "DataType", "field_name")
         }
 
         /// Getter for the [`field_aliases` field](DataType#structfield.field_aliases).
@@ -728,7 +785,7 @@ mod root {
                 ::planus::Vector<'a, ::planus::Result<&'a ::core::primitive::str>>,
             >,
         > {
-            self.0.access(3, "DataType", "field_aliases")
+            self.0.access(4, "DataType", "field_aliases")
         }
 
         /// Getter for the [`children` field](DataType#structfield.children).
@@ -737,19 +794,19 @@ mod root {
             &self,
         ) -> ::planus::Result<::planus::Vector<'a, ::planus::Result<self::DataTypeRef<'a>>>>
         {
-            self.0.access_required(4, "DataType", "children")
+            self.0.access_required(5, "DataType", "children")
         }
 
         /// Getter for the [`signed` field](DataType#structfield.signed).
         #[inline]
         pub fn signed(&self) -> ::planus::Result<bool> {
-            ::core::result::Result::Ok(self.0.access(5, "DataType", "signed")?.unwrap_or(false))
+            ::core::result::Result::Ok(self.0.access(6, "DataType", "signed")?.unwrap_or(false))
         }
 
         /// Getter for the [`fixed_size` field](DataType#structfield.fixed_size).
         #[inline]
         pub fn fixed_size(&self) -> ::planus::Result<u64> {
-            ::core::result::Result::Ok(self.0.access(6, "DataType", "fixed_size")?.unwrap_or(0))
+            ::core::result::Result::Ok(self.0.access(7, "DataType", "fixed_size")?.unwrap_or(0))
         }
 
         /// Getter for the [`extended_type` field](DataType#structfield.extended_type).
@@ -757,13 +814,13 @@ mod root {
         pub fn extended_type(
             &self,
         ) -> ::planus::Result<::core::option::Option<self::ExtendedTypeAnnotationRef<'a>>> {
-            self.0.access(7, "DataType", "extended_type")
+            self.0.access(8, "DataType", "extended_type")
         }
 
         /// Getter for the [`lookup` field](DataType#structfield.lookup).
         #[inline]
         pub fn lookup(&self) -> ::planus::Result<::core::option::Option<self::HashLookupRef<'a>>> {
-            self.0.access(8, "DataType", "lookup")
+            self.0.access(9, "DataType", "lookup")
         }
     }
 
@@ -772,6 +829,7 @@ mod root {
             let mut f = f.debug_struct("DataTypeRef");
             f.field("basic_type", &self.basic_type());
             f.field("schema_id", &self.schema_id());
+            f.field("parent_schema_id", &self.parent_schema_id());
             f.field("field_name", &self.field_name());
             if let ::core::option::Option::Some(field_field_aliases) =
                 self.field_aliases().transpose()
@@ -801,6 +859,7 @@ mod root {
             ::core::result::Result::Ok(Self {
                 basic_type: ::core::convert::TryInto::try_into(value.basic_type()?)?,
                 schema_id: ::core::convert::TryInto::try_into(value.schema_id()?)?,
+                parent_schema_id: ::core::convert::TryInto::try_into(value.parent_schema_id()?)?,
                 field_name: ::core::convert::Into::into(value.field_name()?),
                 field_aliases: if let ::core::option::Option::Some(field_aliases) =
                     value.field_aliases()?
@@ -904,7 +963,7 @@ mod root {
     /// The table `Field`
     ///
     /// Generated from these locations:
-    /// * Table `Field` in the file `/home/evgeneyr/amudai/proto_defs/shard_format/schema.fbs:57`
+    /// * Table `Field` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:60`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -1215,7 +1274,7 @@ mod root {
     /// The table `Schema`
     ///
     /// Generated from these locations:
-    /// * Table `Schema` in the file `/home/evgeneyr/amudai/proto_defs/shard_format/schema.fbs:64`
+    /// * Table `Schema` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:67`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -1566,7 +1625,7 @@ mod root {
     /// The table `ExtendedTypeAnnotation`
     ///
     /// Generated from these locations:
-    /// * Table `ExtendedTypeAnnotation` in the file `/home/evgeneyr/amudai/proto_defs/shard_format/schema.fbs:72`
+    /// * Table `ExtendedTypeAnnotation` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:75`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -1874,7 +1933,7 @@ mod root {
     /// The table `ExtendedTypeProperty`
     ///
     /// Generated from these locations:
-    /// * Table `ExtendedTypeProperty` in the file `/home/evgeneyr/amudai/proto_defs/shard_format/schema.fbs:77`
+    /// * Table `ExtendedTypeProperty` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:80`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -2172,7 +2231,7 @@ mod root {
     /// The enum `PropertyValueKind`
     ///
     /// Generated from these locations:
-    /// * Enum `PropertyValueKind` in the file `/home/evgeneyr/amudai/proto_defs/shard_format/schema.fbs:82`
+    /// * Enum `PropertyValueKind` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:85`
     #[derive(
         Copy,
         Clone,
@@ -2353,7 +2412,7 @@ mod root {
     /// The table `PropertyValue`
     ///
     /// Generated from these locations:
-    /// * Table `PropertyValue` in the file `/home/evgeneyr/amudai/proto_defs/shard_format/schema.fbs:93`
+    /// * Table `PropertyValue` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:96`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -2648,7 +2707,7 @@ mod root {
     /// The table `InternalFieldAnnotation`
     ///
     /// Generated from these locations:
-    /// * Table `InternalFieldAnnotation` in the file `/home/evgeneyr/amudai/proto_defs/shard_format/schema.fbs:98`
+    /// * Table `InternalFieldAnnotation` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:101`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -2914,7 +2973,7 @@ mod root {
     /// The table `HashLookup`
     ///
     /// Generated from these locations:
-    /// * Table `HashLookup` in the file `/home/evgeneyr/amudai/proto_defs/shard_format/schema.fbs:107`
+    /// * Table `HashLookup` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:110`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]

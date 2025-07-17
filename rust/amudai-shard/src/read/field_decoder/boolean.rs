@@ -15,14 +15,14 @@ use amudai_blockstream::read::{
 use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::{Result, error::Error, verify_arg, verify_data};
 use amudai_format::{
-    defs::shard::BufferKind,
+    defs::shard::{self, BufferKind},
     schema::{BasicType, BasicTypeDescriptor},
 };
 use amudai_sequence::{presence::Presence, sequence::ValueSequence, values::Values};
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, NullBuffer};
 
-use crate::read::field_context::FieldContext;
+use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
 
 use super::FieldReader;
 
@@ -159,6 +159,37 @@ impl BooleanFieldDecoder {
             values_decoder,
             presence_decoder,
             field.position_count(),
+        ))
+    }
+
+    /// Creates a Boolean field decoder from an encoded field.
+    ///
+    /// This method creates a decoder from a transient `EncodedField` that contains
+    /// prepared encoded buffers ready for reading. Unlike `from_field`, this method
+    /// works with encoded data that hasn't been written to permanent storage yet.
+    ///
+    /// # Arguments
+    ///
+    /// * `field` - The encoded field containing prepared buffers with primitive data
+    /// * `basic_type` - The basic type descriptor describing the primitive data type
+    /// * `positions` - The number of logical positions (value slots) in the encoded
+    ///   field
+    pub(crate) fn from_encoded_field(
+        field: &EncodedField,
+        basic_type: BasicTypeDescriptor,
+        positions: u64,
+    ) -> Result<BooleanFieldDecoder> {
+        verify_data!(basic_type, basic_type.basic_type == BasicType::Boolean);
+
+        let values_buffer = field.get_encoded_buffer(shard::BufferKind::Data)?;
+        let presence_buffer = field.get_encoded_buffer(shard::BufferKind::Presence).ok();
+
+        let values = BitBufferDecoder::from_prepared_buffer(values_buffer)?;
+        let presence = presence_buffer
+            .map(|buf| BitBufferDecoder::from_prepared_buffer(buf))
+            .unwrap_or_else(|| Ok(BitBufferDecoder::from_constant(true)))?;
+        Ok(BooleanFieldDecoder::new(
+            basic_type, values, presence, positions,
         ))
     }
 

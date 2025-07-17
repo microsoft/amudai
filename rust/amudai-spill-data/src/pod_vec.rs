@@ -827,10 +827,6 @@ mod details {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use amudai_io::SharedIoBuffer;
-
     use crate::{
         Dump, Load,
         pod_vec::{PodCollector, PodView},
@@ -840,7 +836,6 @@ mod tests {
     fn test_pod_vec_save_load_view() {
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
         assert_eq!(file.size().unwrap(), 0);
 
         let v = (0u64..10000u64).collect::<Vec<_>>();
@@ -857,7 +852,6 @@ mod tests {
     fn test_pod_vec_save_load_collector() {
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
         assert_eq!(file.size().unwrap(), 0);
 
         let v = (0u64..10000u64).collect::<Vec<_>>();

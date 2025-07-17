@@ -16,26 +16,38 @@ macro_rules! verify_data {
     }};
 }
 
+#[inline]
 pub fn verify_arg(predicate: bool, name: &str, condition: &str) -> Result<()> {
     if predicate {
         Ok(())
     } else {
-        Err(crate::error::ErrorKind::InvalidArgument {
-            name: name.to_string(),
-            message: condition.to_string(),
-        }
-        .into())
+        invalid_arg(name, condition)
     }
 }
 
+#[inline]
 pub fn verify_data(predicate: bool, name: &str, condition: &str) -> Result<()> {
     if predicate {
         Ok(())
     } else {
-        Err(crate::error::ErrorKind::InvalidFormat {
-            element: name.to_string(),
-            message: condition.to_string(),
-        }
-        .into())
+        invalid_format(name, condition)
     }
+}
+
+#[cold]
+pub fn invalid_arg(name: &str, condition: &str) -> Result<()> {
+    Err(crate::error::ErrorKind::InvalidArgument {
+        name: name.to_string(),
+        message: condition.to_string(),
+    }
+    .into())
+}
+
+#[cold]
+pub fn invalid_format(name: &str, condition: &str) -> Result<()> {
+    Err(crate::error::ErrorKind::InvalidFormat {
+        element: name.to_string(),
+        message: condition.to_string(),
+    }
+    .into())
 }

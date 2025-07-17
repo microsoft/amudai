@@ -27,6 +27,9 @@ table DataType {
     // Schema ID of the field.
     schema_id: uint32;
 
+    // Schema ID of the parent data type node.
+    parent_schema_id: uint32;
+
     // Field name, relevant for `Struct` fields and `Union` variants.
     // Otherwise, it should be empty, and is ignored by the implementation.
     field_name: string (required);

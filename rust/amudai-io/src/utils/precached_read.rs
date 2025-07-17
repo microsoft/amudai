@@ -3,6 +3,7 @@
 use amudai_bytes::{
     Bytes,
     align::{align_down_u64, align_up_u64},
+    buffer::AlignedByteVec,
 };
 use std::ops::Range;
 
@@ -20,9 +21,13 @@ use crate::{ReadAt, StorageProfile};
 /// reads, the shard access flow pre-caches a fixed-size suffix of the shard directory
 /// artifact, which contains the footer and the root metadata element.
 pub struct PrecachedReadAt<R> {
+    /// Underlying (source) reader
     inner: R,
+    /// Total size of the source reader
     size: u64,
+    /// Cached fragment of the source reader
     cached_buffer: Bytes,
+    /// Offset of the cached fragment within the source reader
     cached_offset: u64,
 }
 
@@ -86,7 +91,10 @@ impl<R: ReadAt> PrecachedReadAt<R> {
     pub fn from_suffix(inner: R, suffix_size: u64) -> std::io::Result<Self> {
         let size = inner.size()?;
         let cache_size = suffix_size.min(size);
-        let cached_offset = align_down_u64(size.saturating_sub(cache_size), 64);
+        let cached_offset = align_down_u64(
+            size.saturating_sub(cache_size),
+            AlignedByteVec::DEFAULT_ALIGNMENT as u64,
+        );
         let cached_buffer = inner.read_at(cached_offset..size)?;
 
         Ok(Self {
@@ -142,7 +150,16 @@ impl<R: ReadAt> ReadAt for PrecachedReadAt<R> {
     }
 
     fn storage_profile(&self) -> StorageProfile {
-        self.inner.storage_profile()
+        if self.cached_offset == 0 && self.cached_buffer.len() as u64 == self.size {
+            // The entire reader is cached in memory, we can give a very permissive
+            // min_io_size (single byte)
+            StorageProfile {
+                min_io_size: 1,
+                ..Default::default()
+            }
+        } else {
+            self.inner.storage_profile()
+        }
     }
 }
 

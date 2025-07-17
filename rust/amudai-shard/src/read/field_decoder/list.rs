@@ -8,12 +8,12 @@ use amudai_blockstream::read::{
 };
 use amudai_common::{Result, error::Error, verify_data};
 use amudai_format::{
-    defs::shard::BufferKind,
+    defs::shard::{self, BufferKind},
     schema::{BasicType, BasicTypeDescriptor},
 };
 use amudai_sequence::sequence::ValueSequence;
 
-use crate::read::field_context::FieldContext;
+use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
 
 use super::FieldReader;
 
@@ -119,6 +119,40 @@ impl ListFieldDecoder {
         // The actual number of stored offsets must be one more than the number of logical
         // values in the List field.
         verify_data!(offset_count, offset_count == field_desc.position_count + 1);
+
+        Ok(ListFieldDecoder::new(offsets_buffer))
+    }
+
+    /// Creates a `ListFieldDecoder` from an encoded field.
+    ///
+    /// This method creates a decoder from a transient `EncodedField` that contains
+    /// prepared encoded buffers ready for reading. Unlike `from_field`, this method
+    /// works with encoded data that hasn't been written to permanent storage yet.
+    ///
+    /// # Arguments
+    ///
+    /// * `field` - The encoded field containing prepared buffers with primitive data
+    /// * `basic_type` - The basic type descriptor describing the primitive data type
+    pub(crate) fn from_encoded_field(
+        field: &EncodedField,
+        basic_type: BasicTypeDescriptor,
+    ) -> Result<ListFieldDecoder> {
+        verify_data!(
+            basic_type,
+            basic_type.basic_type == BasicType::List || basic_type.basic_type == BasicType::Map
+        );
+
+        let prepared_buffer = field.get_encoded_buffer(shard::BufferKind::Offsets)?;
+
+        let offsets_buffer = PrimitiveBufferDecoder::from_prepared_buffer(
+            prepared_buffer,
+            BasicTypeDescriptor {
+                basic_type: BasicType::Int64,
+                fixed_size: 0,
+                signed: false,
+                extended_type: Default::default(),
+            },
+        )?;
 
         Ok(ListFieldDecoder::new(offsets_buffer))
     }

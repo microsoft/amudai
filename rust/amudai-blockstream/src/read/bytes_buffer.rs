@@ -8,7 +8,7 @@ use amudai_encodings::{
 use amudai_format::{defs::shard, schema::BasicTypeDescriptor};
 use amudai_io::ReadAt;
 
-use crate::read::block_stream::BlockStreamDecoder;
+use crate::{read::block_stream::BlockStreamDecoder, write::PreparedEncodedBuffer};
 
 use super::{block_stream::BlockReaderPrefetch, generic_buffer::GenericBufferReader};
 
@@ -56,6 +56,33 @@ impl BytesBufferDecoder {
             embedded_presence: encoded_buffer.embedded_presence,
             basic_type,
         })
+    }
+
+    /// Creates a new `BytesBufferDecoder` from a [`PreparedEncodedBuffer`].
+    ///
+    /// This constructor is used when you have a fully prepared, in-memory encoded buffer
+    /// (typically produced by an encoder in the same process) and want to create a decoder
+    /// for reading its contents.
+    ///
+    /// # Arguments
+    ///
+    /// * `prepared_buffer` - The prepared encoded buffer containing both the encoded data
+    ///   and its descriptor.
+    /// * `basic_type` - The primitive type descriptor for values in this buffer.
+    ///
+    /// # Returns
+    ///
+    /// Returns a [`Result`] containing the initialized [`BytesBufferDecoder`] if successful,
+    /// or an error if the buffer could not be decoded.
+    pub fn from_prepared_buffer(
+        prepared_buffer: &PreparedEncodedBuffer,
+        basic_type: BasicTypeDescriptor,
+    ) -> Result<BytesBufferDecoder> {
+        Self::from_encoded_buffer(
+            prepared_buffer.data.clone(),
+            &prepared_buffer.descriptor,
+            basic_type,
+        )
     }
 
     /// Returns whether this buffer has embedded presence information.
@@ -498,9 +525,8 @@ mod tests {
     fn test_fixed_size_binary() {
         // Test with fixed-size binary type
         let buffer = create_test_fixed_size_buffer(5, 50..51).unwrap();
-        let decoder = BytesBufferDecoder::from_encoded_buffer(
-            buffer.data,
-            &buffer.descriptor,
+        let decoder = BytesBufferDecoder::from_prepared_buffer(
+            &buffer,
             BasicTypeDescriptor {
                 basic_type: BasicType::FixedSizeBinary,
                 fixed_size: 8, // 8-byte fixed size binary

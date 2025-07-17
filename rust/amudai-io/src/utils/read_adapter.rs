@@ -10,6 +10,8 @@ use crate::ReadAt;
 pub struct ReadAdapter<R> {
     inner: R,
     pos: u64,
+    /// Cached size of the inner `ReadAt`
+    size: Option<u64>,
 }
 
 impl<R> ReadAdapter<R> {
@@ -17,12 +19,20 @@ impl<R> ReadAdapter<R> {
     ///
     /// The adapter starts reading from position 0.
     pub fn new(inner: R) -> Self {
-        Self { inner, pos: 0 }
+        Self {
+            inner,
+            pos: 0,
+            size: None,
+        }
     }
 
     /// Creates a new `ReadAdapter` starting from the specified position.
     pub fn new_at_position(inner: R, pos: u64) -> Self {
-        Self { inner, pos }
+        Self {
+            inner,
+            pos,
+            size: None,
+        }
     }
 
     /// Returns the current read position.
@@ -41,6 +51,18 @@ impl<R> ReadAdapter<R> {
     }
 }
 
+impl<R: ReadAt> ReadAdapter<R> {
+    fn size(&mut self) -> std::io::Result<u64> {
+        if let Some(size) = self.size {
+            Ok(size)
+        } else {
+            let size = self.inner.size()?;
+            self.size = Some(size);
+            Ok(size)
+        }
+    }
+}
+
 impl<R: ReadAt> std::io::Read for ReadAdapter<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if buf.is_empty() {
@@ -48,7 +70,7 @@ impl<R: ReadAt> std::io::Read for ReadAdapter<R> {
         }
 
         // Get the size of the underlying source
-        let size = self.inner.size()?;
+        let size = self.size()?;
 
         // If we're at or past the end, return 0 (EOF)
         if self.pos >= size {
@@ -82,7 +104,7 @@ impl<R: ReadAt> std::io::Seek for ReadAdapter<R> {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         use std::io::SeekFrom;
 
-        let size = self.inner.size()?;
+        let size = self.size()?;
 
         let new_pos = match pos {
             SeekFrom::Start(offset) => offset,

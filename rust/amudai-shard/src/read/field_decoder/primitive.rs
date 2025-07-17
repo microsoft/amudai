@@ -7,10 +7,10 @@ use amudai_blockstream::read::{
     primitive_buffer::{PrimitiveBufferDecoder, PrimitiveBufferReader},
 };
 use amudai_common::{Result, error::Error};
-use amudai_format::schema::BasicTypeDescriptor;
+use amudai_format::{defs::shard, schema::BasicTypeDescriptor};
 use amudai_sequence::sequence::ValueSequence;
 
-use crate::read::field_context::FieldContext;
+use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
 
 use super::FieldReader;
 
@@ -54,7 +54,7 @@ impl PrimitiveFieldDecoder {
     pub(crate) fn from_field(field: &FieldContext) -> Result<PrimitiveFieldDecoder> {
         let basic_type = field.data_type().describe()?;
 
-        let data_buffer = field.get_encoded_buffer(amudai_format::defs::shard::BufferKind::Data)?;
+        let data_buffer = field.get_encoded_buffer(shard::BufferKind::Data)?;
 
         let reader = field.open_data_ref(
             data_buffer
@@ -69,6 +69,26 @@ impl PrimitiveFieldDecoder {
             basic_type,
         )?;
 
+        Ok(PrimitiveFieldDecoder::new(value_buffer))
+    }
+
+    /// Creates a primitive field decoder from an encoded field.
+    ///
+    /// This method creates a decoder from a transient `EncodedField` that contains
+    /// prepared encoded buffers ready for reading. Unlike `from_field`, this method
+    /// works with encoded data that hasn't been written to permanent storage yet.
+    ///
+    /// # Arguments
+    ///
+    /// * `field` - The encoded field containing prepared buffers with primitive data
+    /// * `basic_type` - The basic type descriptor describing the primitive data type
+    pub(crate) fn from_encoded_field(
+        field: &EncodedField,
+        basic_type: BasicTypeDescriptor,
+    ) -> Result<PrimitiveFieldDecoder> {
+        let prepared_buffer = field.get_encoded_buffer(shard::BufferKind::Data)?;
+        let value_buffer =
+            PrimitiveBufferDecoder::from_prepared_buffer(prepared_buffer, basic_type)?;
         Ok(PrimitiveFieldDecoder::new(value_buffer))
     }
 

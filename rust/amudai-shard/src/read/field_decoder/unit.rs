@@ -26,12 +26,15 @@ use amudai_blockstream::read::{
 };
 use amudai_common::{Result, error::Error, verify_arg, verify_data};
 use amudai_format::{
-    defs::shard::BufferKind,
+    defs::shard::{self, BufferKind},
     schema::{BasicType, BasicTypeDescriptor},
 };
 use amudai_sequence::{presence::Presence, sequence::ValueSequence, values::Values};
 
-use crate::read::{field_context::FieldContext, field_decoder::boolean::bits_to_byte_vec};
+use crate::{
+    read::{field_context::FieldContext, field_decoder::boolean::bits_to_byte_vec},
+    write::field_encoder::EncodedField,
+};
 
 use super::FieldReader;
 
@@ -147,6 +150,39 @@ impl StructFieldDecoder {
             presence,
             field.position_count(),
         ))
+    }
+
+    /// Creates a `StructFieldDecoder` from an encoded field.
+    ///
+    /// This method creates a decoder from a transient `EncodedField` that contains
+    /// prepared encoded buffers ready for reading. Unlike `from_field`, this method
+    /// works with encoded data that hasn't been written to permanent storage yet.
+    ///
+    /// # Arguments
+    ///
+    /// * `field` - The encoded field containing prepared buffers with primitive data
+    /// * `basic_type` - The basic type descriptor describing the primitive data type
+    /// * `positions` - The number of logical positions (value slots) in the encoded
+    ///   field
+    pub(crate) fn from_encoded_field(
+        field: &EncodedField,
+        basic_type: BasicTypeDescriptor,
+        positions: u64,
+    ) -> Result<StructFieldDecoder> {
+        verify_data!(
+            basic_type,
+            basic_type.basic_type == BasicType::Struct
+                || basic_type.basic_type == BasicType::FixedSizeList
+        );
+
+        // Try to get the presence buffer - it may not exist for non-nullable fields
+        let presence_buffer = field.get_encoded_buffer(shard::BufferKind::Presence).ok();
+
+        let presence = presence_buffer
+            .map(|buf| BitBufferDecoder::from_prepared_buffer(buf))
+            .unwrap_or_else(|| Ok(BitBufferDecoder::from_constant(true)))?;
+
+        Ok(StructFieldDecoder::new(basic_type, presence, positions))
     }
 
     /// Returns the basic type descriptor for this field.

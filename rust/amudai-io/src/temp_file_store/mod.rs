@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{ExclusiveIoBuffer, IoStream, SharedIoBuffer};
 
 pub mod null_temp_store;
@@ -25,8 +27,8 @@ pub trait TemporaryFileStore: Send + Sync + 'static {
     ///
     /// # Returns
     ///
-    /// Returns a `Result` containing a boxed `IoStream` on success, or an
-    /// `std::io::Error` on failure.
+    /// Returns a `Result` containing a boxed [`IoStream`] on success, or an
+    /// [`std::io::Error`] on failure.
     fn allocate_stream(&self, size_hint: Option<usize>) -> std::io::Result<Box<dyn IoStream>>;
 
     /// Allocates a temporary read/write buffer that supports reading and writing
@@ -39,8 +41,8 @@ pub trait TemporaryFileStore: Send + Sync + 'static {
     ///
     /// # Returns
     ///
-    /// Returns a `Result` containing a boxed `ExclusiveIoBuffer` on success, or an
-    /// `std::io::Error` on failure.
+    /// Returns a `Result` containing a boxed [`ExclusiveIoBuffer`] on success, or an
+    /// [`std::io::Error`] on failure.
     fn allocate_exclusive_buffer(
         &self,
         size_hint: Option<usize>,
@@ -55,10 +57,10 @@ pub trait TemporaryFileStore: Send + Sync + 'static {
     ///
     /// # Returns
     ///
-    /// Returns a `Result` containing a boxed `SharedIoBuffer` on success, or an
-    /// `std::io::Error` on failure.
+    /// Returns a `Result` containing an `Arc` of [`SharedIoBuffer`] on success,
+    /// or an [`std::io::Error`] on failure.
     fn allocate_shared_buffer(
         &self,
         size_hint: Option<usize>,
-    ) -> std::io::Result<Box<dyn SharedIoBuffer>>;
+    ) -> std::io::Result<Arc<dyn SharedIoBuffer>>;
 }

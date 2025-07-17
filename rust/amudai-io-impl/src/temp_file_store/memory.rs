@@ -53,9 +53,9 @@ impl TemporaryFileStore for InMemoryTempFileStore {
     fn allocate_shared_buffer(
         &self,
         size_hint: Option<usize>,
-    ) -> std::io::Result<Box<dyn SharedIoBuffer>> {
+    ) -> std::io::Result<Arc<dyn SharedIoBuffer>> {
         self.create_temp_buffer(size_hint)
-            .map(|t| Box::new(Shared::new(t)) as Box<dyn SharedIoBuffer>)
+            .map(|t| Arc::new(Shared::new(t)) as _)
     }
 }
 

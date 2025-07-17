@@ -194,9 +194,9 @@ impl TemporaryFileStore for TempFileStore {
     fn allocate_shared_buffer(
         &self,
         size_hint: Option<usize>,
-    ) -> std::io::Result<Box<dyn SharedIoBuffer>> {
+    ) -> std::io::Result<Arc<dyn SharedIoBuffer>> {
         self.create_temp_file(size_hint)
-            .map(|t| Box::new(t.into_shared_buffer()) as Box<dyn SharedIoBuffer>)
+            .map(|t| Arc::new(t.into_shared_buffer()) as _)
     }
 }
 
@@ -432,7 +432,7 @@ mod tests {
         time::Duration,
     };
 
-    use amudai_io::{ReadAdapter, SharedIoBuffer, TemporaryFileStore};
+    use amudai_io::{ReadAdapter, TemporaryFileStore};
 
     fn create_temp_store(capacity: u64) -> Arc<dyn TemporaryFileStore> {
         Arc::new(super::TempFileStore::new(capacity, None).unwrap())
@@ -442,7 +442,6 @@ mod tests {
     fn test_shared_buffer_basics() {
         let store = create_temp_store(1024 * 1024 * 1024);
         let buffer = store.allocate_shared_buffer(None).unwrap();
-        let buffer: Arc<dyn SharedIoBuffer> = Arc::from(buffer);
         let mut threads = Vec::new();
         for i in 0u64..10 {
             let buf = buffer.clone();

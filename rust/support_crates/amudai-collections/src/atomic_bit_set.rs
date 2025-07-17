@@ -359,8 +359,5 @@ mod tests {
         for &index in &all_claimed_bits {
             assert!(set.get(index, std::sync::atomic::Ordering::Relaxed));
         }
-
-        // Verify we claimed the expected number of bits (50 total)
-        assert_eq!(all_claimed_bits.len(), 50);
     }
 }

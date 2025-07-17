@@ -1,7 +1,11 @@
-use std::str::FromStr;
+use std::{
+    str::FromStr,
+    sync::{Arc, OnceLock},
+};
 
 use amudai_bytes::Bytes;
 use amudai_common::{Result, error::Error};
+use amudai_keyed_vector::KeyedVector;
 
 use crate::{
     checksum::validate_message,
@@ -50,7 +54,7 @@ impl SchemaMessage {
     ///
     /// Returns an error if the schema extraction fails.
     pub fn schema(&self) -> Result<Schema> {
-        Ok(Schema(OwnedSchemaRef::new_as_root(
+        Ok(Schema::new(OwnedSchemaRef::new_as_root(
             self.buf.slice(4..self.len + 4),
         )?))
     }
@@ -72,16 +76,26 @@ impl From<SchemaBuilder> for SchemaMessage {
 /// This struct acts as a wrapper for a zero-deserialization Schema element
 /// and provides methods to interact with the schema's fields.
 #[derive(Clone)]
-pub struct Schema(OwnedSchemaRef);
+pub struct Schema {
+    inner: OwnedSchemaRef,
+    node_by_schema_id: Arc<OnceLock<KeyedVector<SchemaId, DataType>>>,
+}
 
 impl Schema {
-    // Returns the number of fields in the schema.
+    fn new(inner: OwnedSchemaRef) -> Schema {
+        Schema {
+            inner,
+            node_by_schema_id: Arc::new(OnceLock::new()),
+        }
+    }
+
+    // Returns the number of top-level fields in the schema.
     ///
     /// # Errors
     ///
     /// Returns an error if retrieving the fields count fails.
     pub fn len(&self) -> Result<usize> {
-        Ok(self.0.get().fields()?.len())
+        Ok(self.inner.get().fields()?.len())
     }
 
     /// Checks whether the schema contains no fields.
@@ -95,10 +109,43 @@ impl Schema {
 
     /// Returns the next available `schema_id` that is not currently in use.
     pub fn next_schema_id(&self) -> Result<SchemaId> {
-        Ok(self.0.get().schema_id_count()?.into())
+        Ok(self.inner.get().schema_id_count()?.into())
     }
 
-    /// Retrieves the field at the specified index within the schema.
+    /// Locates a `DataType` node anywhere within the schema tree by its unique identifier.
+    ///
+    /// This method performs a lookup of any `DataType` node within the schema tree using
+    /// its `SchemaId`. It internally builds and caches a mapping of all schema IDs to their
+    /// corresponding `DataType` nodes on first use.
+    ///
+    /// # Arguments
+    ///
+    /// * `schema_id` - The unique identifier of the data type to locate.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Some(&DataType))` if a data type with the given schema ID is found.
+    /// Returns `Ok(None)` if the schema ID is invalid or no data type with that ID exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if building the internal schema ID map fails, which can occur
+    /// if the schema structure is corrupted or if there are issues accessing the
+    /// underlying flatbuffer data.
+    ///
+    /// # Performance
+    ///
+    /// The first call to this method (or any method that uses schema ID resolution)
+    /// will build the complete mapping, which is O(n) where n is the total number
+    /// of data type nodes in the schema. Subsequent calls are O(1).
+    pub fn resolve_schema_id(&self, schema_id: SchemaId) -> Result<Option<&DataType>> {
+        if !schema_id.is_valid() {
+            return Ok(None);
+        }
+        Ok(self.establish_schema_id_map()?.get(schema_id))
+    }
+
+    /// Retrieves the top-level field at the specified index within the schema.
     ///
     /// # Arguments
     ///
@@ -108,22 +155,23 @@ impl Schema {
     ///
     /// Returns an error if the index is out of bounds or if accessing the field fails.
     pub fn field_at(&self, index: usize) -> Result<Field> {
-        let field = self.0.map::<crate::defs::schema::Field, _>(|schema, ()| {
-            let field = schema
-                .fields()?
-                .get(index)
-                .ok_or_else(|| Error::invalid_arg("index", "invalid schema field index"))??;
-            Ok(field)
-        })?;
+        let field =
+            self.inner
+                .map::<crate::defs::schema::Field, _>(|schema, ()| {
+                    let field = schema.fields()?.get(index).ok_or_else(|| {
+                        Error::invalid_arg("index", "invalid schema field index")
+                    })??;
+                    Ok(field)
+                })?;
         Ok(Field(field))
     }
 
-    /// Returns the fields of the schema encapsulated in a `FieldList`.
+    /// Returns the top-level fields of the schema encapsulated in a `FieldList`.
     pub fn field_list(&self) -> Result<FieldList> {
         Ok(FieldList::from(self.clone()))
     }
 
-    /// Finds the field with the specified name.
+    /// Finds the top-level field with the specified name.
     ///
     /// # Arguments
     ///
@@ -141,7 +189,7 @@ impl Schema {
     ///
     /// Returns an error if accessing the field fails.
     pub fn find_field(&self, name: &str) -> Result<Option<(usize, Field)>> {
-        let inner = self.0.get();
+        let inner = self.inner.get();
         let fields = inner.fields()?;
         let lookup = inner.field_lookup()?;
         if let Some(lookup) = lookup {
@@ -169,6 +217,53 @@ impl Schema {
         }
 
         Ok(None)
+    }
+}
+
+impl Schema {
+    /// Establishes and returns a reference to the schema ID mapping.
+    ///
+    /// This method implements lazy initialization of the schema ID map using thread-safe
+    /// `OnceLock`. On the first call, it builds the complete mapping of schema IDs to
+    /// `DataType` nodes by traversing the entire schema tree. Subsequent calls return
+    /// the cached mapping immediately.
+    fn establish_schema_id_map(&self) -> Result<&KeyedVector<SchemaId, DataType>> {
+        if let Some(map) = self.node_by_schema_id.get() {
+            Ok(map)
+        } else {
+            let map = self.build_schema_id_map()?;
+            let _ = self.node_by_schema_id.set(map);
+            Ok(self.node_by_schema_id.get().expect("map"))
+        }
+    }
+
+    /// Builds the complete mapping of schema IDs to `DataType` nodes.
+    ///
+    /// This method performs a depth-first traversal of the entire schema tree,
+    /// visiting every `DataType` node and adding it to a `KeyedVector` indexed
+    /// by its `SchemaId`. The traversal ensures that all nested data types,
+    /// including those in complex structures like lists, structs, and unions,
+    /// are included in the mapping.
+    ///
+    /// The resulting map enables efficient O(1) lookup of any data type node
+    /// by its schema ID.
+    fn build_schema_id_map(&self) -> Result<KeyedVector<SchemaId, DataType>> {
+        fn fill_map(node: DataType, map: &mut KeyedVector<SchemaId, DataType>) -> Result<()> {
+            for i in 0..node.child_count()? {
+                let child = node.child_at(i)?;
+                fill_map(child, map)?;
+            }
+            map.push_entry(node.schema_id()?, node);
+            Ok(())
+        }
+
+        let mut map =
+            KeyedVector::<SchemaId, DataType>::with_capacity(self.next_schema_id()?.as_usize());
+        for i in 0..self.len()? {
+            let field = self.field_at(i)?;
+            fill_map(field.data_type()?, &mut map)?;
+        }
+        Ok(map)
     }
 }
 
@@ -340,6 +435,18 @@ impl DataType {
         Ok(self.0.get().schema_id()?.into())
     }
 
+    /// Retrieves the schema ID associated with the parent data type node.
+    ///
+    /// This returns `None` for top-level schema fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if accessing the parent schema ID fails.
+    pub fn parent_schema_id(&self) -> Result<Option<SchemaId>> {
+        let value = self.0.get().parent_schema_id()?;
+        Ok((value != SchemaId::INVALID_ID).then(|| SchemaId::from(value)))
+    }
+
     /// Retrieves the extension type label of this data type node, if present.
     ///
     /// # Returns
@@ -384,6 +491,8 @@ impl std::fmt::Debug for DataType {
 pub struct SchemaId(u32);
 
 impl SchemaId {
+    pub const INVALID_ID: u32 = u32::MAX;
+
     /// Creates a `SchemaId` initialized to zero.
     pub const fn zero() -> SchemaId {
         SchemaId(0)
@@ -391,7 +500,7 @@ impl SchemaId {
 
     /// Creates an invalid `SchemaId`, represented by the maximum value of a `u32`.
     pub const fn invalid() -> SchemaId {
-        SchemaId(u32::MAX)
+        SchemaId(Self::INVALID_ID)
     }
 
     /// Returns the next sequential `SchemaId`.
@@ -401,7 +510,7 @@ impl SchemaId {
 
     /// Checks if the `SchemaId` is valid.
     pub const fn is_valid(&self) -> bool {
-        self.0 != u32::MAX
+        self.0 != Self::INVALID_ID
     }
 
     /// Returns the underlying `u32` value of the `SchemaId`.
@@ -532,6 +641,100 @@ impl FieldList {
                 }
             }
             FieldList::Node(data_type) => data_type.find_child(name),
+        }
+    }
+}
+
+/// An owned iterator over `DataType` items in a `FieldList`.
+pub struct FieldListIter {
+    field_list: FieldList,
+    index: usize,
+}
+
+impl Iterator for FieldListIter {
+    type Item = Result<DataType>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.field_list.len() {
+            Ok(len) if self.index < len => {
+                let result = self.field_list.get_at(self.index);
+                self.index += 1;
+                Some(result)
+            }
+            Ok(_) => None, // End of iteration
+            Err(e) => {
+                // Mark as exhausted and return the error
+                self.index = usize::MAX;
+                Some(Err(e))
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self.field_list.len() {
+            Ok(len) => {
+                let remaining = len.saturating_sub(self.index);
+                (remaining, Some(remaining))
+            }
+            Err(_) => (0, None),
+        }
+    }
+}
+
+pub struct FieldListBorrowedIter<'a> {
+    field_list: &'a FieldList,
+    index: usize,
+}
+
+impl<'a> Iterator for FieldListBorrowedIter<'a> {
+    type Item = Result<DataType>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.field_list.len() {
+            Ok(len) if self.index < len => {
+                let result = self.field_list.get_at(self.index);
+                self.index += 1;
+                Some(result)
+            }
+            Ok(_) => None,
+            Err(e) => {
+                self.index = usize::MAX;
+                Some(Err(e))
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self.field_list.len() {
+            Ok(len) => {
+                let remaining = len.saturating_sub(self.index);
+                (remaining, Some(remaining))
+            }
+            Err(_) => (0, None),
+        }
+    }
+}
+
+impl IntoIterator for FieldList {
+    type Item = Result<DataType>;
+    type IntoIter = FieldListIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        FieldListIter {
+            field_list: self,
+            index: 0,
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a FieldList {
+    type Item = Result<DataType>;
+    type IntoIter = FieldListBorrowedIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        FieldListBorrowedIter {
+            field_list: self,
+            index: 0,
         }
     }
 }

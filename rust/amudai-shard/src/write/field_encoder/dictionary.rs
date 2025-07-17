@@ -1,4 +1,5 @@
 use ahash::AHashMap;
+use amudai_io::{AlignWrite, TemporaryFileStore};
 use arrow_array::Array;
 use prost::Message;
 use std::{collections::HashMap, hash::Hash, sync::Arc};
@@ -100,7 +101,7 @@ where
     unfrozen_id: u32,
     /// Scratch buffer to store new (unfrozen) entries with their counts
     /// in preparation for remapping during flush
-    freq_buf: Vec<(u32, u32)>,
+    freq_buf: Vec<(u32, usize)>,
     /// Scratch buffer to store unfrozen-to-frozen entry ID mapping during flush
     remap_buf: Vec<u32>,
     /// Encoder for values codes (dictionary IDs assigned to encoded values).
@@ -211,15 +212,12 @@ impl DictionaryFieldEncoder<Vec<u8>> {
 
         if let Some(entry) = self.null_entry.as_mut() {
             // If we already have the null entry, just increment its count
-            entry.count += count as u32;
+            entry.count += count;
             entry.id
         } else {
             // Create a new null entry with the current id.
             let null_id = self.next_id;
-            self.null_entry = Some(DictionaryEntry {
-                id: null_id,
-                count: count as u32,
-            });
+            self.null_entry = Some(DictionaryEntry { id: null_id, count });
             self.next_id += 1;
             null_id
         }
@@ -316,7 +314,7 @@ impl DictionaryFieldEncoder<Vec<u8>> {
         }
 
         // Sort by frequency (descending)
-        self.freq_buf.sort_unstable_by_key(|e| u32::MAX - e.1);
+        self.freq_buf.sort_unstable_by_key(|e| usize::MAX - e.1);
     }
 
     // Prepares the remapping buffer, that takes us from the currently assigned
@@ -372,7 +370,7 @@ impl DictionaryFieldEncoder<Vec<u8>> {
     /// Returns entries ordered by their assigned IDs (which have already been
     /// optimized during periodic flushes based on frequency).
     /// Returned entries include the null entry if it was observed.
-    fn take_dictionary_entries(&mut self) -> Vec<(Vec<u8>, DictionaryEntry)> {
+    fn prepare_and_take_dictionary(&mut self) -> PreparedDictionary {
         // First ensure all entries are frozen
         self.prepare_flush();
 
@@ -389,155 +387,12 @@ impl DictionaryFieldEncoder<Vec<u8>> {
 
         // Sort by ID to maintain the order that codes expect
         entries.sort_unstable_by_key(|(_, entry)| entry.id);
-        entries
-    }
 
-    /// Creates the dictionary entries buffer containing unique values.
-    ///
-    /// This method encodes the dictionary entries into a structured buffer
-    /// that includes:
-    /// - Header section with metadata and ranges (`ValueDictionaryHeader`)
-    /// - Values section with unique values (either `DictionaryFixedSizeValuesSection` or `DictionaryVarSizeValuesSection`)
-    /// - Sorted IDs section with dictionary IDs in lexicographic order (`DictionarySortedIdsSection`)
-    ///
-    /// Each written section is accompanied by its length and checksum.
-    /// The resulted buffer is aligned to 8 bytes.
-    ///
-    /// # Arguments
-    /// * `entries` - Dictionary entries with unique values and metadata
-    ///
-    /// # Returns
-    /// Prepared encoded buffer containing the structured dictionary
-    fn make_dictionary_entries_buffer(
-        &mut self,
-        entries: Vec<(Vec<u8>, DictionaryEntry)>,
-    ) -> Result<PreparedEncodedBuffer> {
-        let values_section = self.create_values_section(&entries);
-        let values_section_range = amudai_format::defs::common::UInt64Range {
-            start: 0,
-            end: values_section.len() as u64,
-        };
-
-        let sorted_ids_section = self.create_sorted_ids_section(entries);
-        let sorted_ids_section_range = amudai_format::defs::common::UInt64Range {
-            start: values_section_range.end,
-            end: values_section_range.end + sorted_ids_section.len() as u64,
-        };
-
-        let header_section =
-            self.create_header_section(values_section_range, sorted_ids_section_range);
-
-        // Write all the sections into the temporary buffer.
-        let mut buffer = self.params.temp_store.allocate_stream(Some(
-            header_section.len() + values_section.len() + sorted_ids_section.len(),
-        ))?;
-        buffer.write_all(&header_section)?;
-        buffer.write_all(&values_section)?;
-        buffer.write_all(&sorted_ids_section)?;
-
-        // Align the buffer to 8 bytes
-        let alignment_size = buffer.current_size().next_multiple_of(8) - buffer.current_size();
-        let alignment_buf = vec![0u8; alignment_size as usize];
-        buffer.write_all(&alignment_buf)?;
-
-        // Create the PreparedEncodedBuffer
-        let data_size = buffer.current_size();
-        let data = buffer.into_read_at()?;
-        let data_ref = DataRef::new("", 0..data_size);
-        let prepared_buffer = PreparedEncodedBuffer {
-            data,
-            data_size,
-            block_map_size: 0,
-            descriptor: EncodedBuffer {
-                kind: BufferKind::ValueDictionary as i32,
-                buffer: Some(data_ref),
-                block_map: None,
-                block_count: None,
-                block_checksums: false,
-                embedded_presence: false,
-                embedded_offsets: false,
-                buffer_id: None,
-                packed_group_index: None,
-            },
-        };
-
-        Ok(prepared_buffer)
-    }
-
-    /// Creates the section containing the unique values of the dictionary.
-    ///
-    /// # Returns
-    ///
-    /// Encoded `DictionaryFixedSizeValuesSection` or `DictionaryVarSizeValuesSection` protobuf message
-    /// accompanied with its length and checksum.
-    fn create_values_section(&self, entries: &[(Vec<u8>, DictionaryEntry)]) -> Vec<u8> {
-        let payload = if self.params.basic_type.fixed_size > 0 {
-            // Fixed-size values section
-            let mut values_data = vec![];
-            for (value, _) in entries.iter() {
-                assert_eq!(value.len(), self.params.basic_type.fixed_size as usize);
-                values_data.extend_from_slice(value);
-            }
-            DictionaryFixedSizeValuesSection {
-                values: values_data,
-            }
-            .encode_to_vec()
-        } else {
-            // Variable-size values section
-            let mut offsets = vec![0u64];
-            let mut data = vec![];
-            for (value, _) in entries.iter() {
-                data.extend_from_slice(value);
-                offsets.push(data.len() as u64);
-            }
-            let bytes_list = BytesList { offsets, data };
-            DictionaryVarSizeValuesSection {
-                values: Some(bytes_list),
-            }
-            .encode_to_vec()
-        };
-        amudai_format::checksum::create_message_vec(&payload)
-    }
-
-    /// Creates the sorted IDs section (dictionary IDs in the lexicographic ordering of their values).
-    ///
-    /// # Returns
-    ///
-    /// Encoded `DictionarySortedIdsSection` protobuf message accompanied with its length and checksum.
-    fn create_sorted_ids_section(&self, mut entries: Vec<(Vec<u8>, DictionaryEntry)>) -> Vec<u8> {
-        entries.sort_unstable_by(|(a_value, _), (b_value, _)| a_value.cmp(b_value));
-        let sorted_ids = entries
-            .iter()
-            .map(|(_, entry)| entry.id)
-            .collect::<Vec<u32>>();
-        let payload = DictionarySortedIdsSection { sorted_ids }.encode_to_vec();
-        amudai_format::checksum::create_message_vec(&payload)
-    }
-
-    /// Creates the top-level header message.
-    ///
-    /// # Returns
-    ///
-    /// Encoded `ValueDictionaryHeader` protobuf message accompanied with its length and checksum.
-    fn create_header_section(
-        &self,
-        values_section_range: amudai_format::defs::common::UInt64Range,
-        sorted_ids_section_range: amudai_format::defs::common::UInt64Range,
-    ) -> Vec<u8> {
-        let fixed_value_size = if self.params.basic_type.fixed_size > 0 {
-            Some(self.params.basic_type.fixed_size)
-        } else {
-            None
-        };
-        let paiload = ValueDictionaryHeader {
-            value_type: self.params.basic_type.basic_type as u32,
-            null_id: self.null_entry.as_ref().map(|e| e.id),
-            fixed_value_size,
-            values_section_range: Some(values_section_range),
-            sorted_ids_section_range: Some(sorted_ids_section_range),
+        PreparedDictionary {
+            basic_type: self.params.basic_type,
+            entries,
+            null_entry: self.null_entry.clone(),
         }
-        .encode_to_vec();
-        amudai_format::checksum::create_message_vec(&paiload)
     }
 
     /// Evaluates dictionary encoding efficiency based on compression ratio.
@@ -721,15 +576,18 @@ impl FieldEncoderOps for DictionaryFieldEncoder<Vec<u8>> {
         buffers.push(codes_buffer);
 
         // Collect statistics and create the final dictionary buffer.
-        let entries = self.take_dictionary_entries();
+        let dictionary = self.prepare_and_take_dictionary();
+
         let statistics = collect_dictionary_statistics(
             self.params.basic_type.basic_type,
             self.params.encoding_profile,
-            &entries,
-            &self.null_entry,
+            &dictionary.entries,
+            &dictionary.null_entry,
         )?;
-        let dictionary_size = entries.len() as u64;
-        buffers.push(self.make_dictionary_entries_buffer(entries)?);
+
+        let dictionary_size = dictionary.entries.len() as u64;
+
+        buffers.push(dictionary.encode_buffer(self.params.temp_store.as_ref())?);
 
         Ok(EncodedField {
             buffers,
@@ -737,18 +595,6 @@ impl FieldEncoderOps for DictionaryFieldEncoder<Vec<u8>> {
             dictionary_size: Some(dictionary_size),
         })
     }
-}
-
-/// Dictionary entry tracking unique value code assignment and occurrence frequency.
-///
-/// Maps unique values to dictionary codes and maintains occurrence statistics
-/// for compression optimization.
-#[derive(Debug, Clone)]
-struct DictionaryEntry {
-    /// Dictionary code assigned to this entry
-    pub id: u32,
-    /// Number of occurrences of this value in the dataset
-    pub count: u32,
 }
 
 /// Collects binary or string statistics based on the dictionary entries,
@@ -886,5 +732,217 @@ impl FieldEncoderOps for AdaptiveDictionaryFieldEncoder {
         } else {
             panic!("Either dictionary encoder or native encoder must be present");
         }
+    }
+}
+
+/// Dictionary entry tracking unique value code assignment and occurrence frequency.
+///
+/// Maps unique values to dictionary codes and maintains occurrence statistics
+/// for compression optimization.
+#[derive(Debug, Clone)]
+pub struct DictionaryEntry {
+    /// Dictionary code assigned to this entry
+    pub id: u32,
+    /// Number of occurrences of this value in the dataset
+    pub count: usize,
+}
+
+/// Prepared dictionary ready to be encoded as 'ValueDictionary' buffer.
+pub struct PreparedDictionary {
+    /// Formal value type
+    pub basic_type: BasicTypeDescriptor,
+    /// Entries, sorted by assigned dictionary ID.
+    /// Includes a null value entry if present.
+    pub entries: Vec<(Vec<u8>, DictionaryEntry)>,
+    /// Null value entry.
+    pub null_entry: Option<DictionaryEntry>,
+}
+
+impl PreparedDictionary {
+    /// Constructs an empty `PreparedDictionary`.
+    ///
+    /// Useful mostly in test scenarios.
+    pub fn new(basic_type: BasicTypeDescriptor) -> PreparedDictionary {
+        PreparedDictionary {
+            basic_type,
+            entries: Vec::new(),
+            null_entry: None,
+        }
+    }
+
+    /// Manually adds an entry to the dictionary.
+    ///
+    /// Useful mostly in test scenarios.
+    pub fn push(&mut self, value: &[u8], count: usize) {
+        let id = self.entries.len() as u32;
+        self.entries
+            .push((value.to_vec(), DictionaryEntry { id, count }));
+    }
+
+    /// Manually adds a null entry to the dictionary.
+    ///
+    /// Useful mostly in test scenarios.
+    pub fn push_null(&mut self, count: usize) {
+        self.push(&vec![0u8; self.basic_type.fixed_size as usize], count);
+        self.null_entry = Some(self.entries.last().unwrap().1.clone());
+    }
+
+    /// Creates the dictionary entries buffer containing unique values.
+    ///
+    /// This method encodes the dictionary entries into a structured buffer
+    /// that includes:
+    /// - Header section with metadata and ranges (`ValueDictionaryHeader`)
+    /// - Values section with unique values (either `DictionaryFixedSizeValuesSection` or `DictionaryVarSizeValuesSection`)
+    /// - Sorted IDs section with dictionary IDs in lexicographic order (`DictionarySortedIdsSection`)
+    ///
+    /// Each written section is accompanied by its length and checksum.
+    /// The resulted buffer is aligned to 8 bytes.
+    ///
+    /// # Arguments
+    /// * `entries` - Dictionary entries with unique values and metadata
+    ///
+    /// # Returns
+    /// Prepared encoded buffer containing the structured dictionary
+    pub fn encode_buffer(
+        &self,
+        temp_store: &dyn TemporaryFileStore,
+    ) -> Result<PreparedEncodedBuffer> {
+        let values_section = self.create_values_section();
+        let values_section_range = amudai_format::defs::common::UInt64Range {
+            start: 0,
+            end: values_section.len() as u64,
+        };
+
+        let sorted_ids_section = self.create_sorted_ids_section();
+        let sorted_ids_section_range = amudai_format::defs::common::UInt64Range {
+            start: values_section_range.end,
+            end: values_section_range.end + sorted_ids_section.len() as u64,
+        };
+
+        let header_section =
+            self.create_header_section(values_section_range, sorted_ids_section_range);
+
+        // Write all the sections into the temporary buffer.
+        let mut buffer = temp_store.allocate_stream(Some(
+            header_section.len() + values_section.len() + sorted_ids_section.len(),
+        ))?;
+        buffer.write_all(&header_section)?;
+        buffer.write_all(&values_section)?;
+        buffer.write_all(&sorted_ids_section)?;
+
+        // Align to 8 bytes
+        buffer.align(8)?;
+
+        // Create the PreparedEncodedBuffer
+        let data_size = buffer.current_size();
+        let data = buffer.into_read_at()?;
+        let data_ref = DataRef::new("", 0..data_size);
+        let prepared_buffer = PreparedEncodedBuffer {
+            data,
+            data_size,
+            block_map_size: 0,
+            descriptor: EncodedBuffer {
+                kind: BufferKind::ValueDictionary as i32,
+                buffer: Some(data_ref),
+                block_map: None,
+                block_count: None,
+                block_checksums: false,
+                embedded_presence: false,
+                embedded_offsets: false,
+                buffer_id: None,
+                packed_group_index: None,
+            },
+        };
+
+        Ok(prepared_buffer)
+    }
+
+    /// Creates the section containing the unique values of the dictionary.
+    ///
+    /// # Returns
+    ///
+    /// Encoded `DictionaryFixedSizeValuesSection` or `DictionaryVarSizeValuesSection` protobuf message
+    /// accompanied with its length and checksum.
+    fn create_values_section(&self) -> Vec<u8> {
+        let payload = if self.basic_type.fixed_size > 0 {
+            // Fixed-size values section
+            let mut values_data = vec![];
+            for (value, _) in self.entries.iter() {
+                assert_eq!(value.len(), self.basic_type.fixed_size as usize);
+                values_data.extend_from_slice(value);
+            }
+            DictionaryFixedSizeValuesSection {
+                values: values_data,
+            }
+            .encode_to_vec()
+        } else {
+            // Variable-size values section
+            let mut offsets = vec![0u64];
+            let mut data = vec![];
+            for (value, _) in self.entries.iter() {
+                data.extend_from_slice(value);
+                offsets.push(data.len() as u64);
+            }
+            let bytes_list = BytesList { offsets, data };
+            DictionaryVarSizeValuesSection {
+                values: Some(bytes_list),
+            }
+            .encode_to_vec()
+        };
+        amudai_format::checksum::create_message_vec(&payload)
+    }
+
+    fn create_sorted_ids_section(&self) -> Vec<u8> {
+        assert!(
+            self.entries
+                .iter()
+                .enumerate()
+                .all(|(i, (_, entry))| entry.id as usize == i)
+        );
+
+        // Filter out null id from the sorted ids section, if there is one.
+        // Sorted ids are used for searching specific (non-null) values, so we do not
+        // want to accidentally stumble upon a null representation which might be the
+        // same as e.g. some valid empty string.
+        let null_id = self.null_entry.as_ref().map(|e| e.id).unwrap_or(u32::MAX);
+        let mut sorted_ids = (0..self.entries.len())
+            .map(|i| i as u32)
+            .filter(|&id| id != null_id)
+            .collect::<Vec<_>>();
+
+        sorted_ids.sort_unstable_by(|&a_id, &b_id| {
+            self.entries[a_id as usize]
+                .0
+                .cmp(&self.entries[b_id as usize].0)
+        });
+
+        let payload = DictionarySortedIdsSection { sorted_ids }.encode_to_vec();
+        amudai_format::checksum::create_message_vec(&payload)
+    }
+
+    /// Creates the top-level header message.
+    ///
+    /// # Returns
+    ///
+    /// Encoded `ValueDictionaryHeader` protobuf message accompanied with its length and checksum.
+    fn create_header_section(
+        &self,
+        values_section_range: amudai_format::defs::common::UInt64Range,
+        sorted_ids_section_range: amudai_format::defs::common::UInt64Range,
+    ) -> Vec<u8> {
+        let fixed_value_size = if self.basic_type.fixed_size > 0 {
+            Some(self.basic_type.fixed_size)
+        } else {
+            None
+        };
+        let payload = ValueDictionaryHeader {
+            value_type: self.basic_type.basic_type as u32,
+            null_id: self.null_entry.as_ref().map(|e| e.id),
+            fixed_value_size,
+            values_section_range: Some(values_section_range),
+            sorted_ids_section_range: Some(sorted_ids_section_range),
+        }
+        .encode_to_vec();
+        amudai_format::checksum::create_message_vec(&payload)
     }
 }

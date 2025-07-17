@@ -53,7 +53,11 @@ impl FieldBuilder {
             basic_type,
             temp_store: params.temp_store.clone(),
             encoding_profile: params.encoding_profile,
-            dictionary_encoding: DictionaryEncoding::Enabled,
+            dictionary_encoding: if params.encoding_profile == BlockEncodingProfile::Plain {
+                DictionaryEncoding::Disabled
+            } else {
+                DictionaryEncoding::Enabled
+            },
         };
         let encoder = FieldEncoder::new(encoder_params)?;
         let children = FieldBuilders::new(&params.data_type)?;
@@ -371,6 +375,49 @@ pub struct PreparedStripeField {
 }
 
 impl PreparedStripeField {
+    /// Creates a field decoder from this prepared stripe field.
+    ///
+    /// This method constructs a [`FieldDecoder`] that can read back the data that was
+    /// encoded in this prepared stripe field. It analyzes the field's type, encoding
+    /// characteristics, and metadata to instantiate the appropriate decoder implementation.
+    ///
+    /// The decoder is created from the first encoding in the field's encodings list,
+    /// which contains the prepared encoded buffers that have not yet been written to
+    /// persistent storage. This allows for immediate reading of data during the
+    /// shard construction process, useful for validation and index creation.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing the appropriate [`FieldDecoder`] variant for this field type,
+    /// or an error if the decoder cannot be created.
+    ///
+    /// [`FieldDecoder`]: crate::read::field_decoder::FieldDecoder
+    pub fn create_decoder(&self) -> Result<crate::read::field_decoder::FieldDecoder> {
+        let basic_type = self.data_type.describe()?;
+        let descriptor = &self.descriptor;
+
+        // TODO: handle constant and null fields.
+
+        if descriptor.null_count == Some(descriptor.position_count)
+            || descriptor
+                .constant_value
+                .as_ref()
+                .is_some_and(|c| c.is_null())
+        {
+            return Err(Error::not_implemented("null field decoder"));
+        }
+
+        if descriptor.constant_value.is_some() {
+            return Err(Error::not_implemented("constant field decoder"));
+        }
+
+        let encoding = self
+            .encodings
+            .first()
+            .ok_or_else(|| Error::invalid_format("encodings"))?;
+        encoding.create_decoder(basic_type, descriptor.position_count)
+    }
+
     /// Flushes all temporary data encoding buffers of this stripe field
     /// into the specified artifact writer (typically a stripe storage blob) and returns
     /// a sealed stripe field descriptor.

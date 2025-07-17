@@ -211,6 +211,26 @@ impl<R: ReadAt> ReadAt for SlicedFile<R> {
     }
 }
 
+impl<R: ReadAt> std::io::Read for SlicedFile<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let available = self.slice_size();
+        let read_size = std::cmp::min(buf.len() as u64, available);
+        if read_size == 0 {
+            return Ok(0);
+        }
+
+        let bytes = self
+            .inner
+            .read_at(self.range.start..self.range.start + read_size)?;
+        assert!(bytes.len() as u64 <= read_size);
+
+        let read_size = bytes.len();
+        buf[..read_size].copy_from_slice(&bytes);
+        self.range.start += read_size as u64;
+        Ok(read_size)
+    }
+}
+
 impl<W: WriteAt> WriteAt for SlicedFile<W> {
     fn write_at(&self, pos: u64, buf: &[u8]) -> std::io::Result<()> {
         let end_pos = pos.checked_add(buf.len() as u64).expect("end_pos");
@@ -230,6 +250,34 @@ impl<W: WriteAt> WriteAt for SlicedFile<W> {
 
     fn storage_profile(&self) -> StorageProfile {
         self.inner.storage_profile()
+    }
+}
+
+impl<W: WriteAt> std::io::Write for SlicedFile<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
+        let available = self.slice_size();
+        if available == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::StorageFull,
+                format!(
+                    "attempt to write beyond SlicedFile range (ends at {})",
+                    self.range.end
+                ),
+            ));
+        }
+
+        let write_size = std::cmp::min(buf.len() as u64, available) as usize;
+        self.inner.write_at(self.range.start, &buf[..write_size])?;
+        self.range.start += write_size as u64;
+        Ok(write_size)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 

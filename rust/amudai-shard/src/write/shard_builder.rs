@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use ahash::AHashSet;
-use amudai_common::Result;
+use amudai_common::{Result, error::Error};
 use amudai_encodings::block_encoder::BlockEncodingProfile;
 use amudai_format::{
     defs::{
@@ -15,7 +15,7 @@ use amudai_format::{
         common::{DataRef, DataRefArray},
         shard,
     },
-    schema::{Schema, SchemaId, SchemaMessage},
+    schema::{DataType, Schema, SchemaId, SchemaMessage},
 };
 use amudai_io::temp_file_store::TemporaryFileStore;
 use amudai_objectstore::{
@@ -77,6 +77,26 @@ impl ShardBuilder {
     pub fn add_stripe(&mut self, stripe: PreparedStripe) -> Result<()> {
         self.stripes.push(stripe);
         Ok(())
+    }
+
+    /// Creates a field decoder from the prepared stripe field with the given `schema_id`.
+    ///
+    /// This method constructs a [`FieldDecoder`](crate::read::field_decoder::FieldDecoder)
+    /// that can read back the data that was encoded in the prepared stripe field.
+    ///
+    /// # Parameters
+    ///
+    /// - `stripe_index`: Index of the stripe
+    /// - `data_type`: Field data type node
+    pub fn decode_stripe_field(
+        &self,
+        stripe_index: usize,
+        data_type: &DataType,
+    ) -> Result<crate::read::field_decoder::FieldDecoder> {
+        self.stripes
+            .get(stripe_index)
+            .ok_or_else(|| Error::invalid_arg("stripe_index", ""))?
+            .decode_field(data_type.schema_id()?)
     }
 
     /// Finishes building the shard and returns a `PreparedShard`.

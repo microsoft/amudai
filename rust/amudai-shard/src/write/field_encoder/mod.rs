@@ -24,6 +24,8 @@ use amudai_io::temp_file_store::TemporaryFileStore;
 
 use super::artifact_writer::ArtifactWriter;
 
+pub use dictionary::{DictionaryEntry, PreparedDictionary};
+
 /// A `FieldEncoder` is tasked with encoding a sequence of values for a specific
 /// field within a stripe, independently of any child fields.
 /// The result of the field encoder is a temporary `DataEncoding` element for that
@@ -182,6 +184,129 @@ pub struct EncodedField {
     pub statistics: Option<EncodedFieldStatistics>,
     /// The size of the dictionary, if dictionary encoding was used.
     pub dictionary_size: Option<u64>,
+}
+
+impl EncodedField {
+    /// Creates a field decoder from the transient encoded field.
+    ///
+    /// This method constructs a [`FieldDecoder`] that can read back the data that was
+    /// encoded in this `EncodedField`. It analyzes the field's type and encoding
+    /// characteristics to instantiate the appropriate decoder implementation.
+    ///
+    /// # Arguments
+    ///
+    /// * `basic_type` - The basic type descriptor that defines the field's data type
+    ///   and characteristics. This must match the type used during encoding.
+    /// * `positions` - The total number of logical positions in the field. This is
+    ///   used for validation and to properly configure presence/nullability handling.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing the appropriate [`FieldDecoder`] variant for this field type,
+    /// or an error if the decoder cannot be created.
+    ///
+    /// [`FieldDecoder`]: crate::read::field_decoder::FieldDecoder
+    /// [`DictionaryFieldDecoder`]: crate::read::field_decoder::dictionary::DictionaryFieldDecoder
+    pub fn create_decoder(
+        &self,
+        basic_type: BasicTypeDescriptor,
+        positions: u64,
+    ) -> Result<crate::read::field_decoder::FieldDecoder> {
+        use crate::read::field_decoder::{
+            FieldDecoder, boolean::BooleanFieldDecoder, bytes::BytesFieldDecoder,
+            dictionary::DictionaryFieldDecoder, list::ListFieldDecoder,
+            primitive::PrimitiveFieldDecoder, unit::StructFieldDecoder,
+        };
+
+        if self.is_dictionary_encoded() {
+            let decoder = DictionaryFieldDecoder::from_encoded_field(self, basic_type)?;
+            return Ok(FieldDecoder::Dictionary(decoder));
+        }
+
+        match basic_type.basic_type {
+            BasicType::Unit => (),
+            BasicType::Boolean => {
+                let decoder = BooleanFieldDecoder::from_encoded_field(self, basic_type, positions)?;
+                return Ok(FieldDecoder::Boolean(decoder));
+            }
+            BasicType::Int8
+            | BasicType::Int16
+            | BasicType::Int32
+            | BasicType::Int64
+            | BasicType::Float32
+            | BasicType::Float64
+            | BasicType::DateTime => {
+                let decoder = PrimitiveFieldDecoder::from_encoded_field(self, basic_type)?;
+                return Ok(FieldDecoder::Primitive(decoder));
+            }
+            BasicType::Binary
+            | BasicType::FixedSizeBinary
+            | BasicType::String
+            | BasicType::Guid => {
+                let decoder = BytesFieldDecoder::from_encoded_field(self, basic_type)?;
+                return Ok(FieldDecoder::Bytes(decoder));
+            }
+            BasicType::List | BasicType::Map => {
+                let decoder = ListFieldDecoder::from_encoded_field(self, basic_type)?;
+                return Ok(FieldDecoder::List(decoder));
+            }
+            BasicType::FixedSizeList | BasicType::Struct => {
+                let decoder = StructFieldDecoder::from_encoded_field(self, basic_type, positions)?;
+                return Ok(FieldDecoder::Struct(decoder));
+            }
+            BasicType::Union => (),
+        }
+
+        Err(amudai_common::error::Error::not_implemented(format!(
+            "Field decoder for {basic_type:?} is not yet implemented"
+        )))
+    }
+
+    /// Locates the encoded buffer of the specified kind.
+    ///
+    /// This method searches through the field's encoded buffers to find one with the
+    /// specified [`BufferKind`]. Each encoded field typically contains multiple buffers
+    /// serving different purposes (data, presence, offsets, etc.), and this method
+    /// provides a convenient way to access a specific buffer type.
+    ///
+    /// # Arguments
+    ///
+    /// * `kind` - The type of buffer to locate.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a reference to the [`PreparedEncodedBuffer`] with the
+    /// specified kind, or an error if no buffer of that kind exists.
+    ///
+    /// [`PreparedEncodedBuffer`]: amudai_blockstream::write::PreparedEncodedBuffer
+    pub fn get_encoded_buffer(&self, kind: shard::BufferKind) -> Result<&PreparedEncodedBuffer> {
+        self.buffers
+            .iter()
+            .find(|buf| buf.descriptor.kind == kind as i32)
+            .ok_or_else(|| {
+                amudai_common::error::Error::invalid_arg(
+                    "kind",
+                    format!("Encoded buffer '{kind:?}' not found"),
+                )
+            })
+    }
+
+    /// Returns true if this is a dictionary encoded field.
+    ///
+    /// This method determines whether the field uses dictionary encoding by checking
+    /// for the presence of a [`BufferKind::ValueDictionary`] buffer.
+    ///
+    /// # Returns
+    ///
+    /// - `true` if the field contains a `ValueDictionary` buffer, indicating dictionary
+    ///   encoding
+    /// - `false` if no dictionary buffer is present, indicating standard encoding
+    ///
+    /// [`BufferKind::ValueDictionary`]: amudai_format::defs::shard::BufferKind::ValueDictionary
+    pub fn is_dictionary_encoded(&self) -> bool {
+        self.get_encoded_buffer(shard::BufferKind::ValueDictionary)
+            .is_ok()
+    }
 }
 
 /// Statistics collected during field encoding

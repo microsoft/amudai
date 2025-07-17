@@ -306,6 +306,20 @@ pub struct PreparedStripe {
 }
 
 impl PreparedStripe {
+    /// Creates a field decoder from the prepared stripe field with the given `schema_id`.
+    ///
+    /// This method constructs a [`FieldDecoder`](crate::read::field_decoder::FieldDecoder)
+    /// that can read back the data that was encoded in the prepared stripe field.
+    pub fn decode_field(
+        &self,
+        schema_id: SchemaId,
+    ) -> Result<crate::read::field_decoder::FieldDecoder> {
+        let field = self.fields.get(schema_id).ok_or_else(|| {
+            Error::invalid_arg("schema_id", format!("field {schema_id:?} not found"))
+        })?;
+        field.create_decoder()
+    }
+
     /// Finalizes this prepared stripe by sealing all its fields and writing their data
     /// to the provided artifact writer (typically a stripe data blob).
     ///

@@ -1682,12 +1682,8 @@ mod tests {
 
     #[test]
     fn test_segmented_pod_collector_dump_and_load() {
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
-
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
         assert_eq!(file.size().unwrap(), 0);
 
         // Create a SegmentedVec with small segment size to ensure multiple segments
@@ -1735,12 +1731,8 @@ mod tests {
 
     #[test]
     fn test_segmented_bytes_collector_dump_and_load() {
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
-
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
         assert_eq!(file.size().unwrap(), 0);
 
         // Create a SegmentedVec with small segment size for multiple segments
@@ -1795,12 +1787,8 @@ mod tests {
 
     #[test]
     fn test_segmented_pod_collector_single_segment_dump_and_load() {
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
-
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Create a SegmentedVec with large segment size so everything fits in one segment
         let segment_size = 64;
@@ -1832,12 +1820,8 @@ mod tests {
 
     #[test]
     fn test_segmented_bytes_collector_empty_dump_and_load() {
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
-
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Create an empty SegmentedVec
         let segmented = SegmentedVec::<BytesCollector>::new();
@@ -1858,12 +1842,8 @@ mod tests {
 
     #[test]
     fn test_segmented_pod_collector_large_data_dump_and_load() {
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
-
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Create a SegmentedVec with many segments
         let segment_size = 8;
@@ -1915,13 +1895,9 @@ mod tests {
 
     #[test]
     fn test_segmented_pod_collector_boundary_conditions_dump_load() {
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
-
         // Test exact segment boundary conditions
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         let segment_size = 16;
         let mut segmented = SegmentedVec::<PodCollector<i32>>::with_segment_size(segment_size);
@@ -1957,12 +1933,8 @@ mod tests {
 
     #[test]
     fn test_segmented_bytes_collector_edge_cases_dump_load() {
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
-
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         let segment_size = 2;
         let mut segmented = SegmentedVec::<BytesCollector>::with_segment_size(segment_size);
@@ -2006,14 +1978,10 @@ mod tests {
 
     #[test]
     fn test_segmented_pod_collector_different_numeric_types_dump_load() {
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
-
         // Test i8 type
         {
             let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
             let file = temp_store.allocate_shared_buffer(None).unwrap();
-            let file = Arc::<dyn SharedIoBuffer>::from(file);
 
             let segment_size = 32;
             let mut segmented = SegmentedVec::<PodCollector<i8>>::with_segment_size(segment_size);
@@ -2039,7 +2007,6 @@ mod tests {
         {
             let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
             let file = temp_store.allocate_shared_buffer(None).unwrap();
-            let file = Arc::<dyn SharedIoBuffer>::from(file);
 
             let segment_size = 8;
             let mut segmented = SegmentedVec::<PodCollector<f32>>::with_segment_size(segment_size);
@@ -2089,12 +2056,8 @@ mod tests {
 
     #[test]
     fn test_segmented_mixed_empty_segments_dump_load() {
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
-
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Test BytesCollector with many empty entries
         let segment_size = 4;
@@ -2136,12 +2099,8 @@ mod tests {
 
     #[test]
     fn test_segmented_pod_collector_stress_many_segments_dump_load() {
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
-
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Use very small segment size to create many segments
         let segment_size = 2;
@@ -2183,12 +2142,8 @@ mod tests {
 
     #[test]
     fn test_segmented_pod_collector_comprehensive_dump_load() {
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
-
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
         assert_eq!(file.size().unwrap(), 0);
 
         // Test with different POD types and patterns similar to pod_vec.rs
@@ -2237,12 +2192,8 @@ mod tests {
 
     #[test]
     fn test_segmented_bytes_collector_comprehensive_dump_load() {
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
-
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Test with pattern similar to bytes_vec.rs
         let segment_size = 4;
@@ -2312,12 +2263,9 @@ mod tests {
     #[test]
     fn test_segmented_vec_writer_pod_basic() {
         use crate::pod_vec::PodView;
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
 
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Create a SegmentedVecWriter with small segment size to test multiple segments
         let segment_size = 4;
@@ -2358,12 +2306,9 @@ mod tests {
     #[test]
     fn test_segmented_vec_writer_pod_empty() {
         use crate::pod_vec::PodView;
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
 
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Create writer and immediately finish without pushing any data
         let writer = SegmentedVecWriter::<PodCollector<u64>>::new(file.clone());
@@ -2385,12 +2330,9 @@ mod tests {
     #[test]
     fn test_segmented_vec_writer_pod_single_segment() {
         use crate::pod_vec::PodView;
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
 
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Use default segment size and push fewer elements than segment size
         let mut writer = SegmentedVecWriter::<PodCollector<f64>>::new(file.clone());
@@ -2421,12 +2363,9 @@ mod tests {
     #[test]
     fn test_segmented_vec_writer_bytes_basic() {
         use crate::bytes_vec::BytesView;
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
 
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Create a SegmentedVecWriter with small segment size for multiple segments
         let segment_size = 4;
@@ -2476,12 +2415,9 @@ mod tests {
     #[test]
     fn test_segmented_vec_writer_bytes_empty() {
         use crate::bytes_vec::BytesView;
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
 
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Create writer and immediately finish without pushing any data
         let writer = SegmentedVecWriter::<BytesCollector>::new(file.clone());
@@ -2503,12 +2439,9 @@ mod tests {
     #[test]
     fn test_segmented_vec_writer_bytes_large_data() {
         use crate::bytes_vec::BytesView;
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
 
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file = temp_store.allocate_shared_buffer(None).unwrap();
-        let file = Arc::<dyn SharedIoBuffer>::from(file);
 
         // Use small segment size to force many segments
         let segment_size = 2;
@@ -2566,14 +2499,10 @@ mod tests {
     #[test]
     fn test_segmented_vec_writer_mixed_pod_types() {
         use crate::pod_vec::PodView;
-        use amudai_io::SharedIoBuffer;
-        use std::sync::Arc;
 
         let temp_store = amudai_io_impl::temp_file_store::create_in_memory(1000000000).unwrap();
         let file1 = temp_store.allocate_shared_buffer(None).unwrap();
-        let file1 = Arc::<dyn SharedIoBuffer>::from(file1);
         let file2 = temp_store.allocate_shared_buffer(None).unwrap();
-        let file2 = Arc::<dyn SharedIoBuffer>::from(file2);
 
         // Test with u8 type
         {

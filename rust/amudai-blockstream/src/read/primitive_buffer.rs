@@ -77,12 +77,11 @@ impl PrimitiveBufferDecoder {
         prepared_buffer: &PreparedEncodedBuffer,
         basic_type: BasicTypeDescriptor,
     ) -> Result<PrimitiveBufferDecoder> {
-        let block_stream = BlockStreamDecoder::from_prepared_buffer(prepared_buffer)?;
-        Ok(PrimitiveBufferDecoder {
-            block_stream,
-            embedded_presence: prepared_buffer.descriptor.embedded_presence,
+        Self::from_encoded_buffer(
+            prepared_buffer.data.clone(),
+            &prepared_buffer.descriptor,
             basic_type,
-        })
+        )
     }
 
     /// Returns whether this buffer has embedded presence information.
@@ -526,9 +525,8 @@ mod tests {
     #[test]
     fn test_reader_overlapping_reads() {
         let buffer = create_test_buffer(10, 100..101).unwrap();
-        let decoder = PrimitiveBufferDecoder::from_encoded_buffer(
-            buffer.data,
-            &buffer.descriptor,
+        let decoder = PrimitiveBufferDecoder::from_prepared_buffer(
+            &buffer,
             BasicTypeDescriptor {
                 basic_type: BasicType::Int32,
                 fixed_size: 0,
