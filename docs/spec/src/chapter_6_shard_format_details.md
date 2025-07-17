@@ -733,6 +733,8 @@ enum BufferKind {
 - `buffer_id`: An optional numerical buffer identifier. If present, it must be unique within the containing `DataEncoding`. This ID can reference a specific auxiliary encoded buffer from within the encoded blocks of the primary data buffer (e.g., referencing a specific value dictionary if there are multiple).
 - `packed_group_index`: Refer to [Packed Group Encoding](#packed-group-encoding).
 
+**Note**: The start of each encoded buffer within the Amudai file container format must be aligned to a 64-byte boundary.
+
 #### Value Dictionary
 
 The value dictionary is stored as a contiguous buffer containing two or more Protobuf messages:

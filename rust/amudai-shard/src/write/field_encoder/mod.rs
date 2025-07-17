@@ -385,6 +385,7 @@ impl EncodedField {
         if data_size + block_map_size != 0 {
             assert_eq!(data_size % 8, 0);
             assert_eq!(block_map_size % 8, 0);
+            writer.align(amudai_format::defs::ENCODED_BUFFER_ARTIFACT_ALIGNMENT)?;
             let data_ref = writer.write_from_slice(&data, 0..data_size + block_map_size)?;
             if block_map_size != 0 {
                 // Block map follows the data.

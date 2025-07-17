@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use amudai_format::{
     defs::shard::BufferKind,
     schema::{BasicType, BasicTypeDescriptor},
@@ -45,10 +47,18 @@ fn test_dictionary_buffer_decoding_str() {
     }
 
     let buffer = dictionary.encode_buffer(temp_store.as_ref()).unwrap();
-    dbg!(&buffer);
 
     let decoder = DictionaryDecoder::from_prepared_buffer(&buffer).unwrap();
-    decoder.sorted_ids().unwrap();
-    decoder.values().unwrap();
-    dbg!(decoder.header().unwrap());
+    let values = decoder.values().unwrap();
+    for id in 0u32..decoder.header().unwrap().value_count {
+        values.get(id);
+    }
+
+    let sorted_ids = decoder.sorted_ids().unwrap().unwrap();
+    let mut prev: &[u8] = &[];
+    for &id in &sorted_ids.sorted_ids {
+        let next = values.get(id);
+        assert_ne!(prev.cmp(next), Ordering::Greater);
+        prev = next;
+    }
 }

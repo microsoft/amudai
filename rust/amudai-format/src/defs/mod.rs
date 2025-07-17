@@ -53,6 +53,9 @@ pub const MESSAGE_LEN_SIZE: usize = 4;
 /// Size of the message checksum suffix.
 pub const CHECKSUM_SIZE: usize = 4;
 
+/// Alignment of the encoded buffer start position within the storage artifact.
+pub const ENCODED_BUFFER_ARTIFACT_ALIGNMENT: usize = 64;
+
 #[cfg(test)]
 mod tests {
     use prost::Message;

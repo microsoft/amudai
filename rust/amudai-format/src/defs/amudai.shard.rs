@@ -412,15 +412,22 @@ pub struct EncodedBuffer {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct ValueDictionaryHeader {
+    /// `BasicType` of the value as integer.
     #[prost(fixed32, tag = "1")]
     pub value_type: u32,
-    #[prost(fixed32, optional, tag = "2")]
-    pub null_id: ::core::option::Option<u32>,
+    /// Number of entries in the dictionary, including null entry.
+    /// The last valid dictionary ID is `value_count - 1`.
+    #[prost(fixed32, tag = "2")]
+    pub value_count: u32,
+    /// Dictionary ID of the null entry, if present
     #[prost(fixed32, optional, tag = "3")]
+    pub null_id: ::core::option::Option<u32>,
+    /// Size of the fixed value, if the value type is fixed-size.
+    #[prost(fixed32, optional, tag = "4")]
     pub fixed_value_size: ::core::option::Option<u32>,
-    #[prost(message, optional, tag = "4")]
-    pub values_section_range: ::core::option::Option<super::common::UInt64Range>,
     #[prost(message, optional, tag = "5")]
+    pub values_section_range: ::core::option::Option<super::common::UInt64Range>,
+    #[prost(message, optional, tag = "6")]
     pub sorted_ids_section_range: ::core::option::Option<super::common::UInt64Range>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

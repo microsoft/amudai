@@ -937,12 +937,15 @@ impl PreparedDictionary {
         };
         let payload = ValueDictionaryHeader {
             value_type: self.basic_type.basic_type as u32,
+            value_count: self.entries.len() as u32,
             null_id: self.null_entry.as_ref().map(|e| e.id),
             fixed_value_size,
             values_section_range: Some(values_section_range),
             sorted_ids_section_range: Some(sorted_ids_section_range),
         }
         .encode_to_vec();
-        amudai_format::checksum::create_message_vec(&payload)
+
+        let buffer = amudai_format::checksum::create_message_vec(&payload);
+        buffer
     }
 }

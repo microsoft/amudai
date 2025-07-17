@@ -239,14 +239,15 @@ Each `Field Descriptor` includes one or more `Data Encoding` sections. These sec
 
 ### Encoded Data Buffers
 
-Encoded data buffers store the actual sequences of primitive values for a stripe. A `Data Encoding` section refers to several of these buffers. While the detailed design will be discussed in another chapter, here is a summary of the main points:
+Encoded data buffers store the actual sequences of primitive values for each stripe. A `Data Encoding` section references several of these buffers. While the detailed design is discussed in another chapter, here is a summary of the main points:
 
 - For a given sequence of primitive values in a stripe, multiple encoded buffers may exist to represent different aspects of the sequence:
-  - **Encoded Value Buffer**: This buffer holds the primary sequence of encoded values. See [chapter 7](./chapter_7_data_encoding.md) for values encoding specification.
+  - **Encoded Value Buffer**: This buffer holds the primary sequence of encoded values. See [Chapter 7](./chapter_7_data_encoding.md) for the value encoding specification.
   - **Presence Buffer (Optional)**: Typically a compressed bitmap, this buffer indicates the presence of null values, depending on the chosen encoding. Alternatively, null markers may be embedded within the value blocks by selecting a dedicated unused value.
   - **Encoded Offsets Buffer**: This buffer is used for variable-sized types such as strings and binary data.
   - **Dictionary Buffer (Optional)**: If dictionary encoding is used, this buffer contains the dictionary values.
-- Each of these encoded buffers may have its own internal sub-structure to facilitate efficient random access, such as a sequence of individually compressed blocks and a lookup table that maps logical positions to the corresponding blocks.
+- Each encoded buffer may have its own internal sub-structure to facilitate efficient random access, such as a sequence of individually compressed blocks and a lookup table that maps logical positions to the corresponding blocks.
+- The start of each encoded buffer within the Amudai file container format must be aligned to a 64-byte boundary.
 
 ### File-Level Organization
 

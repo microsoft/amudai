@@ -319,6 +319,7 @@ impl DictionaryDecoder {
             let header = self.establish_header()?;
             let values = header.load_values()?;
             values.verify(header.inner.null_id)?;
+            verify_data!(values, values.len() == header.inner.value_count as usize);
             let _ = self.values.set(values);
             Ok(self.values.get().expect("values"))
         }
@@ -389,6 +390,23 @@ pub enum DictionaryValues {
 }
 
 impl DictionaryValues {
+    /// Returns the number of values in this section.
+    ///
+    /// For fixed-size values, this is calculated by dividing the total buffer size
+    /// by the size of each individual value. For variable-size values, this returns
+    /// the number of entries in the underlying `BytesList`.
+    ///
+    /// # Returns
+    ///
+    /// The total count of dictionary entries available for lookup.
+    #[inline]
+    pub fn len(&self) -> usize {
+        match self {
+            DictionaryValues::FixedSize(section, value_size) => section.values.len() / value_size,
+            DictionaryValues::VarSize(section) => section.values.as_ref().unwrap().len(),
+        }
+    }
+
     /// Decodes dictionary codes into values and optional offsets.
     ///
     /// This method is the primary interface for converting dictionary codes back into
@@ -424,6 +442,34 @@ impl DictionaryValues {
                 let (values, offsets) = Self::decode_variable(section, codes)?;
                 Ok((values, Some(offsets)))
             }
+        }
+    }
+
+    /// Retrieves the raw bytes for a dictionary value by its ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Dictionary ID of the value to retrieve. Must be less than `len()`.
+    ///
+    /// # Returns
+    ///
+    /// A byte slice containing the raw value data:
+    /// - For fixed-size values: exactly `value_size` bytes in little-endian format
+    /// - For variable-size values: the complete byte sequence (may be empty)
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is greater than or equal to the dictionary size (`len()`).
+    #[inline]
+    pub fn get(&self, id: u32) -> &[u8] {
+        let id = id as usize;
+        match self {
+            DictionaryValues::FixedSize(section, value_size) => {
+                let start = id * value_size;
+                let end = start + value_size;
+                &section.values[start..end]
+            }
+            DictionaryValues::VarSize(section) => section.values.as_ref().unwrap().value_at(id),
         }
     }
 
