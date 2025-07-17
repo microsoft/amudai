@@ -2,7 +2,6 @@
 
 use crate::config::BLOOM_FILTER_HASH_SEED;
 use amudai_bytes::Bytes;
-use amudai_common::Result;
 use xxhash_rust::xxh3::xxh3_64_with_seed;
 
 /// A concrete decoder for a Split-Block Bloom Filter that owns aligned data
@@ -23,13 +22,10 @@ unsafe impl Sync for SbbfDecoder {}
 
 impl SbbfDecoder {
     /// Creates a new SBBF decoder from aligned data.
-    pub fn new(aligned_data: Bytes) -> Result<Self> {
+    pub fn new(aligned_data: Bytes) -> Result<Self, String> {
         // Validate that we have data and it's properly aligned for SBBF (256-bit blocks = 32 bytes)
         if aligned_data.is_empty() || !aligned_data.is_aligned(32) {
-            return Err(amudai_common::error::Error::invalid_arg(
-                "aligned_data".to_string(),
-                "SBBF data must be non-empty and aligned to 32-byte blocks".to_string(),
-            ));
+            return Err("SBBF data must be non-empty and aligned to 32-byte blocks".to_string());
         }
 
         let filter_fn = sbbf_rs::FilterFn::new();
@@ -43,7 +39,7 @@ impl SbbfDecoder {
     }
 
     /// Creates a new decoder from aligned data and hash algorithm name.
-    pub fn from_aligned_data(aligned_data: Bytes) -> Result<Self> {
+    pub fn from_aligned_data(aligned_data: Bytes) -> Result<Self, String> {
         Self::new(aligned_data)
     }
 
