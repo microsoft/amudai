@@ -3,7 +3,7 @@
 use std::ops::Range;
 
 use amudai_blockstream::read::{
-    block_stream::BlockReaderPrefetch,
+    block_stream::{BlockReaderPrefetch, DecodedBlock},
     bytes_buffer::{BytesBufferDecoder, BytesBufferReader},
 };
 use amudai_common::{Result, error::Error};
@@ -111,13 +111,35 @@ impl BytesFieldDecoder {
     /// # Returns
     ///
     /// A boxed field reader for accessing the values
-    pub fn create_reader(
+    pub fn create_reader_with_ranges(
         &self,
         pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
     ) -> Result<Box<dyn FieldReader>> {
         let buffer_reader = self
             .bytes_buffer
-            .create_reader(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
+            .create_reader_with_ranges(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
+        Ok(Box::new(BytesFieldReader::new(buffer_reader)))
+    }
+
+    /// Creates a reader for efficiently accessing specific positions in this field.
+    ///
+    /// # Arguments
+    ///
+    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
+    ///   to be accessed. These hints are used to optimize prefetching strategies
+    ///   for better performance when reading from storage. The positions must be
+    ///   in non-descending order but don't need to be unique or contiguous.
+    ///
+    /// # Returns
+    ///
+    /// A boxed field reader for accessing the primitive values at the specified positions.
+    pub fn create_reader_with_positions(
+        &self,
+        positions_hint: impl Iterator<Item = u64> + Clone,
+    ) -> Result<Box<dyn FieldReader>> {
+        let buffer_reader = self
+            .bytes_buffer
+            .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
         Ok(Box::new(BytesFieldReader::new(buffer_reader)))
     }
 }
@@ -141,8 +163,12 @@ impl BytesFieldReader {
 }
 
 impl FieldReader for BytesFieldReader {
-    fn read(&mut self, pos_range: Range<u64>) -> Result<ValueSequence> {
-        self.buffer_reader.read(pos_range)
+    fn read_range(&mut self, pos_range: Range<u64>) -> Result<ValueSequence> {
+        self.buffer_reader.read_range(pos_range)
+    }
+
+    fn read_containing_block(&mut self, position: u64) -> Result<DecodedBlock> {
+        self.buffer_reader.read_containing_block(position)
     }
 }
 
@@ -185,18 +211,22 @@ mod tests {
         .map(|r| r.start as u64..r.end as u64)
         .collect::<Vec<_>>();
 
-        let mut reader = decoder.create_reader(ranges.iter().cloned()).unwrap();
+        let mut reader = decoder
+            .create_reader_with_ranges(ranges.iter().cloned())
+            .unwrap();
 
         let mut null_count = 0usize;
         for range in ranges {
-            let seq = reader.read(range.clone()).unwrap();
+            let seq = reader.read_range(range.clone()).unwrap();
             assert_eq!(seq.len(), (range.end - range.start) as usize);
             null_count += seq.presence.count_nulls();
         }
         assert!(null_count > 500);
 
-        let mut reader = decoder.create_reader(std::iter::empty()).unwrap();
-        let seq = reader.read(1000..1020).unwrap();
+        let mut reader = decoder
+            .create_reader_with_ranges(std::iter::empty())
+            .unwrap();
+        let seq = reader.read_range(1000..1020).unwrap();
         let mut len = 0;
         for i in 0..20 {
             len += seq.string_at(i).len();

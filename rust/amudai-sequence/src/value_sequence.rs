@@ -80,7 +80,7 @@ impl ValueSequence {
         }
     }
 
-    /// Creates a `Sequence` with a specified number of nulls.
+    /// Creates a `ValueSequence` with a specified number of nulls.
     pub fn nulls(type_desc: BasicTypeDescriptor, len: usize) -> ValueSequence {
         let presence = Presence::Nulls(len);
         let offsets = type_desc
@@ -93,6 +93,48 @@ impl ValueSequence {
             values,
             offsets,
             presence,
+            type_desc,
+        }
+    }
+
+    /// Creates a `ValueSequence` from the specified primitive `value` repeated `len` times.
+    ///
+    /// This method constructs a sequence containing `len` copies of the same primitive value.
+    /// All values in the resulting sequence are non-null (present).
+    ///
+    /// The method only works with primitive types that have a fixed size (integers, floats,
+    /// booleans, etc.). It cannot be used with variable-length types like strings or binary data.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - The type of the value to repeat. Must implement `bytemuck::AnyBitPattern` and
+    ///   `bytemuck::NoUninit` to ensure safe byte-level operations.
+    ///
+    /// # Arguments
+    ///
+    /// * `len` - The number of times to repeat the value in the sequence
+    /// * `value` - The primitive value to repeat throughout the sequence
+    /// * `type_desc` - The basic type descriptor that must match the size of type `T`
+    ///
+    /// # Returns
+    ///
+    /// A new `ValueSequence` containing `len` copies of `value`, with:
+    /// - All values marked as present (non-null)
+    /// - No offsets (since primitive types are fixed-size)
+    /// - Values stored as a contiguous byte buffer
+    ///
+    /// # Panics
+    ///
+    /// Panics if the size of type `T` doesn't match the primitive size specified in `type_desc`.
+    pub fn from_value<T>(len: usize, value: T, type_desc: BasicTypeDescriptor) -> ValueSequence
+    where
+        T: bytemuck::AnyBitPattern + bytemuck::NoUninit,
+    {
+        assert_eq!(type_desc.primitive_size(), Some(std::mem::size_of::<T>()));
+        ValueSequence {
+            values: Values::from_value(len, value),
+            offsets: None,
+            presence: Presence::Trivial(len),
             type_desc,
         }
     }
@@ -315,6 +357,36 @@ impl ValueSequence {
 
         self.presence
             .extend_from_presence_range(&source.presence, offset, len);
+    }
+
+    /// Interprets the underlying values as a slice of elements of type `T`.
+    ///
+    /// This method provides a low-level view of the raw value buffer by reinterpreting
+    /// the bytes as the specified type `T`. The caller is responsible for ensuring
+    /// the cast is logically sound and matches the actual data layout.
+    ///
+    /// # Important Notes
+    ///
+    /// * This cast ignores the formal sequence type (`type_desc`). The caller must
+    ///   verify that the cast is appropriate for the stored data.
+    /// * This method does not take presence (null/non-null status) into account.
+    ///   Null slots will contain whatever raw bytes are present in the buffer
+    ///   (typically zeros).
+    ///
+    /// # Returns
+    ///
+    /// A reference to the underlying data interpreted as a slice of type `T`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the underlying value buffer cannot be safely cast to `&[T]`
+    /// due to size or alignment constraints.
+    #[inline]
+    pub fn as_slice<T>(&self) -> &[T]
+    where
+        T: bytemuck::AnyBitPattern,
+    {
+        self.values.as_slice()
     }
 
     /// Returns iterator over variable-sized values in the sequence.

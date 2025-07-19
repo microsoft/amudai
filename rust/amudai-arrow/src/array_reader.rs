@@ -161,7 +161,7 @@ impl ArrayReader {
         let struct_reader = amudai_struct_field
             .create_decoder()
             .to_arrow_res()?
-            .create_reader(pos_ranges_hint.clone())
+            .create_reader_with_ranges(pos_ranges_hint.clone())
             .to_arrow_res()?;
 
         Ok(ArrayReader::Struct(StructArrayReader::new(
@@ -202,7 +202,7 @@ impl ArrayReader {
         let list_reader = amudai_list_field
             .create_decoder()
             .to_arrow_res()?
-            .create_reader(pos_ranges_hint.clone())
+            .create_reader_with_ranges(pos_ranges_hint.clone())
             .to_arrow_res()?;
 
         let stripe = amudai_list_field.get_stripe();
@@ -269,7 +269,7 @@ impl ArrayReader {
         let map_reader = amudai_map_field
             .create_decoder()
             .to_arrow_res()?
-            .create_reader(pos_ranges_hint.clone())
+            .create_reader_with_ranges(pos_ranges_hint.clone())
             .to_arrow_res()?;
 
         let stripe = amudai_map_field.get_stripe();
@@ -337,7 +337,7 @@ impl ArrayReader {
         let reader = stripe_field
             .create_decoder()
             .to_arrow_res()?
-            .create_reader(pos_ranges_hint)
+            .create_reader_with_ranges(pos_ranges_hint)
             .to_arrow_res()?;
         Ok(ArrayReader::Simple(SimpleArrayReader::new(
             reader, arrow_type,
@@ -377,7 +377,7 @@ impl ArrayReader {
             _ => panic!("unexpected field decoder variant"),
         };
         let reader = decoder
-            .create_boolean_reader(pos_ranges_hint)
+            .create_boolean_reader_with_ranges(pos_ranges_hint)
             .to_arrow_res()?;
         Ok(ArrayReader::Boolean(BooleanArrayReader::new(reader)))
     }
@@ -404,7 +404,7 @@ impl SimpleArrayReader {
     /// # Arguments
     /// * `pos_range` - The range of logical positions to read.
     pub fn read(&mut self, pos_range: Range<u64>) -> Result<ArrayRef, ArrowError> {
-        let seq = self.reader.read(pos_range).to_arrow_res()?;
+        let seq = self.reader.read_range(pos_range).to_arrow_res()?;
         let arr = seq.into_arrow_array(&self.arrow_type).to_arrow_res()?;
         Ok(arr)
     }
@@ -490,7 +490,10 @@ impl StructArrayReader {
     /// # Errors
     /// Returns an error if reading any field fails or if struct construction fails
     pub fn read(&mut self, pos_range: Range<u64>) -> Result<ArrayRef, ArrowError> {
-        let values = self.struct_reader.read(pos_range.clone()).to_arrow_res()?;
+        let values = self
+            .struct_reader
+            .read_range(pos_range.clone())
+            .to_arrow_res()?;
         assert!(values.values.is_empty());
         assert!(values.offsets.is_none());
 
@@ -569,7 +572,7 @@ impl ListArrayReader {
             ArrowError::InvalidArgumentError(format!("invalid pos range end: {}", pos_range.end))
         })?;
 
-        let list_values = self.list_reader.read(start..end).to_arrow_res()?;
+        let list_values = self.list_reader.read_range(start..end).to_arrow_res()?;
 
         let mut offsets = Offsets::from_values(list_values.values);
         let child_start = offsets.first();
@@ -644,7 +647,7 @@ impl MapArrayReader {
             ArrowError::InvalidArgumentError(format!("invalid pos range end: {}", pos_range.end))
         })?;
 
-        let map_values = self.map_reader.read(start..end).to_arrow_res()?;
+        let map_values = self.map_reader.read_range(start..end).to_arrow_res()?;
 
         let mut offsets = Offsets::from_values(map_values.values);
         let child_start = offsets.first();

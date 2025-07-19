@@ -153,7 +153,7 @@ impl ShardStore {
 
         let total_positions = field.position_count();
         let mut reader = decoder
-            .create_reader(std::iter::once(0..total_positions))
+            .create_reader_with_ranges(std::iter::once(0..total_positions))
             .unwrap_or_else(|_| {
                 panic!(
                     "Failed to create reader for field '{}' (schema_id: {:?})",
@@ -169,17 +169,19 @@ impl ShardStore {
 
         while position < total_positions {
             let end_position = (position + batch_size).min(total_positions);
-            reader.read(position..end_position).unwrap_or_else(|_| {
-                panic!(
-                    "Failed to read data from field '{}' (schema_id: {:?}) at positions {}..{}",
-                    data_type.name().unwrap_or("<unknown>"),
-                    data_type
-                        .schema_id()
-                        .unwrap_or(amudai_format::schema::SchemaId::invalid()),
-                    position,
-                    end_position
-                )
-            });
+            reader
+                .read_range(position..end_position)
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Failed to read data from field '{}' (schema_id: {:?}) at positions {}..{}",
+                        data_type.name().unwrap_or("<unknown>"),
+                        data_type
+                            .schema_id()
+                            .unwrap_or(amudai_format::schema::SchemaId::invalid()),
+                        position,
+                        end_position
+                    )
+                });
             position = end_position;
         }
 

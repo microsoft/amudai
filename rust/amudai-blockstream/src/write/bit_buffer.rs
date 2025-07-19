@@ -696,13 +696,13 @@ mod tests {
         let byte_count = decoder.block_stream().block_map().value_count().unwrap();
         assert_eq!(bit_count.div_ceil(8), byte_count);
         let mut reader = decoder
-            .create_reader(std::iter::empty(), BlockReaderPrefetch::Disabled)
+            .create_reader_with_ranges(std::iter::empty(), BlockReaderPrefetch::Disabled)
             .unwrap();
         let mut pos = 0;
         while pos < byte_count {
             let read_len =
                 std::cmp::min(fastrand::u64(1..=(byte_count / 16) + 1), byte_count - pos).max(1);
-            reader.read(pos..pos + read_len).unwrap();
+            reader.read_range(pos..pos + read_len).unwrap();
             pos += read_len;
         }
     }

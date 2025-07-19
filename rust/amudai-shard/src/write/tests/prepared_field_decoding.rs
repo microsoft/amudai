@@ -59,13 +59,14 @@ fn test_prepared_fields_decoding() -> Result<()> {
             // Read data in 1000-value chunks
             const CHUNK_SIZE: u64 = 500;
             let mut start_pos = 0u64;
-            let mut reader = decoder.create_reader(std::iter::once(0..position_count))?;
+            let mut reader =
+                decoder.create_reader_with_ranges(std::iter::once(0..position_count))?;
             while start_pos < position_count {
                 let end_pos = std::cmp::min(start_pos + CHUNK_SIZE, position_count);
                 let range = start_pos..end_pos;
 
                 // Read the chunk
-                let sequence = reader.read(range.clone())?;
+                let sequence = reader.read_range(range.clone())?;
                 let chunk_size = end_pos - start_pos;
 
                 // Verify the sequence has the expected number of positions

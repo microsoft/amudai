@@ -459,7 +459,7 @@ impl DictionaryFieldEncoder<Vec<u8>> {
 
         // Create a reader to read the codes back.
         let total_count = codes_decoder.block_stream().block_map().value_count()?;
-        let mut reader = codes_decoder.create_reader(
+        let mut reader = codes_decoder.create_reader_with_ranges(
             std::iter::once(0..total_count),
             BlockReaderPrefetch::Disabled,
         )?;
@@ -491,7 +491,7 @@ impl DictionaryFieldEncoder<Vec<u8>> {
         let mut offset = 0u64;
         while offset < total_count {
             let batch_end = std::cmp::min(offset + BATCH_SIZE, total_count);
-            let codes_sequence = reader.read(offset..batch_end)?;
+            let codes_sequence = reader.read_range(offset..batch_end)?;
             let codes = codes_sequence.values.as_slice::<u32>();
             let mut array_builder = amudai_arrow_builders::create_builder(&data_type);
             for &code in codes {

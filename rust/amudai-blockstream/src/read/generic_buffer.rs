@@ -5,7 +5,10 @@ use amudai_encodings::block_decoder::BlockDecoder;
 use amudai_format::schema::BasicTypeDescriptor;
 use amudai_sequence::sequence::ValueSequence;
 
-use super::{block_map::BlockMap, block_map_ops::BlockDescriptor, block_stream::BlockReader};
+use super::{
+    block_map::BlockMap,
+    block_stream::{BlockReader, DecodedBlock},
+};
 
 /// A generic reader for block-encoded value buffers that efficiently accesses and decodes
 /// blocks of data.
@@ -17,7 +20,7 @@ use super::{block_map::BlockMap, block_map_ops::BlockDescriptor, block_stream::B
 /// - Decoding binary block data
 /// - Merging data from multiple blocks into a single result sequence
 ///
-/// This reader is typically created by calling `PrimitiveBufferDecoder::create_reader()`.
+/// This reader is typically created by calling `PrimitiveBufferDecoder::create_reader_with_ranges`.
 pub struct GenericBufferReader<Decoder> {
     /// The underlying block reader that handles block I/O operations
     block_reader: BlockReader,
@@ -31,11 +34,8 @@ pub struct GenericBufferReader<Decoder> {
     /// Type information for the values stored in this buffer
     basic_type: BasicTypeDescriptor,
 
-    /// The most recently decoded block descriptor, cached to optimize consecutive reads
-    cached_block: Option<BlockDescriptor>,
-
-    /// Cached decoded sequence data corresponding to the cached block
-    cached_sequence: Option<ValueSequence>,
+    /// The most recently decoded block, cached to optimize consecutive reads
+    cached_block: Option<DecodedBlock>,
 }
 
 impl<Decoder> GenericBufferReader<Decoder> {
@@ -51,7 +51,6 @@ impl<Decoder> GenericBufferReader<Decoder> {
             block_decoder,
             basic_type,
             cached_block: None,
-            cached_sequence: None,
         }
     }
 
@@ -62,8 +61,8 @@ impl<Decoder> GenericBufferReader<Decoder> {
 }
 
 impl<Decoder: BlockDecoder> GenericBufferReader<Decoder> {
-    /// Reads and decodes the specified logical position range of values
-    /// from the underlying encoded buffer (block stream).
+    /// Reads and decodes the specified logical position range of values from the underlying
+    /// encoded buffer (block stream).
     ///
     /// This method handles all the details of:
     /// - Finding blocks that contain the requested data
@@ -85,7 +84,7 @@ impl<Decoder: BlockDecoder> GenericBufferReader<Decoder> {
     ///
     /// The method caches the last block read, which can improve performance
     /// for subsequent sequential or overlapping reads.
-    pub fn read(&mut self, pos_range: Range<u64>) -> Result<ValueSequence> {
+    pub fn read_range(&mut self, pos_range: Range<u64>) -> Result<ValueSequence> {
         // Handle empty range case
         if pos_range.start >= pos_range.end {
             return Ok(ValueSequence::empty(self.basic_type));
@@ -103,8 +102,8 @@ impl<Decoder: BlockDecoder> GenericBufferReader<Decoder> {
 
         // Process each block in the range
         for ordinal in first_block_idx..=last_block_idx {
-            let (decoded, block) = self.decode_block(ordinal)?;
-            let block_range = block.logical_range.clone();
+            let decoded = self.decode_block(ordinal)?;
+            let block_range = decoded.descriptor.logical_range.clone();
 
             // Calculate the overlap between request range and this block
             let start_pos = pos_range.start.max(block_range.start);
@@ -119,17 +118,42 @@ impl<Decoder: BlockDecoder> GenericBufferReader<Decoder> {
             let value_count = end_pos - start_pos;
 
             // Extract requested range from the decoded data
-            result.extend_from_sequence(&decoded, block_offset as usize, value_count as usize);
+            result.extend_from_sequence(
+                &decoded.values,
+                block_offset as usize,
+                value_count as usize,
+            );
 
             if ordinal == last_block_idx {
-                if let Cow::Owned(sequence) = decoded {
-                    self.cached_block = Some(block);
-                    self.cached_sequence = Some(sequence);
+                if let Cow::Owned(decoded) = decoded {
+                    self.cached_block = Some(decoded);
                 }
             }
         }
 
         Ok(result)
+    }
+
+    /// Reads and decodes the complete block that contains the specified logical position.
+    ///
+    /// The returned block contains:
+    /// - All decoded values in the block (typically hundreds to thousands of values)
+    /// - Block descriptor with ordinal, logical range, and storage location
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - A logical position within the desired block. The method will
+    ///   find and return the block that contains this position, regardless of where
+    ///   within the block the position falls.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(DecodedBlock)` - The complete decoded block containing the specified position
+    /// * `Err` - If the position is invalid, the block cannot be found, or I/O/decoding fails
+    pub fn read_containing_block(&mut self, position: u64) -> Result<DecodedBlock> {
+        let ordinal = self.block_map.find_block_ordinal(position)?;
+        let decoded = self.decode_block(ordinal)?;
+        Ok(decoded.into_owned())
     }
 }
 
@@ -148,21 +172,22 @@ impl<Decoder: BlockDecoder> GenericBufferReader<Decoder> {
     ///
     /// * `Ok((Cow<Sequence>, BlockDescriptor))` - The decoded sequence data and block descriptor
     /// * `Err` - If the block cannot be read or decoded
-    fn decode_block(&mut self, ordinal: usize) -> Result<(Cow<ValueSequence>, BlockDescriptor)> {
+    fn decode_block(&mut self, ordinal: usize) -> Result<Cow<DecodedBlock>> {
         let cached_ordinal = self
             .cached_block
             .as_ref()
-            .map(|block| block.ordinal as usize);
+            .map(|block| block.descriptor.ordinal as usize);
         if cached_ordinal == Some(ordinal) {
-            let sequence = self.cached_sequence.as_ref().expect("cached sequence");
-            let block = self.cached_block.clone().unwrap();
-            Ok((Cow::Borrowed(sequence), block))
+            Ok(Cow::Borrowed(self.cached_block.as_ref().unwrap()))
         } else {
             let block = self.block_reader.read_block(ordinal as u32)?;
             block.verify_checksum()?;
             let count = block.descriptor.logical_size();
             let decoded = self.block_decoder.decode(block.data(), count)?;
-            Ok((Cow::Owned(decoded), block.descriptor))
+            Ok(Cow::Owned(DecodedBlock {
+                values: decoded,
+                descriptor: block.descriptor,
+            }))
         }
     }
 }

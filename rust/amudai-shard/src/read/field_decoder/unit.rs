@@ -21,8 +21,8 @@
 use std::ops::Range;
 
 use amudai_blockstream::read::{
-    bit_buffer::{BitBufferDecoder, BitBufferReader},
-    block_stream::BlockReaderPrefetch,
+    bit_buffer::{BitBufferDecoder, BitBufferReader, create_ephemeral_presence_block},
+    block_stream::{BlockReaderPrefetch, DecodedBlock},
 };
 use amudai_common::{Result, error::Error, verify_arg, verify_data};
 use amudai_format::{
@@ -31,10 +31,7 @@ use amudai_format::{
 };
 use amudai_sequence::{presence::Presence, sequence::ValueSequence, values::Values};
 
-use crate::{
-    read::{field_context::FieldContext, field_decoder::boolean::bits_to_byte_vec},
-    write::field_encoder::EncodedField,
-};
+use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
 
 use super::FieldReader;
 
@@ -225,13 +222,48 @@ impl StructFieldDecoder {
     /// # Errors
     ///
     /// Returns an error if the underlying bit buffer decoder fails to create a reader.
-    pub fn create_reader(
+    pub fn create_reader_with_ranges(
         &self,
         pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
     ) -> Result<Box<dyn FieldReader>> {
         let reader = self
             .presence
-            .create_reader(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
+            .create_reader_with_ranges(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
+        match &reader {
+            BitBufferReader::Blocks(_) => Ok(Box::new(PresenceFieldReader(
+                reader,
+                self.basic_type,
+                self.positions,
+            ))),
+            BitBufferReader::Constant(value) => {
+                assert!(*value);
+                Ok(Box::new(TrivialPresenceFieldReader(
+                    self.basic_type,
+                    self.positions,
+                )))
+            }
+        }
+    }
+
+    /// Creates a reader for efficiently accessing specific positions in this field.
+    ///
+    /// # Arguments
+    ///
+    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
+    ///   to be accessed. These hints are used to optimize prefetching strategies
+    ///   for better performance when reading from storage. The positions must be
+    ///   in non-descending order but don't need to be unique or contiguous.
+    ///
+    /// # Returns
+    ///
+    /// A boxed field reader for accessing the primitive values at the specified positions.
+    pub fn create_reader_with_positions(
+        &self,
+        positions_hint: impl Iterator<Item = u64> + Clone,
+    ) -> Result<Box<dyn FieldReader>> {
+        let reader = self
+            .presence
+            .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
         match &reader {
             BitBufferReader::Blocks(_) => Ok(Box::new(PresenceFieldReader(
                 reader,
@@ -266,7 +298,7 @@ impl StructFieldDecoder {
 ///
 /// # Note
 ///
-/// The current implementation expands bits to bytes, this should be optimized optimized
+/// The current implementation expands bits to bytes, this should be optimized
 /// by returning bit buffers directly to avoid unnecessary expansion.
 struct PresenceFieldReader(BitBufferReader, BasicTypeDescriptor, u64);
 
@@ -286,20 +318,27 @@ impl FieldReader for PresenceFieldReader {
     ///
     /// Currently expands bits to bytes for compatibility. Future optimizations
     /// may return bit buffers directly to reduce memory usage and improve performance.
-    fn read(&mut self, pos_range: Range<u64>) -> Result<ValueSequence> {
+    fn read_range(&mut self, pos_range: Range<u64>) -> Result<ValueSequence> {
         verify_arg!(pos_range, pos_range.end <= self.2);
-
-        let buf = self.0.read(pos_range)?;
-
-        // TODO: avoid expansion, return it as-is (bit buffer presence) in the sequence.
-        let bytes = bits_to_byte_vec(&buf);
-
         Ok(ValueSequence {
             values: Values::new(),
             offsets: None,
-            presence: Presence::Bytes(bytes),
+            presence: self.0.read_range_as_presence(pos_range)?,
             type_desc: self.1,
         })
+    }
+
+    fn read_containing_block(&mut self, position: u64) -> Result<DecodedBlock> {
+        verify_arg!(position, position < self.2);
+        if let Some(value) = self.0.try_get_constant() {
+            return Ok(create_ephemeral_presence_block(value, position));
+        }
+        let mut block = self.0.read_containing_block(position)?;
+        let values = std::mem::replace(&mut block.values.values, Values::new());
+        let presence = Presence::Bytes(values.into_inner());
+        block.values.presence = presence;
+        block.values.type_desc = self.1;
+        Ok(block)
     }
 }
 
@@ -327,9 +366,8 @@ impl FieldReader for TrivialPresenceFieldReader {
     /// A `ValueSequence` with trivial presence indicating that all positions in the
     /// range are valid. The sequence has empty values and offsets since this reader
     /// only provides presence data.
-    fn read(&mut self, pos_range: Range<u64>) -> Result<ValueSequence> {
+    fn read_range(&mut self, pos_range: Range<u64>) -> Result<ValueSequence> {
         verify_arg!(pos_range, pos_range.end <= self.1);
-
         let len = (pos_range.end - pos_range.start) as usize;
         Ok(ValueSequence {
             values: Values::new(),
@@ -337,5 +375,11 @@ impl FieldReader for TrivialPresenceFieldReader {
             presence: Presence::Trivial(len),
             type_desc: self.0,
         })
+    }
+
+    fn read_containing_block(&mut self, position: u64) -> Result<DecodedBlock> {
+        let mut block = create_ephemeral_presence_block(true, position);
+        block.values.type_desc = self.0;
+        Ok(block)
     }
 }

@@ -60,8 +60,8 @@ fn test_manual_list_push() {
         .unwrap()
         .create_decoder()
         .unwrap()
-        .create_reader(std::iter::empty())
+        .create_reader_with_ranges(std::iter::empty())
         .unwrap();
-    let offsets = offsets_reader.read(0..51).unwrap();
+    let offsets = offsets_reader.read_range(0..51).unwrap();
     assert_eq!(*offsets.values.as_slice::<u64>().last().unwrap(), 60);
 }

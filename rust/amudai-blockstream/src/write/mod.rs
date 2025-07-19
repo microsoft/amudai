@@ -124,7 +124,7 @@ impl PreparedEncodedBuffer {
             let block_count =
                 u32::try_from(decoder.block_map().block_count()?).expect("block_count");
             let last_pos = decoder.block_map().value_count()?;
-            let mut reader = decoder.create_reader_with_position_ranges(
+            let mut reader = decoder.create_reader_with_ranges(
                 std::iter::once(0..last_pos),
                 BlockReaderPrefetch::Enabled,
             )?;

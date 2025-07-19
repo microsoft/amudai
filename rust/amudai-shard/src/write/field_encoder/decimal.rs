@@ -584,13 +584,13 @@ mod tests {
             BytesBufferDecoder::from_encoded_buffer(artifact_reader, shard_buffer, basic_type)?;
 
         // Create a reader to read all the values
-        let mut reader = decoder.create_reader(
+        let mut reader = decoder.create_reader_with_ranges(
             std::iter::once(0u64..test_values.len() as u64),
             BlockReaderPrefetch::Disabled,
         )?;
 
         // Read the sequence of binary values
-        let sequence = reader.read(0..test_values.len() as u64)?;
+        let sequence = reader.read_range(0..test_values.len() as u64)?;
         assert_eq!(sequence.len(), test_values.len());
 
         // Validate each value's binary representation
@@ -698,10 +698,12 @@ mod tests {
         let decoder =
             BytesBufferDecoder::from_encoded_buffer(artifact_reader, shard_buffer, basic_type)?;
 
-        let mut reader =
-            decoder.create_reader(std::iter::once(0u64..3u64), BlockReaderPrefetch::Disabled)?;
+        let mut reader = decoder.create_reader_with_ranges(
+            std::iter::once(0u64..3u64),
+            BlockReaderPrefetch::Disabled,
+        )?;
 
-        let sequence = reader.read(0..3)?;
+        let sequence = reader.read_range(0..3)?;
         assert_eq!(sequence.len(), 3);
 
         // Validate that the stored bytes exactly match our expected d128 bytes

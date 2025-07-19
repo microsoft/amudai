@@ -440,9 +440,9 @@ fn test_decimal_end_to_end_read_back() -> Result<()> {
     // Create decoder and read back the values
     let mut amount_decoder = amount_field
         .create_decoder()?
-        .create_reader(std::iter::empty())?;
+        .create_reader_with_ranges(std::iter::empty())?;
 
-    let amount_seq = amount_decoder.read(0..5)?;
+    let amount_seq = amount_decoder.read_range(0..5)?;
 
     // Verify we got all 5 values (no nulls)
     assert_eq!(amount_seq.presence.count_non_nulls(), 5);
@@ -556,10 +556,10 @@ fn test_decimal_with_index_end_to_end() -> Result<()> {
     // Create decoder and read back some values
     let mut amount_decoder = amount_field
         .create_decoder()?
-        .create_reader(std::iter::empty())?;
+        .create_reader_with_ranges(std::iter::empty())?;
 
     // Read back a subset of values
-    let amount_seq = amount_decoder.read(10..20)?;
+    let amount_seq = amount_decoder.read_range(10..20)?;
 
     // Verify we got all 10 values
     assert_eq!(amount_seq.presence.count_non_nulls(), 10);

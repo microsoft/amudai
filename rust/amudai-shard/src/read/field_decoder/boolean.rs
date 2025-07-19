@@ -10,17 +10,16 @@ use std::ops::Range;
 
 use amudai_blockstream::read::{
     bit_buffer::{BitBufferDecoder, BitBufferReader},
-    block_stream::BlockReaderPrefetch,
+    block_stream::{BlockReaderPrefetch, DecodedBlock},
 };
-use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::{Result, error::Error, verify_arg, verify_data};
 use amudai_format::{
     defs::shard::{self, BufferKind},
     schema::{BasicType, BasicTypeDescriptor},
 };
-use amudai_sequence::{presence::Presence, sequence::ValueSequence, values::Values};
+use amudai_sequence::sequence::ValueSequence;
 use arrow_array::BooleanArray;
-use arrow_buffer::{BooleanBuffer, NullBuffer};
+use arrow_buffer::NullBuffer;
 
 use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
 
@@ -225,20 +224,42 @@ impl BooleanFieldDecoder {
     /// # Errors
     ///
     /// Returns an error if the underlying bit buffer decoders fail to create readers.
-    pub fn create_reader(
+    pub fn create_reader_with_ranges(
         &self,
         pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
     ) -> Result<Box<dyn FieldReader>> {
-        self.create_boolean_reader(pos_ranges_hint)
+        self.create_boolean_reader_with_ranges(pos_ranges_hint)
+            .map(|reader| Box::new(reader) as _)
+    }
+
+    /// Creates a field reader for efficiently accessing specific positions in this field.
+    ///
+    /// # Arguments
+    ///
+    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
+    ///   to be accessed. These hints are used to optimize prefetching strategies
+    ///   for better performance when reading from storage. The positions must be
+    ///   in non-descending order but don't need to be unique or contiguous.
+    ///
+    /// # Returns
+    ///
+    /// A boxed field reader that can read boolean values and presence information for the
+    /// specified positions.
+    pub fn create_reader_with_positions(
+        &self,
+        positions_hint: impl Iterator<Item = u64> + Clone,
+    ) -> Result<Box<dyn FieldReader>> {
+        self.create_boolean_reader_with_positions(positions_hint)
             .map(|reader| Box::new(reader) as _)
     }
 
     /// Creates a concrete boolean field reader optimized for the specified position ranges.
     ///
-    /// Unlike [`create_reader`](Self::create_reader) which returns a boxed trait object,
-    /// this method returns the concrete `BooleanFieldReader` type. This enables access
-    /// to boolean-specific functionality such as [`read_array`](BooleanFieldReader::read_array)
-    /// which returns Arrow `BooleanArray` instances directly.
+    /// Unlike [`create_reader_with_ranges`](Self::create_reader_with_ranges) which returns
+    /// a boxed trait object, this method returns the concrete `BooleanFieldReader` type.
+    /// This enables access to boolean-specific functionality such as
+    /// [`read_array`](BooleanFieldReader::read_array) which returns Arrow `BooleanArray`
+    /// instances directly.
     ///
     /// # Arguments
     ///
@@ -254,16 +275,48 @@ impl BooleanFieldDecoder {
     /// # Errors
     ///
     /// Returns an error if the underlying bit buffer decoders fail to create readers.
-    pub fn create_boolean_reader(
+    pub fn create_boolean_reader_with_ranges(
         &self,
         pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
     ) -> Result<BooleanFieldReader> {
         let values_reader = self
             .values_decoder
-            .create_reader(pos_ranges_hint.clone(), BlockReaderPrefetch::Enabled)?;
+            .create_reader_with_ranges(pos_ranges_hint.clone(), BlockReaderPrefetch::Enabled)?;
         let presence_reader = self
             .presence_decoder
-            .create_reader(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
+            .create_reader_with_ranges(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
+
+        Ok(BooleanFieldReader {
+            values_reader,
+            presence_reader,
+            basic_type: self.basic_type,
+            positions: self.positions,
+        })
+    }
+
+    /// Creates a concrete boolean field reader for efficiently accessing specific positions
+    /// in this field.
+    ///
+    /// # Arguments
+    ///
+    /// * `positions_hint` - An iterator of non-descending logical bit positions that are likely
+    ///   to be accessed. These hints are used to optimize prefetching strategies
+    ///   for better performance when reading from storage. The positions must be
+    ///   in non-descending order but don't need to be unique or contiguous.
+    ///
+    /// # Returns
+    ///
+    /// A `BooleanFieldReader` for accessing the primitive values at the specified positions.
+    pub fn create_boolean_reader_with_positions(
+        &self,
+        positions_hint: impl Iterator<Item = u64> + Clone,
+    ) -> Result<BooleanFieldReader> {
+        let values_reader = self
+            .values_decoder
+            .create_reader_with_positions(positions_hint.clone(), BlockReaderPrefetch::Enabled)?;
+        let presence_reader = self
+            .presence_decoder
+            .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
 
         Ok(BooleanFieldReader {
             values_reader,
@@ -311,10 +364,11 @@ impl BooleanFieldReader {
             nulls = None;
         } else {
             nulls = Some(NullBuffer::new(
-                self.presence_reader.read(pos_range.clone())?,
+                self.presence_reader
+                    .read_range_as_arrow_boolean(pos_range.clone())?,
             ));
         }
-        let values = self.values_reader.read(pos_range)?;
+        let values = self.values_reader.read_range_as_arrow_boolean(pos_range)?;
         Ok(BooleanArray::new(values, nulls))
     }
 }
@@ -332,60 +386,22 @@ impl FieldReader for BooleanFieldReader {
     /// # Returns
     ///
     /// A `ValueSequence` containing boolean values and presence information.
-    fn read(&mut self, pos_range: Range<u64>) -> Result<ValueSequence> {
+    fn read_range(&mut self, pos_range: Range<u64>) -> Result<ValueSequence> {
         verify_arg!(pos_range, pos_range.end <= self.positions);
-
-        let len = (pos_range.end - pos_range.start) as usize;
-
-        let presence: Presence;
-        let values: AlignedByteVec;
-
-        let presence_const = self.presence_reader.try_get_constant();
-        if let Some(false) = presence_const {
-            presence = Presence::Nulls(len);
-            values = AlignedByteVec::zeroed(len);
-        } else {
-            match presence_const {
-                Some(v) => {
-                    assert!(v);
-                    // All values are non-null
-                    presence = Presence::Trivial(len);
-                }
-                None => {
-                    let presence_bits = self.presence_reader.read(pos_range.clone())?;
-                    presence = Presence::Bytes(bits_to_byte_vec(&presence_bits));
-                }
-            }
-
-            match self.values_reader.try_get_constant() {
-                Some(true) => {
-                    values = AlignedByteVec::from_value(len, 1);
-                }
-                Some(false) => {
-                    values = AlignedByteVec::zeroed(len);
-                }
-                None => {
-                    let values_bits = self.values_reader.read(pos_range)?;
-                    values = bits_to_byte_vec(&values_bits);
-                }
-            }
-        }
-
-        Ok(ValueSequence {
-            values: Values::from_vec(values),
-            offsets: None,
-            presence,
-            type_desc: self.basic_type,
-        })
+        let mut values = self.values_reader.read_range(pos_range.clone())?;
+        values.presence = self.presence_reader.read_range_as_presence(pos_range)?;
+        values.type_desc = self.basic_type;
+        Ok(values)
     }
-}
 
-pub(in crate::read::field_decoder) fn bits_to_byte_vec(bits: &BooleanBuffer) -> AlignedByteVec {
-    let mut bytes = AlignedByteVec::zeroed(bits.len());
-    for (bit, byte) in bits.iter().zip(bytes.iter_mut()) {
-        *byte = bit as u8;
+    fn read_containing_block(&mut self, position: u64) -> Result<DecodedBlock> {
+        let mut block = self.values_reader.read_containing_block(position)?;
+        let presence = self
+            .presence_reader
+            .read_range_as_presence(block.descriptor.logical_range.clone())?;
+        block.values.presence = presence;
+        Ok(block)
     }
-    bytes
 }
 
 #[cfg(test)]
@@ -429,11 +445,13 @@ mod tests {
         .map(|r| r.start as u64..r.end as u64)
         .collect::<Vec<_>>();
 
-        let mut reader = decoder.create_reader(ranges.iter().cloned()).unwrap();
+        let mut reader = decoder
+            .create_reader_with_ranges(ranges.iter().cloned())
+            .unwrap();
 
         let mut null_count = 0usize;
         for range in ranges.iter().cloned() {
-            let seq = reader.read(range.clone()).unwrap();
+            let seq = reader.read_range(range.clone()).unwrap();
             assert!(seq.values.as_bytes().iter().all(|&b| b == 0 || b == 1));
             assert_eq!(seq.len(), (range.end - range.start) as usize);
             null_count += seq.presence.count_nulls();
@@ -442,7 +460,7 @@ mod tests {
 
         let mut reader = match decoder {
             FieldDecoder::Boolean(decoder) => decoder
-                .create_boolean_reader(ranges.iter().cloned())
+                .create_boolean_reader_with_ranges(ranges.iter().cloned())
                 .unwrap(),
             _ => panic!("unexpected ecoder"),
         };

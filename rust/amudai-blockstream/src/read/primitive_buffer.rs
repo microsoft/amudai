@@ -112,14 +112,34 @@ impl PrimitiveBufferDecoder {
     /// # Returns
     ///
     /// A result containing the initialized reader if successful
-    pub fn create_reader(
+    pub fn create_reader_with_ranges(
         &self,
         pos_ranges: impl Iterator<Item = Range<u64>> + Clone,
         prefetch: BlockReaderPrefetch,
     ) -> Result<PrimitiveBufferReader> {
         let block_reader = self
             .block_stream
-            .create_reader_with_position_ranges(pos_ranges, prefetch)?;
+            .create_reader_with_ranges(pos_ranges, prefetch)?;
+        Ok(PrimitiveBufferReader::new(
+            self.basic_type,
+            block_reader,
+            PrimitiveBlockDecoder::new(
+                self.encoding_params(),
+                self.basic_type,
+                Arc::new(Default::default()),
+            ),
+        ))
+    }
+
+    /// Creates a reader for accessing values at specific positions from this buffer.
+    pub fn create_reader_with_positions(
+        &self,
+        positions: impl Iterator<Item = u64> + Clone,
+        prefetch: BlockReaderPrefetch,
+    ) -> Result<PrimitiveBufferReader> {
+        let block_reader = self
+            .block_stream
+            .create_reader_with_positions(positions, prefetch)?;
         Ok(PrimitiveBufferReader::new(
             self.basic_type,
             block_reader,
@@ -197,9 +217,9 @@ mod tests {
         .unwrap();
         let ranges = [10u64..100, 200..500];
         let mut reader = decoder
-            .create_reader(ranges.iter().cloned(), BlockReaderPrefetch::Enabled)
+            .create_reader_with_ranges(ranges.iter().cloned(), BlockReaderPrefetch::Enabled)
             .unwrap();
-        let seq = reader.read(300..350).unwrap();
+        let seq = reader.read_range(300..350).unwrap();
         assert_eq!(seq.len(), 50);
         assert_eq!(seq.values.as_slice::<i32>()[0], 300);
         assert_eq!(seq.values.as_slice::<i32>()[49], 349);
@@ -265,17 +285,17 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Read exactly one block
-        let seq = reader.read(0..100).unwrap();
+        let seq = reader.read_range(0..100).unwrap();
         assert_eq!(seq.len(), 100);
         assert_eq!(seq.values.as_slice::<i32>()[0], 0);
         assert_eq!(seq.values.as_slice::<i32>()[99], 99);
 
         // Read exactly two blocks
-        let seq = reader.read(100..300).unwrap();
+        let seq = reader.read_range(100..300).unwrap();
         assert_eq!(seq.len(), 200);
         assert_eq!(seq.values.as_slice::<i32>()[0], 100);
         assert_eq!(seq.values.as_slice::<i32>()[199], 299);
@@ -298,17 +318,17 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Read across block boundary
-        let seq = reader.read(50..150).unwrap();
+        let seq = reader.read_range(50..150).unwrap();
         assert_eq!(seq.len(), 100);
         assert_eq!(seq.values.as_slice::<i32>()[0], 50);
         assert_eq!(seq.values.as_slice::<i32>()[99], 149);
 
         // Read across multiple block boundaries
-        let seq = reader.read(250..550).unwrap();
+        let seq = reader.read_range(250..550).unwrap();
         assert_eq!(seq.len(), 300);
         assert_eq!(seq.values.as_slice::<i32>()[0], 250);
         assert_eq!(seq.values.as_slice::<i32>()[299], 549);
@@ -331,7 +351,7 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Get total value count to determine actual buffer size
@@ -340,7 +360,7 @@ mod tests {
 
         // Read a small section from the middle
         let mid_point = total_values / 2;
-        let seq = reader.read(mid_point - 25..mid_point + 25).unwrap();
+        let seq = reader.read_range(mid_point - 25..mid_point + 25).unwrap();
         assert_eq!(seq.len(), 50);
 
         // Values should be consecutive integers
@@ -366,19 +386,19 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Empty range at the start
-        let seq = reader.read(0..0).unwrap();
+        let seq = reader.read_range(0..0).unwrap();
         assert_eq!(seq.len(), 0);
 
         // Empty range in the middle
-        let seq = reader.read(500..500).unwrap();
+        let seq = reader.read_range(500..500).unwrap();
         assert_eq!(seq.len(), 0);
 
         // Empty range at the end
-        let seq = reader.read(1000..1000).unwrap();
+        let seq = reader.read_range(1000..1000).unwrap();
         assert_eq!(seq.len(), 0);
     }
 
@@ -399,11 +419,11 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Read the entire buffer
-        let seq = reader.read(0..1000).unwrap();
+        let seq = reader.read_range(0..1000).unwrap();
         assert_eq!(seq.len(), 1000);
 
         // Verify all values are present and correct
@@ -429,11 +449,11 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Read range that extends beyond the end
-        let result = reader.read(990..1010);
+        let result = reader.read_range(990..1010);
         assert!(result.is_err());
     }
 
@@ -454,29 +474,29 @@ mod tests {
 
         // Create reader with disjoint block ranges
         let mut reader = decoder
-            .create_reader(
+            .create_reader_with_ranges(
                 vec![0..500, 1000..1500, 1800..2000].into_iter(),
                 BlockReaderPrefetch::Enabled,
             )
             .unwrap();
 
         // Read from first range
-        let seq = reader.read(100..200).unwrap();
+        let seq = reader.read_range(100..200).unwrap();
         assert_eq!(seq.len(), 100);
         assert_eq!(seq.values.as_slice::<i32>()[0], 100);
 
         // Read from second range
-        let seq = reader.read(1100..1200).unwrap();
+        let seq = reader.read_range(1100..1200).unwrap();
         assert_eq!(seq.len(), 100);
         assert_eq!(seq.values.as_slice::<i32>()[0], 1100);
 
         // Read from third range
-        let seq = reader.read(1900..1950).unwrap();
+        let seq = reader.read_range(1900..1950).unwrap();
         assert_eq!(seq.len(), 50);
         assert_eq!(seq.values.as_slice::<i32>()[0], 1900);
 
         // Read across ranges (should work even with gaps)
-        let seq = reader.read(450..1050).unwrap();
+        let seq = reader.read_range(450..1050).unwrap();
         assert_eq!(seq.len(), 600);
         assert_eq!(seq.values.as_slice::<i32>()[0], 450);
         assert_eq!(seq.values.as_slice::<i32>()[599], 1049);
@@ -498,13 +518,13 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader(vec![0..2000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader_with_ranges(vec![0..2000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Perform sequential reads
         for start in (0i32..2000).step_by(100) {
             let end = start + 50;
-            let seq = reader.read(start as u64..end as u64).unwrap();
+            let seq = reader.read_range(start as u64..end as u64).unwrap();
             assert_eq!(seq.len(), 50);
 
             let values = seq.values.as_slice::<i32>();
@@ -516,7 +536,7 @@ mod tests {
         // Perform random access reads
         let positions = vec![150, 750, 1200, 1900];
         for &pos in &positions {
-            let seq = reader.read(pos..pos + 1).unwrap();
+            let seq = reader.read_range(pos..pos + 1).unwrap();
             assert_eq!(seq.len(), 1);
             assert_eq!(seq.values.as_slice::<i32>()[0], pos as i32);
         }
@@ -537,14 +557,14 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Read overlapping ranges
-        let seq1 = reader.read(100..300).unwrap();
+        let seq1 = reader.read_range(100..300).unwrap();
         assert_eq!(seq1.len(), 200);
 
-        let seq2 = reader.read(200..400).unwrap();
+        let seq2 = reader.read_range(200..400).unwrap();
         assert_eq!(seq2.len(), 200);
 
         // Check that the overlapping section contains the same values in both results
@@ -565,13 +585,13 @@ mod tests {
 
         // Read back the data and verify
         let mut reader = decoder
-            .create_reader(
+            .create_reader_with_ranges(
                 vec![0..pos_count].into_iter(),
                 BlockReaderPrefetch::Disabled,
             )
             .unwrap();
 
-        let seq = reader.read(0..pos_count).unwrap();
+        let seq = reader.read_range(0..pos_count).unwrap();
         assert_eq!(seq.len(), pos_count as usize);
         let values = seq.values.as_slice::<i32>();
         assert_eq!(values[0], 0);

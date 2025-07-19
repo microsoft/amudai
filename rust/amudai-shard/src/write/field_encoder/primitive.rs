@@ -398,8 +398,8 @@ mod tests {
         let prepared_buffer = &encoded_field.buffers[0]; // Use the data buffer for decoding
         let decoder = PrimitiveBufferDecoder::from_prepared_buffer(prepared_buffer, basic_type)?;
         let mut reader =
-            decoder.create_reader(std::iter::empty(), BlockReaderPrefetch::Disabled)?;
-        let seq = reader.read(1000..2000).unwrap();
+            decoder.create_reader_with_ranges(std::iter::empty(), BlockReaderPrefetch::Disabled)?;
+        let seq = reader.read_range(1000..2000).unwrap();
         let t = seq.values.as_slice::<u64>()[0];
         let t = datetime_conversions::ticks_to_unix_seconds(t).unwrap();
         assert!(

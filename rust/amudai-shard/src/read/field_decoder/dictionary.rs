@@ -9,7 +9,7 @@ use std::{
 
 use amudai_blockstream::{
     read::{
-        block_stream::BlockReaderPrefetch,
+        block_stream::{BlockReaderPrefetch, DecodedBlock},
         primitive_buffer::{PrimitiveBufferDecoder, PrimitiveBufferReader},
     },
     write::PreparedEncodedBuffer,
@@ -867,13 +867,40 @@ impl DictionaryFieldDecoder {
     ///
     /// # Returns
     /// Boxed field reader for accessing dictionary-decoded values
-    pub fn create_reader(
+    pub fn create_reader_with_ranges(
         &self,
         pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
     ) -> Result<Box<dyn FieldReader>> {
         let codes_reader = self
             .codes_buffer
-            .create_reader(pos_ranges_hint.clone(), BlockReaderPrefetch::Enabled)?;
+            .create_reader_with_ranges(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
+
+        Ok(Box::new(DictionaryFieldReader {
+            codes_reader,
+            dictionary: self.dictionary.clone(),
+            basic_type: self.basic_type,
+        }))
+    }
+
+    /// Creates a reader for efficiently accessing specific positions in this field.
+    ///
+    /// # Arguments
+    ///
+    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
+    ///   to be accessed. These hints are used to optimize prefetching strategies
+    ///   for better performance when reading from storage. The positions must be
+    ///   in non-descending order but don't need to be unique or contiguous.
+    ///
+    /// # Returns
+    ///
+    /// A boxed field reader for accessing the primitive values at the specified positions.
+    pub fn create_reader_with_positions(
+        &self,
+        positions_hint: impl Iterator<Item = u64> + Clone,
+    ) -> Result<Box<dyn FieldReader>> {
+        let codes_reader = self
+            .codes_buffer
+            .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
 
         Ok(Box::new(DictionaryFieldReader {
             codes_reader,
@@ -921,11 +948,17 @@ impl FieldReader for DictionaryFieldReader {
     ///
     /// # Returns
     /// Value sequence containing reconstructed original values
-    fn read(&mut self, pos_range: Range<u64>) -> Result<ValueSequence> {
+    fn read_range(&mut self, pos_range: Range<u64>) -> Result<ValueSequence> {
         // First read the codes for the requested range
-        let codes_sequence = self.codes_reader.read(pos_range)?;
+        let codes_sequence = self.codes_reader.read_range(pos_range)?;
 
         // Then reconstruct the original values using the dictionary
         self.decode_sequence(codes_sequence)
+    }
+
+    fn read_containing_block(&mut self, position: u64) -> Result<DecodedBlock> {
+        let mut block = self.codes_reader.read_containing_block(position)?;
+        block.values = self.decode_sequence(block.values)?;
+        Ok(block)
     }
 }

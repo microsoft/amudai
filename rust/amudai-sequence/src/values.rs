@@ -32,6 +32,34 @@ impl Values {
         Values(vec)
     }
 
+    /// Creates a new `Values` instance from the `value` repeated `len` times.
+    ///
+    /// This method constructs a `Values` container that contains `len` copies of the same
+    /// value, stored as a contiguous aligned byte buffer. The value must be a type that
+    /// can be safely represented as bytes.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - The type of value to repeat. Must implement `bytemuck::AnyBitPattern` and
+    ///   `bytemuck::NoUninit` to ensure safe byte-level operations.
+    ///
+    /// # Parameters
+    ///
+    /// * `len` - The number of times to repeat the value.
+    /// * `value` - The value to repeat throughout the container.
+    ///
+    /// # Returns
+    ///
+    /// A new `Values` container with `len` copies of `value`.
+    pub fn from_value<T>(len: usize, value: T) -> Values
+    where
+        T: bytemuck::AnyBitPattern + bytemuck::NoUninit,
+    {
+        let mut vec = AlignedByteVec::with_capacity(len);
+        vec.resize_typed(len, value);
+        Self::from_vec(vec)
+    }
+
     /// Creates a new `Values` instance filled with zeroed bytes for `len` elements of type `T`.
     ///
     /// # Type Parameters

@@ -11,6 +11,7 @@ use amudai_encodings::block_encoder::BlockChecksum;
 use amudai_format::defs::shard;
 use amudai_io::{ReadAt, SlicedFile};
 use amudai_io_impl::prefetch_read::PrefetchReadAt;
+use amudai_sequence::sequence::ValueSequence;
 
 use crate::write::PreparedEncodedBuffer;
 
@@ -195,9 +196,9 @@ impl BlockStreamDecoder {
     ///
     /// # Arguments
     ///
-    /// * `pos_ranges` - Iterator of logical position ranges within the data stream.
-    ///   Each range represents a span of values (not blocks) that are expected to be read.
-    ///   Positions are zero-based value indices that span across all blocks in the stream.
+    /// * `pos_ranges` - Iterator of ascending non--overlapping logical position ranges within
+    ///   the data stream. Each range represents a span of values (not blocks) that are expected
+    ///   to be read. Positions are zero-based value indices that span across all blocks in the stream.
     ///
     /// * `prefetch` - Controls whether to enable background prefetching for improved
     ///   read performance. See [`BlockReaderPrefetch`] for detailed behavior descriptions.
@@ -220,12 +221,73 @@ impl BlockStreamDecoder {
     /// - [`Self::create_reader_with_block_ranges`] for direct block-based reader creation
     /// - [`BlockReaderPrefetch`] for prefetching behavior details
     /// - Block map methods for understanding position-to-block mapping
-    pub fn create_reader_with_position_ranges(
+    pub fn create_reader_with_ranges(
         &self,
         pos_ranges: impl Iterator<Item = Range<u64>> + Clone,
         prefetch: BlockReaderPrefetch,
     ) -> Result<BlockReader> {
         let block_ranges = self.block_map.pos_ranges_to_block_ranges(pos_ranges)?;
+        let block_ranges = self
+            .block_map
+            .compute_read_optimized_block_ranges(block_ranges.into_iter())?;
+        self.create_reader_with_block_ranges(block_ranges, prefetch)
+    }
+
+    /// Creates a reader for accessing blocks containing specified logical positions.
+    ///
+    /// This method provides an efficient way to create block readers when you know the exact
+    /// logical positions (value indices) you need to access, rather than position ranges.
+    /// It automatically determines which blocks contain those positions and creates an
+    /// optimized reader for accessing them.
+    ///
+    /// # Arguments
+    ///
+    /// * `positions` - Iterator of ascending logical positions (value indices) that will be
+    ///   accessed. Positions are zero-based indices that span across all blocks in the stream.
+    ///   Duplicate positions are automatically deduplicated - if multiple positions fall
+    ///   within the same block, that block will only be included once in the reader.
+    ///
+    /// * `prefetch` - Controls whether to enable background prefetching for improved
+    ///   read performance. See [`BlockReaderPrefetch`] for detailed behavior descriptions.
+    ///
+    /// # Returns
+    ///
+    /// Result containing a `BlockReader` configured to access blocks containing the specified
+    /// positions, or an error if the conversion or reader creation fails.
+    ///
+    /// # Behavior
+    ///
+    /// The method performs several optimization steps:
+    ///
+    /// 1. **Position-to-block mapping**: Each logical position is mapped to the block
+    ///    that contains it, creating individual block ranges (each containing exactly one block).
+    ///
+    /// 2. **Deduplication**: If multiple positions fall within the same block, that block
+    ///    is only included once in the final block ranges.
+    ///
+    /// 3. **I/O optimization**: The resulting block ranges are analyzed and potentially
+    ///    coalesced to minimize I/O operations while respecting storage constraints.
+    ///    Adjacent or nearby blocks may be combined into larger ranges for more efficient
+    ///    reading.
+    ///
+    /// # Performance Considerations
+    ///
+    /// This method is particularly efficient for:
+    /// - **Sparse access patterns**: When you need to access specific values scattered
+    ///   across the stream, rather than contiguous ranges
+    /// - **Index-based lookups**: When you have a list of specific indices to retrieve
+    ///
+    /// # See Also
+    ///
+    /// - [`Self::create_reader_with_ranges`] for contiguous position ranges
+    /// - [`Self::create_reader_with_block_ranges`] for direct block-based reader creation
+    /// - [`BlockReaderPrefetch`] for prefetching behavior details
+    pub fn create_reader_with_positions(
+        &self,
+        positions: impl Iterator<Item = u64> + Clone,
+        prefetch: BlockReaderPrefetch,
+    ) -> Result<BlockReader> {
+        let block_ranges = self.block_map.positions_to_block_ranges(positions)?;
         let block_ranges = self
             .block_map
             .compute_read_optimized_block_ranges(block_ranges.into_iter())?;
@@ -339,7 +401,7 @@ pub enum BlockReaderPrefetch {
     /// Enables background prefetching of blocks based on the provided block ranges.
     ///
     /// When this mode is selected and non-empty block ranges are provided to
-    /// `BlockStreamDecoder::create_reader`, the reader will create a background prefetcher
+    /// `BlockStreamDecoder::create_reader_with_ranges`, the reader will create a background prefetcher
     /// that reads ahead along the predicted access path. This can significantly reduce latency
     /// for sequential or predictable access patterns.
     ///
@@ -752,6 +814,75 @@ impl OpaqueBlock {
         }
         Ok(())
     }
+}
+
+/// A container for decoded block data and its associated metadata.
+///
+/// `DecodedBlock` represents the result of successfully decoding an [`OpaqueBlock`] into
+/// its constituent typed values. While [`OpaqueBlock`] contains raw encoded bytes,
+/// `DecodedBlock` contains the actual decoded values ready for consumption.
+///
+/// This structure serves as the intermediate result in the block decoding pipeline:
+/// 1. **Storage** → [`OpaqueBlock`] (raw encoded bytes + metadata)
+/// 2. **Decoding** → `DecodedBlock` (typed values + metadata)  
+/// 3. **Application** → Individual values or value ranges
+///
+/// # Relationship to OpaqueBlock
+///
+/// `DecodedBlock` maintains the same [`BlockDescriptor`] metadata as its source
+/// [`OpaqueBlock`], ensuring that logical positioning and storage information is
+/// preserved throughout the decoding process. This allows higher-level components
+/// to correlate decoded values with their original storage locations and logical
+/// positions within the stream.
+///
+/// # Caching and Performance
+///
+/// `DecodedBlock` instances are commonly cached by readers like [`GenericBufferReader`]
+/// to optimize repeated access to the same block. Since decoding can be computationally
+/// expensive (involving decompression, type conversion, etc.), caching decoded blocks
+/// improves performance for sequential or overlapping read patterns.
+///
+/// # Memory Considerations
+///
+/// Decoded blocks typically consume more memory than their encoded counterparts since:
+/// - Compression has been removed
+/// - Values are in their native representation  
+///
+/// # Usage
+///
+/// `DecodedBlock` instances are typically:
+/// - Created by block decoders when processing [`OpaqueBlock`] data
+/// - Cached by buffer readers for performance optimization  
+/// - Used to extract value ranges via [`ValueSequence`] methods
+/// - Passed between layers that need both values and positional metadata
+///
+/// [`GenericBufferReader`]: super::generic_buffer::GenericBufferReader
+#[derive(Debug, Clone)]
+pub struct DecodedBlock {
+    /// The decoded value sequence containing the actual typed data from this block.
+    ///
+    /// This field contains the decoded values in their native representation.
+    /// The structure and content of the sequence depends on the field type
+    /// and encoding scheme used during block creation.
+    ///
+    /// The sequence spans exactly the logical position range specified in the
+    /// `descriptor.logical_range`, meaning the first value corresponds to logical
+    /// position `logical_range.start` and the last value corresponds to logical
+    /// position `logical_range.end - 1`.
+    pub values: ValueSequence,
+
+    /// Block metadata describing its logical position and storage location.
+    ///
+    /// The descriptor contains the block's ordinal (sequential index), the range of
+    /// logical positions it covers, and the byte range it occupies in storage.
+    /// This metadata is preserved from the original [`OpaqueBlock`] to maintain
+    /// traceability between decoded values and their storage representation.
+    ///
+    /// Key information includes:
+    /// - `ordinal`: Sequential block index within the stream
+    /// - `logical_range`: Range of logical positions covered by this block's values
+    /// - `storage_range`: Byte range in storage where this block's data is located
+    pub descriptor: BlockDescriptor,
 }
 
 #[cfg(test)]
