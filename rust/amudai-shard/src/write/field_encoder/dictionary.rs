@@ -1,9 +1,9 @@
 use ahash::AHashMap;
-use amudai_io::{AlignWrite, TemporaryFileStore};
 use arrow_array::Array;
-use prost::Message;
+use arrow_buffer::ToByteSlice;
 use std::{collections::HashMap, hash::Hash, sync::Arc};
 
+use amudai_arrow_builders::ArrayBuilderExt;
 use amudai_arrow_processing::for_each::for_each_as_binary;
 use amudai_blockstream::{
     read::block_stream::BlockReaderPrefetch,
@@ -12,29 +12,26 @@ use amudai_blockstream::{
         staging_buffer::PrimitiveStagingBuffer,
     },
 };
-use amudai_common::Result;
+use amudai_common::{Result, error::Error};
 use amudai_encodings::block_encoder::{
     BlockChecksum, BlockEncodingParameters, BlockEncodingPolicy, BlockEncodingProfile,
     PresenceEncoding,
 };
 use amudai_format::{
     defs::{
-        common::{BytesList, DataRef},
+        common::DataRef,
         schema_ext::BasicTypeDescriptor,
-        shard::{
-            BufferKind, DictionaryFixedSizeValuesSection, DictionarySortedIdsSection,
-            DictionaryVarSizeValuesSection, EncodedBuffer, ValueDictionaryHeader,
-        },
+        shard::{BufferKind, EncodedBuffer},
     },
     schema::BasicType,
 };
+use amudai_io::{AlignWrite, TemporaryFileStore};
 
 use super::{EncodedField, FieldEncoderOps};
 use crate::write::field_encoder::{
     DictionaryEncoding, EncodedFieldStatistics, FieldEncoder, FieldEncoderParams,
     bytes::BytesStatsCollector,
 };
-use amudai_arrow_builders::ArrayBuilderExt;
 
 /// Dictionary encoder that compresses data by mapping duplicate values to compact integer codes.
 ///
@@ -71,7 +68,7 @@ use amudai_arrow_builders::ArrayBuilderExt;
 /// Produces two encoded buffers:
 ///
 ///  - **Codes buffer**: Encoded sequence of dictionary IDs that replace original values.
-///  - **Dictionary buffer**: The dictionary buffer encoded as `ValueDictionaryHeader` protobuf message.
+///  - **Dictionary buffer**: The ValueDictionary encoded buffer.
 ///
 pub struct DictionaryFieldEncoder<T>
 where
@@ -79,9 +76,9 @@ where
 {
     /// Field encoder parameters
     params: FieldEncoderParams,
-    /// The accumulated size of all unique strings seen so far.
+    /// The accumulated size of all unique values seen so far.
     dict_size: usize,
-    /// The accumulated size of all strings seen so far.
+    /// The accumulated size of all values seen so far.
     plain_size: usize,
     /// Counter of the populated logical positions (i.e. the number of
     /// pushed buffers and nulls)
@@ -365,11 +362,20 @@ impl DictionaryFieldEncoder<Vec<u8>> {
         }
     }
 
-    /// Extracts dictionary entries in ID order for final encoding.
+    /// Extracts and consumes all dictionary entries, preparing them for final encoding.
     ///
-    /// Returns entries ordered by their assigned IDs (which have already been
-    /// optimized during periodic flushes based on frequency).
-    /// Returned entries include the null entry if it was observed.
+    /// This method finalizes the dictionary by:
+    /// - Ensuring all active entries are frozen by calling `prepare_flush()`
+    /// - Draining all frozen entries (making the encoder unusable afterward)
+    /// - Adding a null entry representation if nulls were observed
+    /// - Sorting entries by their assigned IDs (which have been optimized for frequency)
+    /// - Computing the total dictionary size including null entry overhead
+    ///
+    /// # Returns
+    ///
+    /// A `PreparedDictionary` containing all unique values ordered by dictionary ID.
+    /// The null entry, if present, is represented as a zero-filled vector of the
+    /// appropriate fixed size for the data type.
     fn prepare_and_take_dictionary(&mut self) -> PreparedDictionary {
         // First ensure all entries are frozen
         self.prepare_flush();
@@ -392,6 +398,7 @@ impl DictionaryFieldEncoder<Vec<u8>> {
             basic_type: self.params.basic_type,
             entries,
             null_entry: self.null_entry.clone(),
+            dict_size: self.dict_size + self.params.basic_type.fixed_size as usize, // Include null entry size
         }
     }
 
@@ -405,11 +412,11 @@ impl DictionaryFieldEncoder<Vec<u8>> {
         // Minimum values to observe before evaluating efficiency.
         const EFFICIENCY_EVAL_MIN_VALUES: usize = 10 * 1024;
 
-        // If the encoded size for the first N values (N < EFFICIENCY_EVAL_MIN_VALUES) is more
+        // If the encoded size for the first N values (N < EFFICIENCY_EVAL_MIN_VALUES) is
         // greater than this value, then we consider the dictionary encoding inefficient.
         const TOO_FAST_GROWTH_THRESHOLD: usize = 10 * 1024 * 1024; // 10MB
 
-        /// The estimated efficient compressio ratio of the dictionary encoding.
+        /// The estimated efficient compression ratio of the dictionary encoding.
         const ESTIMATED_COMPRESSION_RATIO: usize = 10;
 
         // Estimation of the dictionary encoded size, which is the sum of:
@@ -419,7 +426,7 @@ impl DictionaryFieldEncoder<Vec<u8>> {
         // 4. Offsets for variable-size values (4 bytes per unique value).
         let unique_count = self.active_entries.len() + self.frozen_entries.len();
 
-        // Assume BitPacking is used for encodign the codes buffer (dictionary IDs).
+        // Assume BitPacking is used for encoding the codes buffer (dictionary IDs).
         let bits_per_id = 64 - unique_count.leading_zeros() as usize;
         let offsets_size = if self.params.basic_type.fixed_size == 0 {
             unique_count * 8 // Offsets for variable-size values (8 bytes per unique value)
@@ -641,7 +648,6 @@ impl AdaptiveDictionaryFieldEncoder {
     /// from dictionary encoder to native encoder.
     ///
     /// # Arguments
-    /// * `array` - Array for populating newly created native encoder
     /// * `is_sealing` - Indicates if this is the final encoding operation
     fn switch_to_native_encoder_if_needed(&mut self, is_sealing: bool) -> Result<()> {
         if self.native_encoder.is_some() {
@@ -756,6 +762,8 @@ pub struct PreparedDictionary {
     pub entries: Vec<(Vec<u8>, DictionaryEntry)>,
     /// Null value entry.
     pub null_entry: Option<DictionaryEntry>,
+    /// Dictionary values total size in bytes.
+    pub dict_size: usize,
 }
 
 impl PreparedDictionary {
@@ -767,6 +775,7 @@ impl PreparedDictionary {
             basic_type,
             entries: Vec::new(),
             null_entry: None,
+            dict_size: 0,
         }
     }
 
@@ -777,6 +786,7 @@ impl PreparedDictionary {
         let id = self.entries.len() as u32;
         self.entries
             .push((value.to_vec(), DictionaryEntry { id, count }));
+        self.dict_size += value.len();
     }
 
     /// Manually adds a null entry to the dictionary.
@@ -785,21 +795,25 @@ impl PreparedDictionary {
     pub fn push_null(&mut self, count: usize) {
         self.push(&vec![0u8; self.basic_type.fixed_size as usize], count);
         self.null_entry = Some(self.entries.last().unwrap().1.clone());
+        self.dict_size += self.basic_type.fixed_size as usize;
     }
 
     /// Creates the dictionary entries buffer containing unique values.
     ///
     /// This method encodes the dictionary entries into a structured buffer
     /// that includes:
-    /// - Header section with metadata and ranges (`ValueDictionaryHeader`)
-    /// - Values section with unique values (either `DictionaryFixedSizeValuesSection` or `DictionaryVarSizeValuesSection`)
-    /// - Sorted IDs section with dictionary IDs in lexicographic order (`DictionarySortedIdsSection`)
     ///
-    /// Each written section is accompanied by its length and checksum.
-    /// The resulted buffer is aligned to 8 bytes.
+    /// - Header section with metadata and references to other sections.
+    /// - Values section with unique values.
+    /// - Offsets section with variable-sized values offsets (if applicable).
+    /// - Sorted IDs section with dictionary IDs in lexicographic order.
+    ///   This section is currently always present, even though it's optional.
+    ///
+    /// All sections use consistent 8-byte length prefixes, 64 bytes padding,
+    /// and are aligned to 16-byte boundaries. The resulting buffer is aligned to 64 bytes.
     ///
     /// # Arguments
-    /// * `entries` - Dictionary entries with unique values and metadata
+    /// * `temp_store` - Temporary file store for allocating buffer space
     ///
     /// # Returns
     /// Prepared encoded buffer containing the structured dictionary
@@ -807,31 +821,52 @@ impl PreparedDictionary {
         &self,
         temp_store: &dyn TemporaryFileStore,
     ) -> Result<PreparedEncodedBuffer> {
+        // Create all sections first to determine their sizes
         let values_section = self.create_values_section();
-        let values_section_range = amudai_format::defs::common::UInt64Range {
-            start: 0,
-            end: values_section.len() as u64,
-        };
-
+        let offsets_section = self.create_offsets_section();
         let sorted_ids_section = self.create_sorted_ids_section();
-        let sorted_ids_section_range = amudai_format::defs::common::UInt64Range {
-            start: values_section_range.end,
-            end: values_section_range.end + sorted_ids_section.len() as u64,
+
+        // Calculate section offsets within the buffer
+        // Header is always at offset 0 and is 128 bytes (aligned)
+        let header_size = ValueDictionaryHeader::size() as u64;
+
+        // Values section starts after header
+        let values_start = header_size;
+        let values_end = values_start + values_section.len() as u64;
+
+        // Offsets section starts after values section
+        let offsets_start = values_end;
+        let offsets_end = if let Some(ref offsets) = offsets_section {
+            offsets_start + offsets.len() as u64
+        } else {
+            offsets_start // Empty range if no offsets section
         };
 
-        let header_section =
-            self.create_header_section(values_section_range, sorted_ids_section_range);
+        // Sorted IDs section starts after offsets section
+        let sorted_ids_start = offsets_end;
+        let sorted_ids_end = sorted_ids_start + sorted_ids_section.len() as u64;
 
-        // Write all the sections into the temporary buffer.
-        let mut buffer = temp_store.allocate_stream(Some(
-            header_section.len() + values_section.len() + sorted_ids_section.len(),
-        ))?;
+        // Create header with calculated section ranges
+        let header_section = self.create_header_section_with_ranges(
+            values_start..values_end,
+            offsets_start..offsets_end,
+            sorted_ids_start..sorted_ids_end,
+        );
+
+        // Calculate total buffer size needed
+        let total_size = sorted_ids_end.next_multiple_of(64); // Final alignment to 64 bytes
+
+        // Write all the sections into the temporary buffer
+        let mut buffer = temp_store.allocate_stream(Some(total_size as usize))?;
         buffer.write_all(&header_section)?;
         buffer.write_all(&values_section)?;
+        if let Some(offsets) = offsets_section {
+            buffer.write_all(&offsets)?;
+        }
         buffer.write_all(&sorted_ids_section)?;
 
-        // Align to 8 bytes
-        buffer.align(8)?;
+        // Final alignment to 64-byte boundary as required by Amudai encoded buffers spec.
+        buffer.align(64)?;
 
         // Create the PreparedEncodedBuffer
         let data_size = buffer.current_size();
@@ -857,41 +892,76 @@ impl PreparedDictionary {
         Ok(prepared_buffer)
     }
 
-    /// Creates the section containing the unique values of the dictionary.
+    /// Encodes dictionary values into byte buffer.
+    /// The buffer is padded with 64 bytes and aligned to 16-byte boundary.
+    ///
+    /// The encoded section layout is as follows:
+    ///
+    /// ```text
+    ///   ┌────────┬────────┬────────┬────────┬─────────┬──────────┐
+    ///   │ length │ value1 │  ...   │ valueN │ padding │ checksum │
+    ///   └────────┴────────┴────────┴────────┴─────────┴──────────┘
+    /// ```
+    /// # Returns
+    ///
+    /// Encoded values with an envelope (8-byte length + data + checksum).
+    fn create_values_section(&self) -> Vec<u8> {
+        let mut values_data = SectionWriter::new_with_capacity(self.dict_size);
+        for (value, _) in self.entries.iter() {
+            values_data.add_payload(value);
+        }
+        values_data.build()
+    }
+
+    /// Encodes variable-sized values offsets section into byte buffer.
+    /// The section is optional and is only created if the value type is variable-sized.
+    /// The buffer is padded with 64 bytes and aligned to 16-byte boundary.
+    ///
+    /// The first offset is always 0, representing the start of the values section.
+    ///
+    /// The encoded section layout is as follows:
+    ///
+    ///  ```text
+    ///  ┌────────┬─────────┬─────────┬───────────┬─────────┬──────────┐
+    ///  │ length │ offset1 │   ...   │ offsetN+1 │ padding │ checksum │  
+    ///  └────────┴─────────┴─────────┴───────────┴─────────┴──────────┘
+    /// ```
+    /// # Returns
+    ///
+    /// Encoded values and offsets with an envelope (8-byte length + data + checksum).
+    /// If the value type is fixed-size, returns `None`.
+    fn create_offsets_section(&self) -> Option<Vec<u8>> {
+        if self.basic_type.fixed_size > 0 {
+            // No offsets section for fixed-size values
+            return None;
+        }
+        let offsets_size = (self.entries.len() + 1) * 8; // 8 bytes per offset
+        let mut offsets_data = SectionWriter::new_with_capacity(offsets_size);
+        let mut offset = 0;
+        offsets_data.add_payload(&0u64.to_le_bytes()); // First offset is always 0
+        for (value, _) in self.entries.iter() {
+            offset += value.len() as u64;
+            offsets_data.add_payload(&(offset as u64).to_le_bytes());
+        }
+        Some(offsets_data.build())
+    }
+
+    /// Creates the sorted IDs section.
+    ///
+    /// This section contains dictionary IDs in lexicographic order
+    /// based on the values they represent.
+    ///
+    /// The layout of the section is as follows:
+    ///
+    /// ```text
+    /// ┌────────┬────────┬────────┬────────┬─────────┬───────────┐
+    /// │ length │ id1    │ id2    │ ...    │ padding │ checksum  │
+    /// └────────┴────────┴────────┴────────┴─────────┴───────────┘
+    /// ```
     ///
     /// # Returns
     ///
-    /// Encoded `DictionaryFixedSizeValuesSection` or `DictionaryVarSizeValuesSection` protobuf message
-    /// accompanied with its length and checksum.
-    fn create_values_section(&self) -> Vec<u8> {
-        let payload = if self.basic_type.fixed_size > 0 {
-            // Fixed-size values section
-            let mut values_data = vec![];
-            for (value, _) in self.entries.iter() {
-                assert_eq!(value.len(), self.basic_type.fixed_size as usize);
-                values_data.extend_from_slice(value);
-            }
-            DictionaryFixedSizeValuesSection {
-                values: values_data,
-            }
-            .encode_to_vec()
-        } else {
-            // Variable-size values section
-            let mut offsets = vec![0u64];
-            let mut data = vec![];
-            for (value, _) in self.entries.iter() {
-                data.extend_from_slice(value);
-                offsets.push(data.len() as u64);
-            }
-            let bytes_list = BytesList { offsets, data };
-            DictionaryVarSizeValuesSection {
-                values: Some(bytes_list),
-            }
-            .encode_to_vec()
-        };
-        amudai_format::checksum::create_message_vec(&payload)
-    }
-
+    /// Encoded sorted IDs section with an envelope (8-byte length + data + checksum).
     fn create_sorted_ids_section(&self) -> Vec<u8> {
         assert!(
             self.entries
@@ -916,36 +986,227 @@ impl PreparedDictionary {
                 .cmp(&self.entries[b_id as usize].0)
         });
 
-        let payload = DictionarySortedIdsSection { sorted_ids }.encode_to_vec();
-        amudai_format::checksum::create_message_vec(&payload)
+        let sorted_ids_bytes = sorted_ids.to_byte_slice();
+        let mut section_data = SectionWriter::new_with_capacity(sorted_ids_bytes.len());
+        section_data.add_payload(sorted_ids_bytes);
+        section_data.build()
     }
 
-    /// Creates the top-level header message.
+    /// Creates the top-level header message with section ranges.
     ///
     /// # Returns
     ///
-    /// Encoded `ValueDictionaryHeader` protobuf message accompanied with its length and checksum.
-    fn create_header_section(
+    /// Encoded `ValueDictionaryHeader` message as a byte vector.
+    fn create_header_section_with_ranges(
         &self,
-        values_section_range: amudai_format::defs::common::UInt64Range,
-        sorted_ids_section_range: amudai_format::defs::common::UInt64Range,
+        values_section_range: std::ops::Range<u64>,
+        offsets_section_range: std::ops::Range<u64>,
+        sorted_ids_section_range: std::ops::Range<u64>,
     ) -> Vec<u8> {
-        let fixed_value_size = if self.basic_type.fixed_size > 0 {
-            Some(self.basic_type.fixed_size)
+        let header = ValueDictionaryHeader {
+            value_type: self.basic_type.basic_type.clone(),
+            value_count: self.entries.len() as u32,
+            fixed_value_size: self.basic_type.fixed_size,
+            null_entry_present: self.null_entry.is_some(),
+            null_id: self.null_entry.as_ref().map(|e| e.id),
+            values_section_range,
+            offsets_section_range,
+            sorted_ids_section_range,
+        };
+        header.encode()
+    }
+}
+
+/// ValueDictionary buffer header containing dictionary metadata.
+/// Encoded header is guaranteed to be aligned to 128 bytes.
+pub struct ValueDictionaryHeader {
+    /// Dictionary value basic type.
+    pub value_type: BasicType,
+    /// Number of entries in the dictionary, including null entry.
+    /// The last valid dictionary ID is `value_count - 1`.
+    pub value_count: u32,
+    /// Whether null entry present.
+    pub null_entry_present: bool,
+    /// Dictionary ID of the null entry, if present.
+    pub null_id: Option<u32>,
+    /// Size of the fixed value, if the value type is fixed-size.
+    /// If the value type is variable-size, this is 0.
+    pub fixed_value_size: u32,
+    /// Byte range of the values section within the buffer.
+    pub values_section_range: std::ops::Range<u64>,
+    /// Byte range of the offsets section within the buffer.
+    /// Empty range if the value type is fixed-size.
+    pub offsets_section_range: std::ops::Range<u64>,
+    /// Byte range of the sorted IDs section within the buffer.
+    pub sorted_ids_section_range: std::ops::Range<u64>,
+}
+
+impl ValueDictionaryHeader {
+    /// Returns the size of the `ValueDictionaryHeader` including
+    /// alignment padding in bytes (padded to 128 bytes).
+    pub const fn size() -> usize {
+        128 // Fixed 128-byte header size for alignment
+    }
+
+    /// Encodes the header into a byte vector.
+    pub fn encode(self) -> Vec<u8> {
+        let mut buf = vec![0u8; Self::size()];
+        buf[0] = self.value_type as u8;
+        buf[1..5].copy_from_slice(&self.value_count.to_le_bytes());
+        buf[5] = if self.null_entry_present { 1 } else { 0 };
+        if let Some(null_id) = self.null_id {
+            buf[6..10].copy_from_slice(&null_id.to_le_bytes());
+        }
+        buf[10..14].copy_from_slice(&self.fixed_value_size.to_le_bytes());
+        buf[14..22].copy_from_slice(&self.values_section_range.start.to_le_bytes());
+        buf[22..30].copy_from_slice(&self.values_section_range.end.to_le_bytes());
+        buf[30..38].copy_from_slice(&self.offsets_section_range.start.to_le_bytes());
+        buf[38..46].copy_from_slice(&self.offsets_section_range.end.to_le_bytes());
+        buf[46..54].copy_from_slice(&self.sorted_ids_section_range.start.to_le_bytes());
+        buf[54..62].copy_from_slice(&self.sorted_ids_section_range.end.to_le_bytes());
+        let checksum = amudai_format::checksum::compute(&buf[..Self::size() - 4]);
+        buf[Self::size() - 4..].copy_from_slice(&checksum.to_le_bytes());
+        buf
+    }
+
+    /// Reads and decodes the `ValueDictionaryHeader` from the provided buffer.
+    ///
+    /// The validity of the buffer is checked against the expected checksum
+    /// stored in the header.
+    ///
+    /// # Arguments
+    /// * `buffer` - Byte slice containing the encoded header
+    ///
+    /// # Returns
+    /// Result containing the parsed `ValueDictionaryHeader` or an error
+    /// if the buffer is invalid or checksum does not match.
+    ///
+    /// # Errors
+    /// Returns an error if the buffer is too small or checksum does not match.
+    ///
+    pub fn decode(buffer: &[u8]) -> Result<Self> {
+        let header_size = Self::size();
+        if buffer.len() < header_size {
+            return Err(Error::invalid_format(
+                "ValueDictionaryHeader: encoded size is too small",
+            ));
+        }
+        let checksum = u32::from_le_bytes(buffer[header_size - 4..header_size].try_into().unwrap());
+        if checksum != amudai_format::checksum::compute(&buffer[..header_size - 4]) {
+            return Err(Error::invalid_format(
+                "ValueDictionaryHeader: invalid checksum",
+            ));
+        }
+
+        let value_type: BasicType = buffer[0].try_into().unwrap();
+        let value_count = u32::from_le_bytes(buffer[1..5].try_into().unwrap());
+        let null_entry_present = buffer[5] != 0;
+        let null_id = if null_entry_present {
+            Some(u32::from_le_bytes(buffer[6..10].try_into().unwrap()))
         } else {
             None
         };
-        let payload = ValueDictionaryHeader {
-            value_type: self.basic_type.basic_type as u32,
-            value_count: self.entries.len() as u32,
-            null_id: self.null_entry.as_ref().map(|e| e.id),
-            fixed_value_size,
-            values_section_range: Some(values_section_range),
-            sorted_ids_section_range: Some(sorted_ids_section_range),
-        }
-        .encode_to_vec();
+        let fixed_value_size = u32::from_le_bytes(buffer[10..14].try_into().unwrap());
+        let values_section_start = u64::from_le_bytes(buffer[14..22].try_into().unwrap());
+        let values_section_end = u64::from_le_bytes(buffer[22..30].try_into().unwrap());
+        let offsets_section_start = u64::from_le_bytes(buffer[30..38].try_into().unwrap());
+        let offsets_section_end = u64::from_le_bytes(buffer[38..46].try_into().unwrap());
+        let sorted_ids_section_start = u64::from_le_bytes(buffer[46..54].try_into().unwrap());
+        let sorted_ids_section_end = u64::from_le_bytes(buffer[54..62].try_into().unwrap());
 
-        let buffer = amudai_format::checksum::create_message_vec(&payload);
-        buffer
+        Ok(Self {
+            value_type,
+            value_count,
+            null_entry_present,
+            null_id,
+            fixed_value_size,
+            values_section_range: values_section_start..values_section_end,
+            offsets_section_range: offsets_section_start..offsets_section_end,
+            sorted_ids_section_range: sorted_ids_section_start..sorted_ids_section_end,
+        })
+    }
+}
+
+/// Builds encoded section as an envelope consisting of payload length,
+/// the section data, and a checksum.
+///
+/// This is a builder pattern for writing section data in a structured
+/// format. Each section uses a consistent 8-byte length prefix,
+/// followed by the section data and the checksum (4 bytes).
+///
+/// It's guaranteed that the resulting buffer starts on 16-byte alignment,
+/// is padded with 64 bytes, and aligned to 16-byte boundary.
+///
+struct SectionWriter {
+    data: Vec<u8>,
+}
+
+impl SectionWriter {
+    /// Creates a new `SectionWriter` with a specified initial capacity.
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - The initial capacity for the payload data.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `SectionWriter` with the specified capacity.
+    pub fn new_with_capacity(capacity: usize) -> Self {
+        // Calculate the final aligned size for the section:
+        // 8-byte length + payload + 64 bytes padding + checksum, aligned to 16 bytes
+        let base_size = 8 + capacity + 64 + 4;
+        let expected_total_size = base_size.next_multiple_of(16);
+
+        let mut data = Vec::with_capacity(expected_total_size);
+        // Reserve the space for the 8-byte length prefix
+        data.resize(8, 0);
+        Self { data }
+    }
+
+    /// Adds a payload to the section buffer, updating the checksum accordingly.
+    ///
+    /// # Arguments
+    ///
+    /// * `payload` - A byte slice representing the payload to be added to the section.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to `self`, allowing for method chaining.
+    pub fn add_payload(&mut self, payload: &[u8]) -> &mut Self {
+        self.data.extend_from_slice(payload);
+        self
+    }
+
+    /// Finalizes the section by writing the size of the payload at the beginning
+    /// and appending the checksum at the end.
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<u8>` containing the complete section, which includes:
+    /// - The size of the payload as 8-byte little-endian integer.
+    /// - The section data.
+    /// - 64 bytes of padding.
+    /// - Optional alignment padding to 16-byte boundary.
+    /// - A 4-byte checksum of the payload.
+    ///
+    pub fn build(mut self) -> Vec<u8> {
+        // Write the payload size at the beginning of the buffer.
+        let size = self.data.len() - 8; // Subtract 8-byte length prefix
+        self.data[0..8].copy_from_slice(&(size as u64).to_le_bytes());
+
+        // Calculate the checksum of the payload.
+        let checksum = amudai_format::checksum::compute(&self.data[8..]);
+
+        // Add 64 bytes of padding
+        self.data.extend_from_slice(&[0u8; 64]);
+
+        // Ensure the buffer is aligned to 16 bytes (before checksum).
+        let alignment = (self.data.len() + 4).next_multiple_of(16) - 4;
+        self.data.resize(alignment, 0);
+
+        // Append the checksum at the end of the buffer.
+        self.data.extend_from_slice(&checksum.to_le_bytes());
+
+        self.data
     }
 }

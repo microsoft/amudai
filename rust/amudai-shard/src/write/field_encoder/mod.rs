@@ -24,7 +24,7 @@ use amudai_io::temp_file_store::TemporaryFileStore;
 
 use super::artifact_writer::ArtifactWriter;
 
-pub use dictionary::{DictionaryEntry, PreparedDictionary};
+pub use dictionary::{DictionaryEntry, PreparedDictionary, ValueDictionaryHeader};
 
 /// A `FieldEncoder` is tasked with encoding a sequence of values for a specific
 /// field within a stripe, independently of any child fields.

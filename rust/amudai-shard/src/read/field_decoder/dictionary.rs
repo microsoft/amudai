@@ -1,7 +1,5 @@
 //! Decoder for dictionary-encoded fields.
 
-use amudai_io::{PrecachedReadAt, ReadAt, SlicedFile};
-use prost::Message;
 use std::{
     ops::Range,
     sync::{Arc, OnceLock},
@@ -17,17 +15,16 @@ use amudai_blockstream::{
 use amudai_bytes::{Bytes, buffer::AlignedByteVec};
 use amudai_common::{Result, error::Error, verify_arg, verify_data};
 use amudai_format::{
-    defs::shard::{
-        BufferKind, DictionaryFixedSizeValuesSection, DictionarySortedIdsSection,
-        DictionaryVarSizeValuesSection, EncodedBuffer, ValueDictionaryHeader,
-    },
+    defs::shard::{BufferKind, EncodedBuffer},
     schema::{BasicType, BasicTypeDescriptor},
 };
+use amudai_io::{PrecachedReadAt, ReadAt, SlicedFile};
 use amudai_sequence::{
     offsets::Offsets, presence::Presence, sequence::ValueSequence, values::Values,
 };
 
 use super::FieldReader;
+use crate::write::field_encoder::ValueDictionaryHeader;
 use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
 
 /// Decoder for 'VALUE_DICTIONARY' buffer containing value mappings and metadata.
@@ -73,7 +70,7 @@ pub struct DictionaryDecoder {
     /// values, enabling binary search operations for value-to-code mapping.
     ///
     /// Uses `OnceLock` to ensure thread-safe single initialization.
-    sorted_ids: OnceLock<Option<DictionarySortedIdsSection>>,
+    sorted_ids: OnceLock<Option<SortedIds>>,
 }
 
 impl DictionaryDecoder {
@@ -147,12 +144,12 @@ impl DictionaryDecoder {
     /// `Ok(())` if the types match, error otherwise.
     pub fn verify_basic_type(&self, type_desc: BasicTypeDescriptor) -> Result<()> {
         let header = self.header()?;
-        verify_data!(
-            header.value_type,
-            header.value_type == type_desc.basic_type as u32
-        );
-        if let Some(fixed_size) = header.fixed_value_size {
-            verify_data!(header.fixed_value_size, type_desc.fixed_size == fixed_size);
+        verify_data!(header.value_type, header.value_type == type_desc.basic_type);
+        if header.fixed_value_size > 0 {
+            verify_data!(
+                header.fixed_value_size,
+                type_desc.fixed_size == header.fixed_value_size
+            );
         }
         Ok(())
     }
@@ -196,7 +193,7 @@ impl DictionaryDecoder {
         self.establish_values()
     }
 
-    /// Returns a reference to the optional sorted IDs section.
+    /// Returns a reference to the sorted IDs section.
     ///
     /// The sorted IDs section contains dictionary IDs sorted by their corresponding
     /// values. This enables binary search operations for value-to-code mapping.
@@ -206,13 +203,12 @@ impl DictionaryDecoder {
     ///
     /// # Returns
     ///
-    /// Optional reference to the `DictionarySortedIdsSection`.
-    /// Returns `None` if the dictionary doesn't include sorted IDs.
+    /// Reference to the `SortedIds` section, or `None` if the section is not present.
     ///
     /// # Errors
     ///
     /// Returns an error if the sorted IDs section exists but cannot be loaded or decoded.
-    pub fn sorted_ids(&self) -> Result<Option<&DictionarySortedIdsSection>> {
+    pub fn sorted_ids(&self) -> Result<Option<&SortedIds>> {
         self.establish_sorted_ids()
     }
 
@@ -326,9 +322,9 @@ impl DictionaryDecoder {
     }
 
     /// Establishes and returns a reference to the sorted IDs section, loading it if necessary.
-    fn establish_sorted_ids(&self) -> Result<Option<&DictionarySortedIdsSection>> {
-        if let Some(sorted_ids) = self.sorted_ids.get() {
-            Ok(sorted_ids.as_ref())
+    fn establish_sorted_ids(&self) -> Result<Option<&SortedIds>> {
+        if let Some(sorted_ids_opt) = self.sorted_ids.get() {
+            Ok(sorted_ids_opt.as_ref())
         } else {
             let header = self.establish_header()?;
             let sorted_ids = header.load_sorted_ids()?;
@@ -369,24 +365,28 @@ impl DictionaryDecoder {
 /// - `String` - UTF-8 encoded text
 /// - `Binary` - Arbitrary byte sequences
 ///
-/// Values are stored as a `BytesList` where each entry can have different lengths.
-/// The ordinal position of each value in the list corresponds to its dictionary ID.
+/// Values are stored as two buffers: `values` and `offsets`.
+/// - `values`: Contains all the value bytes concatenated together.
+/// - `offsets`: Contains offsets into the `values` buffer, indicating where each value
+///     starts and ends.
 pub enum DictionaryValues {
     /// Fixed-size values storage for primitive and fixed-length types.
     ///
     /// Contains:
-    /// - `DictionaryFixedSizeValuesSection`: Protobuf section with packed value buffer
+    /// - `Bytes`: The buffer containing all the values written contiguously.
     /// - `usize`: Size in bytes of each individual value
     ///
     /// The value size must be consistent with the declared type and is validated
     /// during dictionary creation. All values in the buffer have identical byte length.
-    FixedSize(DictionaryFixedSizeValuesSection, usize),
+    FixedSize(Bytes, usize),
 
     /// Variable-size values storage for strings and binary data.
     ///
     /// Contains:
-    /// - `DictionaryVarSizeValuesSection`: Protobuf section with `BytesList` of values
-    VarSize(DictionaryVarSizeValuesSection),
+    /// - `Bytes`: The buffer containing all the values written contiguously.
+    /// - `Bytes`: The buffer containing offsets for each value. The buffer can be
+    ///     safely casted to a slice of `u64` to access offsets.
+    VarSize(Bytes, Bytes),
 }
 
 impl DictionaryValues {
@@ -394,7 +394,7 @@ impl DictionaryValues {
     ///
     /// For fixed-size values, this is calculated by dividing the total buffer size
     /// by the size of each individual value. For variable-size values, this returns
-    /// the number of entries in the underlying `BytesList`.
+    /// the number of entries based on the offsets array length.
     ///
     /// # Returns
     ///
@@ -402,8 +402,8 @@ impl DictionaryValues {
     #[inline]
     pub fn len(&self) -> usize {
         match self {
-            DictionaryValues::FixedSize(section, value_size) => section.values.len() / value_size,
-            DictionaryValues::VarSize(section) => section.values.as_ref().unwrap().len(),
+            DictionaryValues::FixedSize(values, value_size) => values.len() / value_size,
+            DictionaryValues::VarSize(_, offsets) => offsets.typed_data::<u64>().len() - 1,
         }
     }
 
@@ -438,8 +438,8 @@ impl DictionaryValues {
                 let values = Self::decode_fixed(section, *value_size, codes)?;
                 Ok((values, None))
             }
-            DictionaryValues::VarSize(section) => {
-                let (values, offsets) = Self::decode_variable(section, codes)?;
+            DictionaryValues::VarSize(values, offsets) => {
+                let (values, offsets) = Self::decode_variable(values, offsets, codes)?;
                 Ok((values, Some(offsets)))
             }
         }
@@ -464,12 +464,17 @@ impl DictionaryValues {
     pub fn get(&self, id: u32) -> &[u8] {
         let id = id as usize;
         match self {
-            DictionaryValues::FixedSize(section, value_size) => {
+            DictionaryValues::FixedSize(values, value_size) => {
                 let start = id * value_size;
                 let end = start + value_size;
-                &section.values[start..end]
+                &values[start..end]
             }
-            DictionaryValues::VarSize(section) => section.values.as_ref().unwrap().value_at(id),
+            DictionaryValues::VarSize(values, offsets) => {
+                let offsets = offsets.typed_data::<u64>();
+                let start = offsets[id] as usize;
+                let end = offsets[id + 1] as usize;
+                &values[start..end]
+            }
         }
     }
 
@@ -499,8 +504,8 @@ impl DictionaryValues {
     ///
     /// # Note
     ///
-    /// Currently returns `Ok(())` as a placeholder. Full validation logic
-    /// is TBD and will be implemented in the future.
+    /// Currently returns `Ok(())` as basic validation is performed elsewhere.
+    /// Additional validation logic may be added in the future as needed.
     pub fn verify(&self, _null_id: Option<u32>) -> Result<()> {
         Ok(())
     }
@@ -512,7 +517,7 @@ impl DictionaryValues {
     ///
     /// # Arguments
     ///
-    /// * `section` - Fixed-size values section containing the packed value buffer
+    /// * `dict_values` - Fixed-size values section containing the packed value buffer
     /// * `value_size` - Size in bytes of each individual value
     /// * `codes` - Array of dictionary codes to decode
     ///
@@ -520,19 +525,15 @@ impl DictionaryValues {
     ///
     /// A `Values` buffer containing the reconstructed values in sequence.
     /// Values are stored contiguously with each value occupying exactly `value_size` bytes.
-    fn decode_fixed(
-        section: &DictionaryFixedSizeValuesSection,
-        value_size: usize,
-        codes: &[u32],
-    ) -> Result<Values> {
+    fn decode_fixed(dict_values: &Bytes, value_size: usize, codes: &[u32]) -> Result<Values> {
         let mut values =
             Values::with_byte_capacity(codes.len().checked_mul(value_size).expect("mul"));
         for &code in codes {
             let code = code as usize;
             let start = code * value_size;
             let end = start + value_size;
-            verify_data!(code, end <= section.values.len());
-            values.extend_from_slice(&section.values[start..end]);
+            verify_data!(code, end <= dict_values.len());
+            values.extend_from_slice(&dict_values[start..end]);
         }
         Ok(values)
     }
@@ -545,7 +546,8 @@ impl DictionaryValues {
     ///
     /// # Arguments
     ///
-    /// * `section` - Variable-size values section containing the `BytesList`
+    /// * `values` - Variable-size values section containing the concatenated value data
+    /// * `offsets` - Buffer containing u64 offsets for each value
     /// * `codes` - Array of dictionary codes to decode
     ///
     /// # Returns
@@ -557,49 +559,81 @@ impl DictionaryValues {
     /// # Algorithm
     ///
     /// 1. **Offset calculation**: For each code, determine the length of the corresponding
-    ///    value from the `BytesList` and build cumulative offsets
+    ///    value from the offsets array and build cumulative offsets
     /// 2. **Value reconstruction**: Concatenate all referenced values into a single buffer
     ///    maintaining the order specified by the input codes
     fn decode_variable(
-        section: &DictionaryVarSizeValuesSection,
+        values: &Bytes,
+        offsets: &Bytes,
         codes: &[u32],
     ) -> Result<(Values, Offsets)> {
-        let bytes_list = section.values.as_ref().expect("values");
-
-        let mut offsets = Offsets::with_capacity(codes.len());
+        let offsets = offsets.typed_data::<u64>();
+        let mut result_offsets = Offsets::with_capacity(codes.len());
         for &code in codes {
-            verify_data!(code, (code as usize) < bytes_list.len());
-            offsets.push_length(bytes_list.length_at(code as usize));
+            verify_data!(code, (code as usize) < offsets.len() - 1);
+            let start = offsets[code as usize] as usize;
+            let end = offsets[code as usize + 1] as usize;
+            result_offsets.push_length(end - start);
         }
 
-        let mut values = Values::with_byte_capacity(offsets.last() as usize);
+        let mut result_values = Values::with_byte_capacity(result_offsets.last() as usize);
         for &code in codes {
-            values.extend_from_byte_slice(bytes_list.value_at(code as usize));
+            let start = offsets[code as usize] as usize;
+            let end = offsets[code as usize + 1] as usize;
+            result_values.extend_from_byte_slice(&values[start..end]);
         }
-        Ok((values, offsets))
+        Ok((result_values, result_offsets))
+    }
+}
+
+/// Sorted IDs section containing dictionary IDs sorted by their corresponding values.
+///
+/// This section is used for efficient lookups and binary search operations on
+/// dictionary entries. It is typically used when the dictionary supports sorted
+/// ID access patterns.
+pub struct SortedIds {
+    pub inner: Bytes,
+}
+
+impl SortedIds {
+    /// Returns the sorted IDs section as slice of IDs.
+    pub fn as_slice(&self) -> &[u32] {
+        self.inner.typed_data::<u32>()
     }
 }
 
 /// Dictionary buffer header containing metadata and section access.
 ///
 /// The `Header` struct provides access to dictionary metadata and enables efficient
-/// reading of dictionary sections. It wraps the parsed protobuf header with enhanced
+/// reading of dictionary sections. It wraps the parsed header with enhanced
 /// I/O capabilities through precached buffering and section offset tracking.
 ///
 /// # Dictionary Buffer Structure
 ///
 /// A dictionary buffer follows this layout:
 /// ```text
-/// ┌─────────────────────┬─────────────────┬─────────────────────┐
-/// │ Header Section      │ Values Section  │ Sorted IDs Section  │
-/// │ (with envelope)     │ (with envelope) │ (with envelope)     │
-/// └─────────────────────┴─────────────────┴─────────────────────┘
+/// ┌───────────────────┬─────────────────┬─────────────────┬─────────────────────┐
+/// │ Header Section    │ Values Section  │ Offsets Section │ Sorted IDs Section  │
+/// │ (with envelope)   │ (with envelope) │ (with envelope) │ (with envelope)     │
+/// └───────────────────┴─────────────────┴─────────────────┴─────────────────────┘
 /// ```
 ///
 /// Each section is wrapped with a message envelope containing:
-/// - 4-byte length prefix
-/// - Protobuf-encoded section data
-/// - 4-byte checksum suffix
+/// - Header: 4-byte length prefix + data + 4-byte checksum suffix
+/// - Other sections: 8-byte length prefix + data + 64 bytes padding + 4-byte checksum suffix
+/// - All sections start on 16-byte alignment boundaries
+///
+/// # Alignment and Padding Benefits
+///
+/// The 16-byte alignment with 64-byte padding enables two key optimizations:
+///
+/// 1. **Direct Casting to Wide Types**: Fixed-size value buffers can be safely cast
+///    to wider types like `&[u128]` without alignment violations, enabling efficient
+///    bulk operations on 16-byte values.
+///
+/// 2. **SIMD Vectorization**: The alignment enables efficient AVX-2 (32-byte) and
+///    AVX-512 (64-byte) SIMD operations for loading string values and performing
+///    vectorized comparisons and searches across dictionary entries.
 ///
 /// # Performance Optimizations
 ///
@@ -611,7 +645,7 @@ impl DictionaryValues {
 /// - **Offset Tracking**: Maintains the exact offset where data sections begin,
 ///   accounting for the header envelope size.
 struct Header {
-    /// Parsed protobuf header containing dictionary metadata.
+    /// Parsed header containing dictionary metadata.
     inner: ValueDictionaryHeader,
 
     /// Dictionary buffer reader with precached sections buffer for efficient access.
@@ -621,11 +655,6 @@ struct Header {
     /// of the values section. This reduces I/O operations for small dictionaries
     /// and frequently accessed dictionary metadata.
     reader: PrecachedReadAt<SlicedFile<Arc<dyn ReadAt>>>,
-
-    /// Byte offset to the first data section in the dictionary buffer.
-    ///
-    /// All section ranges in the header are relative to this offset.
-    section_offset: u64,
 }
 
 impl Header {
@@ -638,59 +667,80 @@ impl Header {
         let reader = PrecachedReadAt::from_prefix(reader, prefix_size)?;
 
         let prefix_buf = reader.read_at(0..prefix_size)?;
-        let header_buf = amudai_format::checksum::validate_message(&prefix_buf)?;
-        let header = ValueDictionaryHeader::decode(header_buf).map_err(|e| {
+        let header = ValueDictionaryHeader::decode(&prefix_buf).map_err(|e| {
             Error::invalid_format(format!("Failed to decode dictionary header: {e}"))
         })?;
-        // Valid dictionary must have at least the values section
-        verify_data!(header, header.values_section_range.is_some());
-
-        let section_offset = (header_buf.len()
-            + amudai_format::defs::MESSAGE_LEN_SIZE
-            + amudai_format::defs::CHECKSUM_SIZE) as u64;
 
         Ok(Header {
             inner: header,
             reader,
-            section_offset,
         })
     }
 
     /// Loads and decodes the dictionary values section.
     fn load_values(&self) -> Result<DictionaryValues> {
         let values_buf = self.read_values_buffer()?;
-        let values_buf = amudai_format::checksum::validate_message(&values_buf)?;
-
-        if let Some(value_size) = self.inner.fixed_value_size {
-            verify_data!(value_size, value_size != 0);
-            let values = DictionaryFixedSizeValuesSection::decode(values_buf).map_err(|e| {
-                Error::invalid_format(format!("Failed to decode fixed-size values section: {e}"))
-            })?;
-            verify_data!(values, values.values.len() % value_size as usize == 0);
-            Ok(DictionaryValues::FixedSize(values, value_size as usize))
+        let values = Self::validate_section(values_buf, "values section")?;
+        if self.inner.fixed_value_size > 0 {
+            Ok(DictionaryValues::FixedSize(
+                values,
+                self.inner.fixed_value_size as usize,
+            ))
         } else {
-            let values = DictionaryVarSizeValuesSection::decode(values_buf).map_err(|e| {
-                Error::invalid_format(format!(
-                    "Failed to decode variable-size values section: {e}"
-                ))
-            })?;
-            verify_data!(values, values.values.is_some());
-            Ok(DictionaryValues::VarSize(values))
+            let offsets_buf = self.read_offsets_buffer()?;
+            let offsets = Self::validate_section(offsets_buf, "offsets section")?;
+            verify_data!(offsets, offsets.is_aligned(8));
+            verify_data!(offsets, offsets.len() >= 8);
+            Ok(DictionaryValues::VarSize(values, offsets))
         }
     }
 
-    /// Loads and decodes the optional sorted IDs section.
-    fn load_sorted_ids(&self) -> Result<Option<DictionarySortedIdsSection>> {
-        if let Some(ids_buf) = self.read_sorted_ids_buffer()? {
-            let ids_buf = amudai_format::checksum::validate_message(&ids_buf)?;
-            let sorted_ids =
-                amudai_format::defs::shard::DictionarySortedIdsSection::decode(ids_buf).map_err(
-                    |e| Error::invalid_format(format!("Failed to decode sorted IDs section: {e}")),
-                )?;
-            Ok(Some(sorted_ids))
-        } else {
+    /// Loads and decodes the sorted IDs section.
+    fn load_sorted_ids(&self) -> Result<Option<SortedIds>> {
+        if self.inner.sorted_ids_section_range.is_empty() {
             Ok(None)
+        } else {
+            let sorted_ids_buf = self.read_sorted_ids_buffer()?;
+            let sorted_ids = Self::validate_section(sorted_ids_buf, "sorted IDs section")?;
+            verify_data!(sorted_ids, sorted_ids.is_aligned(4));
+            Ok(Some(SortedIds { inner: sorted_ids }))
         }
+    }
+
+    /// Validates encoded dictionary section using stored checksum and extracts
+    /// the payload.
+    ///
+    /// The buffer is expected to contain an 8-byte size prefix, followed
+    /// by the section data and a 4-byte checksum at the end.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - A byte slice representing the section data to be validated.
+    /// * `section_name` - The name of the section for error reporting.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing a byte slice of the section data if the section is
+    /// valid, or an error if the validation fails. The returned payload is a zero-copy
+    /// slice of the original `Bytes` object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the section is too short, if the size is invalid, or if
+    /// the checksum does not match.
+    fn validate_section(data: Bytes, section_name: &str) -> amudai_common::Result<Bytes> {
+        verify_arg!(message, data.len() >= 8 + 4);
+        let data_size =
+            u64::from_le_bytes(data[0..8].try_into().expect("section length bytes")) as usize;
+        verify_arg!(data_size, data_size + 8 + 4 <= data.len());
+        let checksum = u32::from_le_bytes(
+            data[data.len() - 4..data.len()]
+                .try_into()
+                .expect("checksum bytes"),
+        );
+        let payload = data.slice(8..8 + data_size);
+        amudai_format::checksum::validate_buffer(&payload, checksum, Some(section_name))?;
+        Ok(payload)
     }
 
     /// Reads the raw values section buffer from the dictionary.
@@ -699,26 +749,41 @@ impl Header {
     /// in the header, adjusting for the section offset. The returned buffer
     /// includes the complete message envelope (length + data + checksum).
     fn read_values_buffer(&self) -> Result<Bytes> {
-        let range = self.inner.values_section_range.expect("values range");
-        let bytes = self
-            .reader
-            .read_at(range.start + self.section_offset..range.end + self.section_offset)?;
-        Ok(bytes)
+        let values_start = self.inner.values_section_range.start;
+        let values_end = self.inner.values_section_range.end;
+        self.reader
+            .read_at(values_start..values_end)
+            .map_err(|e| Error::invalid_format(format!("Failed to read values section: {e}")))
     }
 
-    /// Reads the raw sorted IDs section buffer if it exists.
+    /// Reads the raw optional offsets section buffer from the dictionary.
     ///
-    /// This method checks if the dictionary includes a sorted IDs section and,
-    /// if present, extracts its data using the range specified in the header.
-    /// The returned buffer includes the complete message envelope.
-    fn read_sorted_ids_buffer(&self) -> Result<Option<Bytes>> {
-        let Some(range) = self.inner.sorted_ids_section_range else {
-            return Ok(None);
-        };
-        let bytes = self
-            .reader
-            .read_at(range.start + self.section_offset..range.end + self.section_offset)?;
-        Ok(Some(bytes))
+    /// This method extracts the offsets section data using the range specified
+    /// in the header, adjusting for the section offset. The returned buffer
+    /// includes the complete message envelope (length + data + checksum).
+    fn read_offsets_buffer(&self) -> Result<Bytes> {
+        assert!(self.inner.fixed_value_size == 0);
+        verify_data!(
+            self.inner.offsets_section_range,
+            !self.inner.offsets_section_range.is_empty()
+        );
+        let offsets_start = self.inner.offsets_section_range.start;
+        let offsets_end = self.inner.offsets_section_range.end;
+        self.reader
+            .read_at(offsets_start..offsets_end)
+            .map_err(|e| Error::invalid_format(format!("Failed to read offsets section: {e}")))
+    }
+
+    /// Reads the raw values of the sorted IDs section.
+    ///
+    /// The returned buffer includes slice of IDs (u32) that represent
+    /// dictionary values sorted using lexicographical order.
+    fn read_sorted_ids_buffer(&self) -> Result<Bytes> {
+        let sorted_ids_start = self.inner.sorted_ids_section_range.start;
+        let sorted_ids_end = self.inner.sorted_ids_section_range.end;
+        self.reader
+            .read_at(sorted_ids_start..sorted_ids_end)
+            .map_err(|e| Error::invalid_format(format!("Failed to read sorted IDs section: {e}")))
     }
 }
 
@@ -732,7 +797,7 @@ impl Header {
 ///
 /// Expects two encoded buffers:
 ///  - **Codes buffer**: U32 integer sequence referencing dictionary entries.
-///  - **Dictionary buffer**: The dictionary buffer follows the ValueDictionaryHeader protobuf message design.
+///  - **Dictionary buffer**: The dictionary buffer follows the ValueDictionaryHeader message design.
 #[derive(Clone)]
 pub struct DictionaryFieldDecoder {
     /// Decoder for codes buffer containing integer codes referencing dictionary entries

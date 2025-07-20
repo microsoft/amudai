@@ -737,45 +737,75 @@ enum BufferKind {
 
 #### Value Dictionary
 
-The value dictionary is stored as a contiguous buffer containing two or more Protobuf messages:
+The value dictionary is stored as a contiguous buffer containing two or more sections.
+Below are the descriptions of every section.
 
-```protobuf
-message ValueDictionaryHeader {
-    DataType value_type = 1;
-    optional fixed32 null_id = 2;
-    optional fixed32 fixed_value_size = 3;
-    UInt64Range values_section_range = 4;
-    optional UInt64Range sorted_ids_section_range = 5;
-}
+##### Value Dictionary Header
 
-message DictionaryVarSizeValuesSection {
-    BytesList values = 1;
-}
-
-message DictionaryFixedSizeValuesSection {
-    bytes values = 1;
-}
-
-message DictionarySortedIdsSection {
-    repeated fixed32 sorted_ids = 1;
-}
-```
+The first section is value dictionary header, which consists of:
 
 - `value_type`: This indicates the data type of the values in the dictionary. It can be any of the following primitive types: `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `f32`, `f64`, `String`, `Binary`, `FixedSizeBinary<N>`, `GUID`, `DateTime`. The type should match the formal type of the schema element whose values are dictionary-encoded.
-    - `null_id`: If present, this specifies the dictionary ID for the `null` value.
-    - `fixed_value_size`: For fixed-sized values, it's set to the value size. Otherwise, it's set to None.
-    - `values_section_range`: Range of the values section in the dictionary buffer relative to the end position of the `ValueDictionaryHeader` section (range start is always 0). For fixed-size types, the referenced message is `DictionaryFixedSizeValuesSection`. For variable-size types, it is `DictionaryVarSizeValuesSection`.
-    - `sorted_ids_section_range`: This is an optional range of `DictionarySortedIdsSection`, which contains the list of dictionary IDs representing the sorted order of values. The range is relative to the end position of the `ValueDictionaryHeader` section.
-- `DictionaryVarSizeValuesSection`
-    - `values`: A list of `Binary` or `String` values, where the ordinal position of each value corresponds to its dictionary ID.
-- `DictionaryFixedSizeValuesSection`
-    - `values`: A packed buffer of fixed-size values. For a value with dictionary ID `i` and primitive type `T`, the value bytes are located at `values[i * sizeof(T)..(i + 1) * sizeof(T)]`, in little-endian format.
-- `DictionarySortedIdsSection`
-    - `sorted_ids`: Dictionary IDs ordered by their corresponding values. The sort order is ascending, using natural comparison rules for numeric types and byte-lexicographic comparison for `String`, `GUID`, and `Binary` types.
+- `value_count`: Number of entries in the dictionary, including the null entry.
+- `null_entry_present`: A boolean flag indicating whether null ID is present.
+- `null_id`: If present, this specifies the dictionary ID for the `null` value.
+- `fixed_value_size`: For fixed-sized values, it's set to the value size. Otherwise, it's set to 0.
+- `values_section_size`: Size of the dictionary values section, in bytes.
+- `offsets_section_size`: Size of the values offsets section, in bytes. For fixed-sized values, it's set to 0.
+- `sorted_ids_section_range`: Size of the sorted IDs section, in bytes.
+
+The header section is accompanied with the length (4 bytes) at the beginning and the checksum (4 bytes)
+at the end.
+
+##### Values Section
+
+The dictionary values section is a contiguous buffer, consisting of all values concatenated together.
+
+For variable sized values, the buffer is a list of `Binary` or `String` values, where the ordinal position
+of each value corresponds to its dictionary ID.
+
+In fixed-sized values dictionaries, for a value with dictionary ID `i` and primitive type `T`, the value bytes
+are located at `values[i * sizeof(T)..(i + 1) * sizeof(T)]`, in little-endian format.
+
+The values section is accompanied with the length (8 bytes) at the beginning, followed by the payload data,
+64 bytes of padding, and the checksum (4 bytes) at the end. The entire section starts on a 16-byte 
+alignment boundary.
+
+##### Offsets Section
+
+This is an optional section for variable sized values dictionary, encoded as a list of offsets (u64)
+that are used for locating individual values in the values buffer. The number of offsets is N + 1,
+where N is a number of unique values in the dictionary (including null value, if exists).
+The first offset is always 0.
+
+The offsets section is accompanied with the length (8 bytes) at the beginning, followed by the payload data,
+64 bytes of padding, and the checksum (4 bytes) at the end. The 8-byte length prefix preserves 8-byte 
+alignment of the offsets buffer, allowing it to be interpreted as a slice of u64 values directly.
+The entire section starts on a 16-byte alignment boundary.
+
+##### Sorted IDs Section
+
+A list of dictionary IDs (u32) ordered by their corresponding values (NOT including the null value, if exists).
+The sort order is ascending, using natural comparison rules for numeric types and byte-lexicographic comparison
+for `String`, `GUID`, and `Binary` types.
+
+The sorted IDs section is accompanied with the length (8 bytes) at the beginning, followed by the payload data,
+64 bytes of padding, and the checksum (4 bytes) at the end. The entire section starts on a 16-byte 
+alignment boundary.
 
 In summary, the overall layout of the dictionary buffer is illustrated below:
 
 ![Value Dictionary Layout](./figures/value_dictionary_layout.svg)
+
+##### Dictionary Section Alignment and Padding Benefits
+
+The 16-byte alignment with 64-byte padding in dictionary sections enables two key optimizations:
+
+1. **Direct Casting to Wide Types**: Fixed-size value buffers can be safely cast to wider types like 
+   `&[u128]` without alignment violations, enabling efficient bulk operations on 16-byte values.
+
+2. **SIMD Vectorization**: The alignment enables efficient AVX-2 (32-byte) and AVX-512 (64-byte) 
+   SIMD operations for loading string values and performing vectorized comparisons and searches 
+   across dictionary entries.
 
 #### Packed Group Encoding
 

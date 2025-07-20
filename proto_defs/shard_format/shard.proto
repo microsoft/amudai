@@ -358,32 +358,6 @@ enum BufferKind {
     RANGE_INDEX = 5;
 }
 
-message ValueDictionaryHeader {
-    // `BasicType` of the value as integer.
-    fixed32 value_type = 1;
-    // Number of entries in the dictionary, including null entry.
-    // The last valid dictionary ID is `value_count - 1`.
-    fixed32 value_count = 2;
-    // Dictionary ID of the null entry, if present
-    optional fixed32 null_id = 3;
-    // Size of the fixed value, if the value type is fixed-size.
-    optional fixed32 fixed_value_size = 4;
-    amudai.common.UInt64Range values_section_range = 5;
-    optional amudai.common.UInt64Range sorted_ids_section_range = 6;
-}
-
-message DictionaryVarSizeValuesSection {
-    amudai.common.BytesList values = 1;
-}
-
-message DictionaryFixedSizeValuesSection {
-    bytes values = 1;
-}
-
-message DictionarySortedIdsSection {
-    repeated fixed32 sorted_ids = 1;
-}
-
 message ExternalParquetDataEncoding {
     repeated ParquetFileColumnRef file_column_refs = 1;
 }
