@@ -8,7 +8,10 @@ use std::{
 use amudai_bytes::Bytes;
 use amudai_common::{Result, error::Error, verify_data};
 use amudai_encodings::block_encoder::BlockChecksum;
-use amudai_format::defs::shard;
+use amudai_format::{
+    defs::shard,
+    schema::{BasicType, BasicTypeDescriptor},
+};
 use amudai_io::{ReadAt, SlicedFile};
 use amudai_io_impl::prefetch_read::PrefetchReadAt;
 use amudai_sequence::sequence::ValueSequence;
@@ -883,6 +886,36 @@ pub struct DecodedBlock {
     /// - `logical_range`: Range of logical positions covered by this block's values
     /// - `storage_range`: Byte range in storage where this block's data is located
     pub descriptor: BlockDescriptor,
+}
+
+impl DecodedBlock {
+    /// Creates an empty `DecodedBlock` with no values and empty logical range.
+    ///
+    /// This method constructs a placeholder `DecodedBlock` that represents an empty block
+    /// with no actual data. It is commonly used for initialization in field decoders and
+    /// other scenarios where a valid but empty block instance is needed.
+    ///
+    /// # Structure
+    ///
+    /// - `values`: An empty `ValueSequence` with `Unit` type (represents no data)
+    /// - `descriptor`: A default `BlockDescriptor` with:
+    ///   - `ordinal`: 0
+    ///   - `logical_range`: Empty range (0..0)
+    ///   - `storage_range`: Empty range (0..0)
+    ///
+    /// # Returns
+    ///
+    /// A `DecodedBlock` instance representing an empty block that can be used as
+    /// a placeholder or initial value.
+    pub fn empty() -> DecodedBlock {
+        DecodedBlock {
+            values: ValueSequence::empty(BasicTypeDescriptor {
+                basic_type: BasicType::Unit,
+                ..Default::default()
+            }),
+            descriptor: Default::default(),
+        }
+    }
 }
 
 #[cfg(test)]

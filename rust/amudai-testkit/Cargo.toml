@@ -8,6 +8,9 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+amudai-arrow-builders = { workspace = true }
+amudai-arrow-builders-macros = { workspace = true }
+amudai-arrow-processing = { workspace = true }
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }

@@ -7,7 +7,10 @@ use amudai_blockstream::read::{
     bytes_buffer::{BytesBufferDecoder, BytesBufferReader},
 };
 use amudai_common::{Result, error::Error};
-use amudai_format::{defs::shard, schema::BasicTypeDescriptor};
+use amudai_format::{
+    defs::shard,
+    schema::{BasicType, BasicTypeDescriptor},
+};
 use amudai_sequence::sequence::ValueSequence;
 
 use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
@@ -141,6 +144,289 @@ impl BytesFieldDecoder {
             .bytes_buffer
             .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
         Ok(Box::new(BytesFieldReader::new(buffer_reader)))
+    }
+}
+
+/// A cursor for iterator-style access to binary data in a stripe field.
+///
+/// `BytesFieldCursor` provides optimized access to binary values through a forward-moving
+/// access pattern with sparse position requests. This approach is both more convenient
+/// and more performant than using `FieldReader` to read entire position ranges when
+/// the access pattern involves reading individual values at specific positions.
+///
+/// The cursor maintains an internal cache of the current data block and only fetches
+/// new blocks when the requested position falls outside the cached block's range,
+/// minimizing I/O overhead for sequential or nearby access patterns.
+///
+/// This cursor is best created through [`FieldDecoder::create_bytes_cursor`](super::FieldDecoder::create_bytes_cursor),
+/// providing a hint of the positions that are likely to be accessed for optimal prefetching.
+///
+/// # Supported Types
+///
+/// `BytesFieldCursor` supports the following field types:
+/// - `Binary` - Variable-length binary data
+/// - `FixedSizeBinary` - Fixed-length binary data
+/// - All fixed-size primitive types (integers, floating-point numbers, GUIDs, etc.)
+pub struct BytesFieldCursor {
+    block: DecodedBlock,
+    reader: Box<dyn FieldReader>,
+    fixed_size: usize,
+    basic_type: BasicTypeDescriptor,
+}
+
+impl BytesFieldCursor {
+    /// Creates a new bytes field cursor with the specified reader and type descriptor.
+    ///
+    /// # Arguments
+    ///
+    /// * `reader` - A boxed field reader that provides access to the underlying data blocks
+    /// * `basic_type` - The basic type descriptor defining the structure and properties of the
+    ///   field. `BytesFieldCursor` supports `Binary`, `FixedSizeBinary`, and all fixed-size
+    ///   primitive types (integers, floating-point numbers, GUIDs, etc.)
+    ///
+    /// # Returns
+    ///
+    /// A new `BytesFieldCursor` ready to read binary data from the field.
+    pub fn new(reader: Box<dyn FieldReader>, basic_type: BasicTypeDescriptor) -> BytesFieldCursor {
+        let fixed_size = if basic_type.basic_type == BasicType::Boolean {
+            1
+        } else {
+            basic_type.primitive_size().unwrap_or_default()
+        };
+        BytesFieldCursor {
+            block: DecodedBlock::empty(),
+            reader,
+            fixed_size,
+            basic_type,
+        }
+    }
+
+    /// Returns the basic type descriptor for this field.
+    ///
+    /// # Returns
+    ///
+    /// A copy of the `BasicTypeDescriptor` that defines the structure of this field.
+    #[inline]
+    pub fn basic_type(&self) -> BasicTypeDescriptor {
+        self.basic_type
+    }
+
+    /// Fetches the binary value at the specified logical position within the stripe field.
+    ///
+    /// This method returns the raw binary data at the given position, ignoring null status.
+    /// If the value slot at this position is null, the returned data will be a placeholder:
+    /// - For variable-sized binary fields: an empty buffer (`&[]`)
+    /// - For fixed-size fields: a zero-filled buffer of the appropriate size
+    ///
+    /// Use [`fetch_nullable`] if you need to distinguish between actual data and null values.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The logical position of the value to fetch within the stripe field
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a byte slice reference to the binary data at the specified
+    /// position, or an error if I/O fails or the position is invalid.
+    ///
+    /// # Performance
+    ///
+    /// This method is optimized for sequential or nearby access patterns. If the requested
+    /// position is within the currently cached block, the access is very fast. Moving to
+    /// a new block triggers I/O and is handled as a cold path.
+    ///
+    /// [`fetch_nullable`]: Self::fetch_nullable
+    #[inline]
+    pub fn fetch(&mut self, position: u64) -> Result<&[u8]> {
+        self.establish_block(position)?;
+
+        let index = self.position_index(position);
+        if self.fixed_size == 0 {
+            Ok(self.block.values.var_binary_at(index))
+        } else {
+            Ok(self.block.values.fixed_binary_at(index, self.fixed_size))
+        }
+    }
+
+    /// Fetches the binary value at the specified position, returning `None` if the
+    /// value slot at this position is null.
+    ///
+    /// This method handles nullable fields by checking the presence information
+    /// before retrieving the binary data. Returns `None` for null values and
+    /// `Some(data)` for valid values.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The logical position of the value to fetch
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing an `Option<&[u8]>` where `None` indicates a null value
+    /// and `Some` contains the binary data, or an error if I/O fails.
+    #[inline]
+    pub fn fetch_nullable(&mut self, position: u64) -> Result<Option<&[u8]>> {
+        self.establish_block(position)?;
+
+        let index = self.position_index(position);
+        let is_valid = self.block.values.presence.is_valid(index);
+        let res = is_valid.then(|| {
+            if self.fixed_size == 0 {
+                self.block.values.var_binary_at(index)
+            } else {
+                self.block.values.fixed_binary_at(index, self.fixed_size)
+            }
+        });
+        Ok(res)
+    }
+
+    /// Checks if the value at the specified position is null.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The logical position to check for null
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing `true` if the value is null, `false` otherwise,
+    /// or an error if I/O fails.
+    #[inline]
+    pub fn is_null(&mut self, position: u64) -> Result<bool> {
+        self.establish_block(position)?;
+        let index = self.position_index(position);
+        Ok(self.block.values.presence.is_null(index))
+    }
+
+    /// Ensures the current block contains the specified position.
+    ///
+    /// If the current cached block doesn't contain the position, fetches
+    /// the appropriate block from the reader.
+    #[inline]
+    fn establish_block(&mut self, position: u64) -> Result<()> {
+        if !self.block.descriptor.contains(position) {
+            self.fetch_block(position)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Converts a logical position to a block-relative index.
+    #[inline]
+    fn position_index(&self, position: u64) -> usize {
+        self.block.descriptor.position_index(position)
+    }
+
+    /// Fetches a new block containing the specified position.
+    ///
+    /// This method is marked as cold since it should be called infrequently
+    /// when the cursor needs to move to a different block.
+    #[cold]
+    fn fetch_block(&mut self, position: u64) -> Result<()> {
+        self.block = self.reader.read_containing_block(position)?;
+        Ok(())
+    }
+}
+
+pub struct StringFieldCursor {
+    inner: BytesFieldCursor,
+}
+
+impl StringFieldCursor {
+    /// Creates a new string field cursor with the specified reader and type descriptor.
+    ///
+    /// # Arguments
+    ///
+    /// * `reader` - A boxed field reader that provides access to the underlying data blocks
+    /// * `basic_type` - The basic type descriptor defining the structure and properties of the
+    ///   field. Must have `BasicType::String`.
+    ///
+    /// # Returns
+    ///
+    /// A new `BytesFieldCursor` ready to read binary data from the field.
+    pub fn new(reader: Box<dyn FieldReader>, basic_type: BasicTypeDescriptor) -> StringFieldCursor {
+        assert_eq!(basic_type.basic_type, BasicType::String);
+        StringFieldCursor {
+            inner: BytesFieldCursor::new(reader, basic_type),
+        }
+    }
+
+    /// Returns the basic type descriptor for this field.
+    ///
+    /// # Returns
+    ///
+    /// A copy of the `BasicTypeDescriptor` that defines the structure of this field.
+    #[inline]
+    pub fn basic_type(&self) -> BasicTypeDescriptor {
+        self.inner.basic_type
+    }
+
+    /// Fetches the string value at the specified logical position within the stripe field.
+    ///
+    /// This method returns the raw string data at the given position, ignoring null status.
+    /// If the value slot at this position is null, the returned data will be an empty string
+    /// placeholder.
+    ///
+    /// Use [`fetch_nullable`] if you need to distinguish between actual data and null values.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The logical position of the value to fetch within the stripe field
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a string slice at the specified position, or an error if I/O
+    /// fails, the position is invalid or the value is not a valid Utf-8.
+    ///
+    /// [`fetch_nullable`]: Self::fetch_nullable
+    #[inline]
+    pub fn fetch(&mut self, position: u64) -> Result<&str> {
+        let bytes = self.inner.fetch(position)?;
+        // TODO: optimize Utf-8 validation.
+        //   In cases the decoded field is strictly ASCII (indicated by the string stats),
+        //   use the fast ASCII validation followed by unchecked converion.
+        Self::bytes_to_str(bytes)
+    }
+
+    /// Fetches the string value at the specified position, returning `None` if the
+    /// value slot at this position is null.
+    ///
+    /// This method handles nullable fields by checking the presence information
+    /// before retrieving the binary data. Returns `None` for null values and
+    /// `Some(data)` for valid values.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The logical position of the value to fetch
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing an `Option<&str>` where `None` indicates a null value
+    /// and `Some` contains the string data, or an error if I/O fails.
+    #[inline]
+    pub fn fetch_nullable(&mut self, position: u64) -> Result<Option<&str>> {
+        let bytes = self.inner.fetch_nullable(position)?;
+        // TODO: optimize Utf-8 validation.
+        //   In cases the decoded field is strictly ASCII (indicated by the string stats),
+        //   use the fast ASCII validation followed by unchecked converion.
+        bytes.map(|bytes| Self::bytes_to_str(bytes)).transpose()
+    }
+
+    /// Checks if the value at the specified position is null.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The logical position to check for null
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing `true` if the value is null, `false` otherwise,
+    /// or an error if I/O fails.
+    #[inline]
+    pub fn is_null(&mut self, position: u64) -> Result<bool> {
+        self.inner.is_null(position)
+    }
+
+    fn bytes_to_str(bytes: &[u8]) -> Result<&str> {
+        std::str::from_utf8(bytes).map_err(|e| Error::invalid_format(e.to_string()))
     }
 }
 

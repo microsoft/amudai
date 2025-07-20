@@ -217,6 +217,229 @@ impl ListFieldDecoder {
     }
 }
 
+/// A cursor for iterator-style access to list or map items in a stripe field.
+///
+/// `ListFieldCursor` provides optimized access to list and map offset ranges through a
+/// forward-moving access pattern with sparse position requests. This approach is both more
+/// convenient and more performant than using `FieldReader` to read entire position ranges
+/// when the access pattern involves reading individual list boundaries at specific positions.
+///
+/// This cursor is best created through [`FieldDecoder::create_list_cursor`](super::FieldDecoder::create_list_cursor),
+/// providing a hint of the positions that are likely to be accessed for optimal prefetching.
+///
+/// # List Structure
+///
+/// List fields are encoded using offset arrays where each list is defined by a start and
+/// end offset. The offsets point to positions in the child element arrays. For `N` lists,
+/// there are `N+1` offsets stored, where:
+/// - Offset `i` marks the start of list `i`
+/// - Offset `i+1` marks the end of list `i` (and start of list `i+1`)
+/// - The range `offsets[i]..offsets[i+1]` defines the child elements for list `i`
+///
+/// # Supported Types
+///
+/// `ListFieldCursor` supports the following field types:
+/// - `List` - Variable-length lists of homogeneous elements
+/// - `Map` - Key-value pair collections (encoded similarly to lists)
+pub struct ListFieldCursor {
+    block: DecodedBlock,
+    next_block: DecodedBlock,
+    reader: Box<dyn FieldReader>,
+    basic_type: BasicTypeDescriptor,
+}
+
+impl ListFieldCursor {
+    /// Creates a new list field cursor with the specified reader and type descriptor.
+    ///
+    /// # Arguments
+    ///
+    /// * `reader` - A boxed field reader that provides access to the underlying data blocks
+    /// * `basic_type` - The basic type descriptor, which must be either `List` or `Map`
+    ///
+    /// # Returns
+    ///
+    /// A new `ListFieldCursor` ready to read offset data from the field.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the basic type is not `List` or `Map`.
+    pub fn new(reader: Box<dyn FieldReader>, basic_type: BasicTypeDescriptor) -> ListFieldCursor {
+        assert!(matches!(
+            basic_type.basic_type,
+            BasicType::List | BasicType::Map
+        ));
+        ListFieldCursor {
+            block: DecodedBlock::empty(),
+            next_block: DecodedBlock::empty(),
+            reader,
+            basic_type,
+        }
+    }
+
+    /// Returns the basic type descriptor for this field.
+    ///
+    /// # Returns
+    ///
+    /// A copy of the `BasicTypeDescriptor` that defines the structure of this field.
+    pub fn basic_type(&self) -> BasicTypeDescriptor {
+        self.basic_type
+    }
+
+    /// Fetches the offset range for a list or map at the specified position.
+    ///
+    /// This method retrieves the start and end offsets that define the boundaries
+    /// of a list or map within the child element arrays. The method ignores null
+    /// value slots, returning the stored range even for null lists (which may be
+    /// empty ranges).
+    ///
+    /// Use [`fetch_nullable`] if you need to distinguish between actual data and null
+    /// values.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The logical position of the list/map to fetch within the stripe field
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `Range<u64>` representing the start and end offsets
+    /// of the list/map within the child element arrays, or an error if I/O fails.
+    ///
+    /// [`fetch_nullable`]: Self::fetch_nullable
+    #[inline]
+    pub fn fetch(&mut self, position: u64) -> Result<Range<u64>> {
+        self.establish_block(position)?;
+
+        // The list "value" is a range of child positions formed by a pair of consecutive
+        // `u64` offsets that we read from the list's logical `position` and `position + 1`.
+        // These might cross the current block boundary, thus we may also need to access
+        // the next block.
+
+        let index = self.block.descriptor.position_index(position);
+        let values = self.block.values.as_slice::<u64>();
+        let start = values[index];
+        let end = if self.block.descriptor.contains(position + 1) {
+            values[index + 1]
+        } else {
+            // The next offset falls outside the current block, thus it must be in the next block.
+            assert!(self.next_block.descriptor.contains(position + 1));
+            // The index now is relative to the `next_block`.
+            let index = self.next_block.descriptor.position_index(position + 1);
+            // Since we've just crossed the block boundary, this has to be the very first value
+            // in the `next_block`.
+            assert_eq!(index, 0);
+            self.next_block.values.as_slice::<u64>()[index]
+        };
+        Ok(start..end)
+    }
+
+    /// Fetches the offset range for a nullable list or map at the specified position.
+    ///
+    /// This method handles nullable fields by checking the presence information
+    /// and returning the range only for non-null values. For null values, it returns
+    /// `None` regardless of what offset data might be stored.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The logical position of the list/map to fetch within the stripe field
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing an `Option<Range<u64>>` where `None` indicates a null
+    /// value and `Some` contains the offset range within the child element arrays,
+    /// or an error if I/O fails.
+    #[inline]
+    pub fn fetch_nullable(&mut self, position: u64) -> Result<Option<Range<u64>>> {
+        let range = self.fetch(position)?;
+        let index = self.block.descriptor.position_index(position);
+        Ok(self.block.values.presence.is_valid(index).then_some(range))
+    }
+
+    /// Checks if the list or map at the specified position is null.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The logical position to check for null within the stripe field
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing `true` if the value is null, `false` otherwise,
+    /// or an error if I/O fails.
+    #[inline]
+    pub fn is_null(&mut self, position: u64) -> Result<bool> {
+        self.establish_block(position)?;
+
+        let index = self.block.descriptor.position_index(position);
+        Ok(self.block.values.presence.is_null(index))
+    }
+
+    /// Ensures the necessary blocks are cached for the specified position.
+    ///
+    /// This method ensures that both the current position and the next position
+    /// (position + 1) are covered by cached blocks, since list operations typically
+    /// need to access consecutive offsets to determine range boundaries. The dual-block
+    /// strategy handles cases where the start and end offsets of a list span across
+    /// block boundaries.
+    ///
+    /// If the required blocks are not cached, this method will fetch them from storage.
+    #[inline]
+    fn establish_block(&mut self, position: u64) -> Result<()> {
+        if !self.block.descriptor.contains(position) {
+            self.fetch_block(position)?;
+        }
+        if !self.block.descriptor.contains(position + 1)
+            && !self.next_block.descriptor.contains(position + 1)
+        {
+            self.fetch_next_block(position + 1)?;
+        }
+        Ok(())
+    }
+
+    /// Fetches the primary block containing the specified position.
+    ///
+    /// This method is marked as cold since it should be called infrequently
+    /// when the cursor needs to move to a different block. It attempts to reuse
+    /// the cached next block if it contains the requested position.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The logical position that must be contained in the fetched block
+    ///
+    /// # Performance
+    ///
+    /// This is a cold path that involves I/O operations. The method optimizes for
+    /// sequential access by promoting the next block to the primary block when possible.
+    #[cold]
+    fn fetch_block(&mut self, position: u64) -> Result<()> {
+        if self.next_block.descriptor.contains(position) {
+            self.block = std::mem::replace(&mut self.next_block, DecodedBlock::empty());
+        } else {
+            self.block = self.reader.read_containing_block(position)?;
+        }
+        Ok(())
+    }
+
+    /// Fetches an additional block for the next position.
+    ///
+    /// This method is used when the current block doesn't contain the next
+    /// position needed for range calculations. It loads the block containing
+    /// the specified position into the secondary block cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The logical position that must be contained in the next block
+    ///
+    /// # Performance
+    ///
+    /// This is a cold path that involves I/O operations. It's called when list
+    /// range calculations require offsets from a block adjacent to the current
+    /// primary block.
+    #[cold]
+    fn fetch_next_block(&mut self, position: u64) -> Result<()> {
+        self.next_block = self.reader.read_containing_block(position)?;
+        Ok(())
+    }
+}
+
 /// A reader for accessing list offset data from a `List` field.
 ///
 /// This reader provides access to ranges of offset values from an encoded

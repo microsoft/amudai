@@ -1,6 +1,6 @@
 use std::{ops::Range, sync::Arc};
 
-use amudai_common::Result;
+use amudai_common::{Result, error::Error};
 use amudai_format::{
     defs::shard,
     schema::{DataType, Schema, SchemaId},
@@ -65,9 +65,8 @@ impl Stripe {
     /// Opens a field within this stripe using the provided `data_type` identifying the
     /// schema id of the field.
     ///
-    /// This method returns a [`Field`] object, which provides access
-    /// to the field's schema information, descriptor, and methods for reading data from
-    /// the stripe.
+    /// This method returns a [`Field`] object, which provides access to the field's schema
+    /// information, descriptor, and methods for reading data from the stripe.
     ///
     /// # Arguments
     ///
@@ -80,6 +79,27 @@ impl Stripe {
     pub fn open_field(&self, data_type: DataType) -> Result<Field> {
         let field_ctx = self.0.open_field(data_type)?;
         Ok(Field::new(Arc::new(field_ctx)))
+    }
+
+    /// Opens a top-level stripe field with the specified name.
+    ///
+    /// This method returns a [`Field`] object, which provides access  to the field's schema
+    /// information, descriptor, and methods for reading data from the stripe.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the top-level field to open.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the field with the specified name was not found or if the field context
+    /// or descriptor cannot be loaded.
+    pub fn open_named_field(&self, name: &str) -> Result<Field> {
+        let schema = self.fetch_schema()?;
+        let (_, field) = schema
+            .find_field(name)?
+            .ok_or_else(|| Error::invalid_arg("name", format!("Field '{name}' not found")))?;
+        self.open_field(field.data_type()?)
     }
 
     /// Fetches the `Schema` associated with the `Shard` containing this `Stripe`.

@@ -34,6 +34,7 @@ impl BlockDescriptor {
     /// # Returns
     ///
     /// `true` if the block is valid (has a non-empty logical range), `false` otherwise.
+    #[inline]
     pub fn is_valid(&self) -> bool {
         !self.logical_range.is_empty()
     }
@@ -47,6 +48,7 @@ impl BlockDescriptor {
     /// # Returns
     ///
     /// `true` if the position is within this block's logical range, `false` otherwise.
+    #[inline]
     pub fn contains(&self, logical_pos: u64) -> bool {
         self.logical_range.contains(&logical_pos)
     }
@@ -60,6 +62,7 @@ impl BlockDescriptor {
     /// # Returns
     ///
     /// `true` if the entire range is within this block's logical range, `false` otherwise.
+    #[inline]
     pub fn contains_range(&self, pos: &Range<u64>) -> bool {
         pos.start >= self.logical_range.start && pos.end <= self.logical_range.end
     }
@@ -69,6 +72,7 @@ impl BlockDescriptor {
     /// # Returns
     ///
     /// The number of bytes this block occupies in storage.
+    #[inline]
     pub fn storage_size(&self) -> usize {
         (self.storage_range.end - self.storage_range.start) as usize
     }
@@ -78,8 +82,35 @@ impl BlockDescriptor {
     /// # Returns
     ///
     /// The number of logical values contained in this block.
+    #[inline]
     pub fn logical_size(&self) -> usize {
         (self.logical_range.end - self.logical_range.start) as usize
+    }
+
+    /// Converts a logical position to a block-relative index.
+    ///
+    /// This method translates a global logical position within the data stream
+    /// to an index within this specific block's value array. The returned index
+    /// is zero-based and relative to the start of this block.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The logical position within the data stream that falls
+    ///   within this block's logical range
+    ///
+    /// # Returns
+    ///
+    /// The zero-based index within the block corresponding to the logical position.
+    ///
+    /// # Preconditions
+    ///
+    /// The caller must verify that `position` is **within this block's logical range**
+    /// (i.e., `self.contains(position)` returns `true`) before calling this method.
+    /// This precondition is enforced by a debug assertion but not checked in release builds.
+    #[inline]
+    pub fn position_index(&self, position: u64) -> usize {
+        debug_assert!(self.contains(position));
+        (position - self.logical_range.start) as usize
     }
 }
 

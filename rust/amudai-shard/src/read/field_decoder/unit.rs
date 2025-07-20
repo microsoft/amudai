@@ -281,6 +281,130 @@ impl StructFieldDecoder {
     }
 }
 
+/// A cursor for iterator-style access to struct and fixed-size list presence information
+/// in a stripe field.
+///
+/// `StructFieldCursor` provides optimized access to nullability information for composite
+/// data types through a forward-moving access pattern with sparse position requests. Unlike
+/// other field cursors that read actual values, this cursor only provides access to presence
+/// information since struct and fixed-size list fields serve as containers that indicate
+/// which logical positions have valid child data, rather than storing values themselves.
+///
+/// The cursor maintains an internal cache of the current data block and only fetches
+/// new blocks when the requested position falls outside the cached block's range,
+/// minimizing I/O overhead for sequential or nearby access patterns.
+///
+/// This cursor is best created through [`FieldDecoder::create_struct_cursor`](super::FieldDecoder::create_struct_cursor),
+/// providing a hint of the positions that are likely to be accessed for optimal prefetching.
+///
+/// # Presence Information
+///
+/// Struct and fixed-size list fields store presence (nullability) information that indicates
+/// whether child fields contain valid data at each logical position. This cursor provides
+/// efficient access to this presence information through the [`is_null`] method.
+///
+/// For non-nullable fields, all positions are implicitly valid and [`is_null`] will always
+/// return `false`. For nullable fields, the presence information is read from bit buffers
+/// stored in the stripe format.
+///
+/// # Supported Types
+///
+/// `StructFieldCursor` supports the following field types:
+/// - `Struct` - Multi-field composite types with named child fields
+/// - `FixedSizeList` - Fixed-length array types with homogeneous elements
+///
+/// [`is_null`]: Self::is_null
+pub struct StructFieldCursor {
+    block: DecodedBlock,
+    reader: Box<dyn FieldReader>,
+    basic_type: BasicTypeDescriptor,
+}
+
+impl StructFieldCursor {
+    /// Creates a new struct field cursor with the specified reader and type descriptor.
+    ///
+    /// # Arguments
+    ///
+    /// * `reader` - A boxed field reader that provides access to the underlying presence
+    ///   data blocks. This reader should be configured with appropriate position hints
+    ///   for optimal prefetching performance.
+    /// * `basic_type` - The basic type descriptor defining the structure and properties
+    ///   of the field. Must be either `BasicType::Struct` for composite types with
+    ///   multiple named fields, or `BasicType::FixedSizeList` for fixed-length arrays.
+    ///
+    /// # Returns
+    ///
+    /// A new `StructFieldCursor` ready to read presence information from the field.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the basic type is not `Struct` or `FixedSizeList`.
+    pub fn new(reader: Box<dyn FieldReader>, basic_type: BasicTypeDescriptor) -> StructFieldCursor {
+        assert!(matches!(
+            basic_type.basic_type,
+            BasicType::Struct | BasicType::FixedSizeList
+        ));
+        StructFieldCursor {
+            block: DecodedBlock::empty(),
+            reader,
+            basic_type,
+        }
+    }
+
+    /// Returns the basic type descriptor for this field.
+    ///
+    /// # Returns
+    ///
+    /// A copy of the `BasicTypeDescriptor` that defines the structure of this field.
+    pub fn basic_type(&self) -> BasicTypeDescriptor {
+        self.basic_type
+    }
+
+    /// Checks if the value at the specified position is null.
+    ///
+    /// For non-nullable fields, this method will always return `false` since all
+    /// positions are guaranteed to contain valid data.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The logical position to check for nullability within the stripe field
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing `true` if the value is null (indicating no valid child
+    /// data at this position), `false` if the value is valid, or an error if I/O fails
+    /// or the position is invalid.
+    #[inline]
+    pub fn is_null(&mut self, position: u64) -> Result<bool> {
+        self.establish_block(position)?;
+        let index = self.position_index(position);
+        Ok(self.block.values.presence.is_null(index))
+    }
+
+    /// Ensures the current block contains the specified position.
+    #[inline]
+    fn establish_block(&mut self, position: u64) -> Result<()> {
+        if !self.block.descriptor.contains(position) {
+            self.fetch_block(position)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Converts a logical position to a block-relative index.
+    #[inline]
+    fn position_index(&self, position: u64) -> usize {
+        self.block.descriptor.position_index(position)
+    }
+
+    /// Fetches a new block containing the specified position.
+    #[cold]
+    fn fetch_block(&mut self, position: u64) -> Result<()> {
+        self.block = self.reader.read_containing_block(position)?;
+        Ok(())
+    }
+}
+
 /// A field reader for fields with explicit presence buffers.
 ///
 /// This reader handles struct and fixed-size list fields that store presence

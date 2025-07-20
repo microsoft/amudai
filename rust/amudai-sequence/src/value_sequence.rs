@@ -432,7 +432,6 @@ impl ValueSequence {
     /// # Returns
     ///
     /// A byte slice representing the binary value at the specified index.
-    ///
     pub fn binary_at(&self, index: usize) -> &[u8] {
         let range = if let Some(offsets) = self.offsets.as_ref() {
             offsets[index] as usize..offsets[index + 1] as usize
@@ -445,6 +444,76 @@ impl ValueSequence {
         &self.values.as_bytes()[range]
     }
 
+    /// Retrieves a binary value at the specified index for variable-length binary data.
+    ///
+    /// This is an optimized version of `binary_at` that assumes the sequence has offsets
+    /// for variable-length data. It directly accesses the offsets without checking,
+    /// making it faster but requiring the caller to ensure offsets are present.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The zero-based index of the binary value to retrieve
+    ///
+    /// # Returns
+    ///
+    /// A byte slice representing the variable-length binary value at the specified index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the sequence doesn't have offsets or if the index is out of bounds.
+    #[inline]
+    pub fn var_binary_at(&self, index: usize) -> &[u8] {
+        let offsets = self.offsets.as_ref().expect("offsets");
+        let range = offsets[index] as usize..offsets[index + 1] as usize;
+        &self.values.as_bytes()[range]
+    }
+
+    /// Retrieves a fixed-size value at the specified index as a byte slice.
+    ///
+    /// This method provides direct access to fixed-size values stored in the sequence's
+    /// value buffer. It works for sequences containing fixed-size binary data (such as
+    /// `FixedSizeBinary` or `Guid` types) as well as all primitive types (integers,
+    /// floats, etc.).
+    ///
+    /// Unlike `binary_at`, this method doesn't check the sequence's type descriptor
+    /// or use offset information. It directly calculates the position based on the
+    /// provided `value_size` parameter and extracts the bytes from that location.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The zero-based index of the value to retrieve
+    /// * `value_size` - The size in bytes of each value in the sequence
+    ///
+    /// # Returns
+    ///
+    /// A byte slice containing the raw bytes of the value at the specified index.
+    /// The slice will have exactly `value_size` bytes.
+    ///
+    /// # Safety and Correctness
+    ///
+    /// The caller is responsible for ensuring logical correctness:
+    /// - The `value_size` parameter must match the actual size of values in the sequence
+    /// - The `index` must be within bounds (0 <= index < sequence_length)
+    /// - The sequence must actually contain fixed-size values
+    ///
+    /// This method does not check presence information - null values will return
+    /// whatever raw bytes are stored in the buffer (typically zeros).
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    /// - The index is out of bounds for the sequence
+    /// - The calculated byte range exceeds the underlying value buffer
+    /// - Integer overflow occurs during range calculation
+    #[inline]
+    pub fn fixed_binary_at(&self, index: usize, value_size: usize) -> &[u8] {
+        let start = index.checked_mul(value_size).expect("start");
+        let end = start.checked_add(value_size).expect("end");
+        &self.values.as_bytes()[start..end]
+    }
+
+    // Returns a string value at the specified index.
+    // Will panic on out of bounds access and when the string buffer is not a valid utf-8.
     pub fn string_at(&self, index: usize) -> &str {
         let offsets = self.offsets.as_ref().expect("missing offsets");
         let range = offsets[index] as usize..offsets[index + 1] as usize;

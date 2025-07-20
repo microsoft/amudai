@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    Data, DeriveInput, Field, Fields, GenericArgument, Path, Token, Type, parse_macro_input,
+    Data, DeriveInput, Field, Fields, GenericArgument, Lit, Path, Token, Type, parse_macro_input,
 };
 
 /// Custom input for the struct_builder macro that can handle an optional crate path
@@ -200,8 +200,26 @@ fn generate_struct_fields_builder_impl(
         .map(|field| {
             let field_name = &field.ident;
             let field_name_str = field_name.as_ref().unwrap().to_string();
-            quote! {
-                arrow_schema::Field::new(#field_name_str, self.#field_name.data_type(), true)
+            let metadata = extract_metadata_from_field(field);
+
+            if metadata.is_empty() {
+                quote! {
+                    arrow_schema::Field::new(#field_name_str, self.#field_name.data_type(), true)
+                }
+            } else {
+                let metadata_pairs: Vec<_> = metadata
+                    .iter()
+                    .map(|(key, value)| {
+                        quote! { (#key.to_string(), #value.to_string()) }
+                    })
+                    .collect();
+
+                quote! {
+                    arrow_schema::Field::new(#field_name_str, self.#field_name.data_type(), true)
+                        .with_metadata(std::collections::HashMap::from([
+                            #(#metadata_pairs,)*
+                        ]))
+                }
             }
         })
         .collect();
@@ -319,4 +337,48 @@ fn map_type_to_builder(
         }
         _ => quote! { _ },
     }
+}
+
+/// Extracts metadata attributes from a field.
+///
+/// Looks for attributes of the form `#[metadata("key", "value")]` and returns
+/// them as a vector of (key, value) string pairs.
+fn extract_metadata_from_field(field: &Field) -> Vec<(String, String)> {
+    let mut metadata = Vec::new();
+
+    for attr in &field.attrs {
+        if attr.path().is_ident("metadata") {
+            // Parse the arguments inside #[metadata(...)]
+            if let Ok(args) = attr.parse_args_with(
+                syn::punctuated::Punctuated::<syn::Lit, syn::Token![,]>::parse_terminated,
+            ) {
+                if let Some(pair) = extract_metadata_pair_from_literals(&args) {
+                    metadata.push(pair);
+                }
+            }
+        }
+    }
+
+    metadata
+}
+
+/// Extracts a key-value pair from literal arguments
+fn extract_metadata_pair_from_literals(
+    args: &syn::punctuated::Punctuated<syn::Lit, syn::Token![,]>,
+) -> Option<(String, String)> {
+    if args.len() != 2 {
+        return None;
+    }
+
+    let key = match args.first()? {
+        Lit::Str(lit_str) => lit_str.value(),
+        _ => return None,
+    };
+
+    let value = match args.last()? {
+        Lit::Str(lit_str) => lit_str.value(),
+        _ => return None,
+    };
+
+    Some((key, value))
 }

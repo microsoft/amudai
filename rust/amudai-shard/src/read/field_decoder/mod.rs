@@ -1,10 +1,10 @@
-//! Field decoder traits and implementations.
+//! Unified decoder for accessing field data within a stripe.
 
 use std::ops::Range;
 
 use amudai_blockstream::read::block_stream::DecodedBlock;
-use amudai_common::Result;
-use amudai_format::schema::BasicTypeDescriptor;
+use amudai_common::{Result, error::Error};
+use amudai_format::schema::{BasicType, BasicTypeDescriptor};
 use amudai_sequence::sequence::ValueSequence;
 use boolean::BooleanFieldDecoder;
 use bytes::BytesFieldDecoder;
@@ -20,29 +20,132 @@ pub mod list;
 pub mod primitive;
 pub mod unit;
 
-/// Decoder for a stripe field.
+/// Unified decoder for accessing field data within a stripe.
 ///
-/// This enum wraps different field decoder implementations based on the underlying
-/// field type. It serves as the entry point for reading field data from a stripe,
-/// allowing clients to create readers for accessing ranges of field values.
+/// `FieldDecoder` serves as the primary interface for reading encoded field data from
+/// stripes in the Amudai shard format. It provides a type-safe abstraction over the
+/// various field encoding strategies, automatically dispatching to the appropriate
+/// specialized decoder based on the field's type and encoding characteristics.
+///
+/// # Architecture
+///
+/// The decoder follows a two-level architecture:
+/// 1. **Field-level decoding**: This enum handles type dispatch and provides common
+///    operations like reader creation and type introspection
+/// 2. **Value-level access**: Specialized readers and cursors provide access
+///    to the actual field values with different access patterns
+///
+/// # Supported Field Types
+///
+/// The decoder supports all major field types in the Amudai schema:
+///
+/// ## Scalar Types
+/// - **Primitive**: Fixed-size numeric types (`Int8`, `Int32`, `Float64`, etc.)
+/// - **Boolean**: Bit-packed boolean values
+/// - **Bytes**: Variable-length and fixed-length binary data (`String`, `Binary`,
+///   `FixedSizeBinary`, `Guid`)
+///
+/// ## Composite Types
+/// - **Struct**: Multi-field composite types with presence information
+/// - **List**: Variable-length arrays and maps with offset-based indexing
+/// - **Dictionary**: String/binary fields with dictionary encoding for compression
+///
+/// # Encoding Transparency
+///
+/// The decoder abstracts away encoding details, providing a consistent interface
+/// regardless of the underlying storage format:
+/// - **Compression**: Automatically handles block-compressed data
+/// - **Dictionary encoding**: Transparently decodes dictionary-compressed fields
+/// - **Null handling**: Manages presence/absence information for nullable fields
+/// - **Block structure**: Manages access across block boundaries
+///
+/// # Access Patterns
+///
+/// `FieldDecoder` supports multiple access patterns for different use cases:
+///
+/// ## Range-based Access
+/// Use [`create_reader_with_ranges`](Self::create_reader_with_ranges) when:
+/// - Reading contiguous ranges of values
+/// - Performing sequential scans
+/// - Processing large batches of data
+///
+/// ## Position-based Access
+/// Use [`create_reader_with_positions`](Self::create_reader_with_positions) when:
+/// - Reading sparse, non-contiguous positions
+/// - Following index-based lookups
+/// - Implementing filtered queries
+///
+/// ## Iterator-style Cursors
+/// Use specialized cursors for:
+/// - Forward-only iteration with position hints
+/// - Memory-efficient streaming access
+/// - Type-safe value extraction without boxing
+///
+/// # Performance Considerations
+///
+/// - **Prefetching**: Position and range hints enable better I/O prefetching
+/// - **Caching**: Readers maintain block-level caches to minimize repeated I/O
+/// - **Zero-copy**: Where possible, values are accessed directly from decoded blocks
+///
+/// # Thread Safety
+///
+/// `FieldDecoder` is `Clone` and can be shared across threads. Each clone maintains
+/// independent reader state, allowing concurrent access to the same field data
+/// from multiple threads without coordination.
 #[derive(Clone)]
 pub enum FieldDecoder {
-    /// Decoder for primitive-typed fields (integers, floats, etc.)
+    /// Decoder for fixed-size primitive fields.
+    ///
+    /// Handles numeric and fixed-size data types including integers (`Int8`, `Int16`,
+    /// `Int32`, `Int64`), floating-point numbers (`Float32`, `Float64`), and temporal
+    /// data (`DateTime`). These fields store values in densely-packed arrays with
+    /// optional run-length encoding and compression.
     Primitive(PrimitiveFieldDecoder),
-    /// Decoder for boolean fields
+
+    /// Decoder for boolean fields with bit-level packing.
+    ///
+    /// Handles boolean storage using bit-packed encoding where each boolean value
+    /// consumes one bit.
     Boolean(BooleanFieldDecoder),
-    /// Decoder for bytes-like fields (strings, binary, GUID, etc.)
+
+    /// Decoder for variable-length binary and string fields.
+    ///
+    /// Handles text and binary data types including variable-length strings (`String`),
+    /// binary data (`Binary`), fixed-size binary arrays (`FixedSizeBinary`), and
+    /// globally unique identifiers (`Guid`). Uses offset arrays to manage variable-length
+    /// data.
     Bytes(BytesFieldDecoder),
-    /// Decoder for dictionary-encoded fields
+
+    /// Decoder for dictionary-encoded fields.
+    ///
+    /// Provides transparent access to fields that use dictionary compression, where
+    /// frequently repeated values are stored once in a dictionary and referenced by
+    /// smaller integer indices.
     Dictionary(DictionaryFieldDecoder),
-    /// List offsets decoder
+
+    /// Decoder for list and map fields with dynamic sizing.
+    ///
+    /// Manages variable-length arrays (`List`) and key-value collections (`Map`)
+    /// using offset-based indexing. Each list/map is defined by start and end offsets
+    /// that reference positions in child element arrays, enabling storage of nested
+    /// and hierarchical data structures.
     List(ListFieldDecoder),
-    /// Struct presence decoder
+
+    /// Decoder for struct and fixed-size list fields.
+    ///
+    /// Primarily manages presence information (nullability) since the actual field values
+    /// are stored in child fields.
     Struct(StructFieldDecoder),
 }
 
 impl FieldDecoder {
-    /// Returns the `BasicTypeDescriptor` of the field.
+    /// Returns the basic type descriptor for this field.
+    ///
+    /// The `BasicTypeDescriptor` provides detailed information about the field's
+    /// data type, including:
+    /// - The fundamental type classification (e.g., `Int32`, `String`, `List`)
+    /// - Size information for fixed-size types
+    /// - Type-specific metadata
     pub fn basic_type(&self) -> BasicTypeDescriptor {
         match self {
             FieldDecoder::Primitive(decoder) => decoder.basic_type(),
@@ -54,17 +157,39 @@ impl FieldDecoder {
         }
     }
 
-    /// Creates a reader for efficiently accessing ranges of values in this field.
+    /// Creates a reader for accessing ranges of values in this field.
+    ///
+    /// This method is designed for **contiguous access patterns** where you need to read
+    /// sequential ranges of field values.
+    ///
+    /// # Access Pattern Optimization
+    ///
+    /// The range hints enable several optimizations:
+    /// - Prefetching: Storage blocks covering the ranges are loaded proactively
+    /// - I/O coalescing: Adjacent ranges may be read together to reduce I/O operations
+    ///
+    /// # Compared to Position-based Access
+    ///
+    /// Use this method when:
+    /// - Reading contiguous ranges (e.g., rows 1000-2000, 5000-6000)
+    /// - Processing data in sequential order
+    /// - Performing full or partial table scans
+    ///
+    /// Use [`create_reader_with_positions`](Self::create_reader_with_positions) when:
+    /// - Reading sparse, non-contiguous positions (e.g., rows 10, 157, 942)
+    /// - Following index lookups or hash joins
+    /// - Processing filtered result sets
     ///
     /// # Arguments
     ///
-    /// * `pos_ranges_hint` - An iterator of logical position ranges that are likely
-    ///   to be accessed. These hints are used to optimize prefetching strategies
-    ///   for better performance when reading from storage.
+    /// * `pos_ranges_hint` - An iterator of logical position ranges (`Range<u64>`) that
+    ///   are likely to be accessed. The ranges need to be sorted and non-overlapping.
+    ///   Empty ranges hint (e.g. [`std::iter::empty()`]) is allowed.
     ///
     /// # Returns
     ///
-    /// A boxed field reader for accessing the field values.
+    /// A boxed [`FieldReader`] that can access field values within the specified
+    /// ranges.
     pub fn create_reader_with_ranges(
         &self,
         pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
@@ -79,22 +204,27 @@ impl FieldDecoder {
         }
     }
 
-    /// Creates a reader for efficiently accessing specific positions in this field.
+    /// Creates a reader for accessing specific positions in this field.
     ///
-    /// This method is similar to `create_reader_with_ranges` but optimized for
-    /// non-contiguous access patterns where only specific logical positions are
-    /// likely to be accessed.
+    /// This method is optimized for **sparse access patterns** where you need to read
+    /// individual values at specific, potentially non-contiguous positions.
+    ///
+    /// # Position Ordering Requirements
+    ///
+    /// **Important**: The positions must be provided in **non-descending order**
+    /// (i.e., sorted). Positions may be duplicated, but they must not decrease.
     ///
     /// # Arguments
     ///
-    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
-    ///   to be accessed. These hints are used to optimize prefetching strategies
-    ///   for better performance when reading from storage. The positions must be
-    ///   in non-descending order but don't need to be unique.
+    /// * `positions_hint` - An iterator of logical positions (0-based row indices) in
+    ///   **non-descending order**. Duplicates are allowed but the sequence must never
+    ///   decrease. Position values must be less than the field's total position count.
+    ///   Empty position hint (e.g. [`std::iter::empty()`]) is allowed.
     ///
     /// # Returns
     ///
-    /// A boxed field reader for accessing the field values.
+    /// A boxed [`FieldReader`] optimized for accessing the specified positions.
+    /// The reader pre-plans its access strategy based on the position distribution.
     pub fn create_reader_with_positions(
         &self,
         positions_hint: impl Iterator<Item = u64> + Clone,
@@ -111,6 +241,274 @@ impl FieldDecoder {
             FieldDecoder::List(decoder) => decoder.create_reader_with_positions(positions_hint),
             FieldDecoder::Struct(decoder) => decoder.create_reader_with_positions(positions_hint),
         }
+    }
+
+    /// Creates a specialized cursor for iterator-style access to binary data.
+    ///
+    /// `BytesFieldCursor` provides optimized access to binary values through a forward-moving
+    /// access pattern with sparse position requests. This approach is both more convenient
+    /// and more performant than using `FieldReader` to read entire position ranges when
+    /// the access pattern involves reading individual values at specific positions.
+    ///
+    /// # Supported Field Types
+    ///
+    /// This cursor supports:
+    /// - `Binary` - Variable-length binary data
+    /// - `String` - Variable-length string data
+    /// - `FixedSizeBinary` - Fixed-length binary data
+    /// - All fixed-size primitive types (integers, floating-point numbers, GUIDs, etc.)
+    ///
+    /// When `BytesFieldCursor` is used with a primitive type field, the values are returned
+    /// as byte slices with the appropriate length. In general, using `PrimitiveFieldCursor<T>`
+    /// is preferable for those scenarios, but `BytesFieldCursor` is also supported.
+    ///
+    /// # Arguments
+    ///
+    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
+    ///   to be accessed. These hints are used to optimize prefetching strategies for better
+    ///   performance when reading from storage. The positions must be in non-descending order
+    ///   but don't need to be unique or contiguous.
+    ///
+    /// # Returns
+    ///
+    /// A specialized `BytesFieldCursor` configured for accessing binary data at the specified
+    /// positions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The field type is not compatible with binary cursors
+    /// - The underlying reader creation fails
+    /// - I/O errors occur during initialization
+    pub fn create_bytes_cursor(
+        &self,
+        positions_hint: impl Iterator<Item = u64> + Clone,
+    ) -> Result<bytes::BytesFieldCursor> {
+        let basic_type = self.basic_type();
+        match basic_type.basic_type {
+            BasicType::Boolean | BasicType::Binary | BasicType::String => (),
+            _ => {
+                basic_type
+                    .primitive_size()
+                    .ok_or_else(|| Error::invalid_operation("create_bytes_cursor"))?;
+            }
+        }
+
+        let reader = self.create_reader_with_positions(positions_hint)?;
+        Ok(bytes::BytesFieldCursor::new(reader, basic_type))
+    }
+
+    /// Creates a specialized cursor for iterator-style access to string data.
+    ///
+    /// `StringFieldCursor` provides optimized access to string values through a forward-moving
+    /// access pattern with sparse position requests. This approach is both more convenient
+    /// and more performant than using `FieldReader` to read entire position ranges when
+    /// the access pattern involves reading individual values at specific positions.
+    ///
+    /// This cursor supports `String` basic type - variable-length string data.
+    ///
+    /// # Arguments
+    ///
+    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
+    ///   to be accessed. These hints are used to optimize prefetching strategies for better
+    ///   performance when reading from storage. The positions must be in non-descending order
+    ///   but don't need to be unique or contiguous.
+    ///
+    /// # Returns
+    ///
+    /// A specialized `StringFieldCursor` configured for accessing string data at the specified
+    /// positions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The field type is not compatible with string cursor
+    /// - The underlying reader creation fails
+    /// - I/O errors occur during initialization
+    pub fn create_string_cursor(
+        &self,
+        positions_hint: impl Iterator<Item = u64> + Clone,
+    ) -> Result<bytes::StringFieldCursor> {
+        let basic_type = self.basic_type();
+        if !matches!(basic_type.basic_type, BasicType::String) {
+            return Err(Error::invalid_operation("create_string_cursor"));
+        }
+        let reader = self.create_reader_with_positions(positions_hint)?;
+        Ok(bytes::StringFieldCursor::new(reader, basic_type))
+    }
+
+    /// Creates a specialized cursor for iterator-style access to typed primitive values.
+    ///
+    /// `PrimitiveFieldCursor<T>` provides optimized access to primitive values through
+    /// a forward-moving access pattern with sparse position requests. This approach is
+    /// both more convenient and more performant than using `FieldReader` to read entire
+    /// position ranges when the access pattern involves reading individual values at
+    /// specific positions.
+    ///
+    /// # Type Parameter
+    ///
+    /// * `T` - The primitive type of the values in the field. Must implement `bytemuck::AnyBitPattern`
+    ///   for safe casting from raw bytes. The size of `T` must match the field's primitive size.
+    ///
+    /// # Supported Field Types
+    ///
+    /// This cursor supports all fixed-size primitive types:
+    /// - Integer types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`
+    /// - Floating-point types: `f32`, `f64`
+    /// - Other primitive types like GUIDs and fixed-size binary data
+    ///
+    /// # Arguments
+    ///
+    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
+    ///   to be accessed. These hints are used to optimize prefetching strategies for better
+    ///   performance when reading from storage. The positions must be in non-descending order
+    ///   but don't need to be unique or contiguous.
+    ///
+    /// # Returns
+    ///
+    /// A specialized `PrimitiveFieldCursor<T>` configured for accessing typed primitive data
+    /// at the specified positions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The field type is not a fixed-size primitive type
+    /// - The size of type `T` doesn't match the field's primitive size
+    /// - The underlying reader creation fails
+    /// - I/O errors occur during initialization
+    pub fn create_primitive_cursor<T>(
+        &self,
+        positions_hint: impl Iterator<Item = u64> + Clone,
+    ) -> Result<primitive::PrimitiveFieldCursor<T>> {
+        let basic_type = self.basic_type();
+        if basic_type.basic_type == BasicType::Boolean {
+            if std::mem::size_of::<T>() != 1 {
+                return Err(Error::invalid_operation(
+                    "create_primitive_cursor: bool value size mismatch",
+                ));
+            }
+        } else {
+            let value_size = basic_type
+                .primitive_size()
+                .ok_or_else(|| Error::invalid_operation("create_primitive_cursor"))?;
+            if value_size != std::mem::size_of::<T>() {
+                return Err(Error::invalid_operation(
+                    "create_primitive_cursor: value size mismatch",
+                ));
+            }
+        }
+        let reader = self.create_reader_with_positions(positions_hint)?;
+        Ok(primitive::PrimitiveFieldCursor::new(reader, basic_type))
+    }
+
+    /// Creates a specialized cursor for iterator-style access to list offset ranges.
+    ///
+    /// `ListFieldCursor` provides optimized access to list and map offset ranges through a
+    /// forward-moving access pattern with sparse position requests. This approach is both more
+    /// convenient and more performant than using `FieldReader` to read entire position ranges
+    /// when the access pattern involves reading individual list boundaries at specific positions.
+    ///
+    /// # List Structure
+    ///
+    /// List fields are encoded using offset arrays where each list is defined by a start and
+    /// end offset. The offsets point to positions in the child element arrays. For `N` lists,
+    /// there are `N+1` offsets stored, where:
+    /// - Offset `i` marks the start of list `i`
+    /// - Offset `i+1` marks the end of list `i` (and start of list `i+1`)
+    /// - The range `offsets[i]..offsets[i+1]` defines the child elements for list `i`
+    ///
+    /// # Supported Field Types
+    ///
+    /// This cursor supports:
+    /// - `List` - Variable-length lists of homogeneous elements
+    /// - `Map` - Key-value pair collections (encoded similarly to lists)
+    ///
+    /// # Arguments
+    ///
+    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
+    ///   to be accessed. These hints are used to optimize prefetching strategies for better
+    ///   performance when reading from storage. The positions must be in non-descending order
+    ///   but don't need to be unique or contiguous.
+    ///
+    /// # Returns
+    ///
+    /// A specialized `ListFieldCursor` configured for accessing list offset ranges at the
+    /// specified positions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The field type is not `List` or `Map`
+    /// - The underlying reader creation fails
+    /// - I/O errors occur during initialization
+    pub fn create_list_cursor(
+        &self,
+        positions_hint: impl Iterator<Item = u64> + Clone,
+    ) -> Result<list::ListFieldCursor> {
+        let basic_type = self.basic_type();
+        if !matches!(basic_type.basic_type, BasicType::List | BasicType::Map) {
+            return Err(Error::invalid_operation("create_list_cursor"));
+        }
+        let reader = self.create_reader_with_positions(positions_hint)?;
+        Ok(list::ListFieldCursor::new(reader, basic_type))
+    }
+
+    /// Creates a specialized cursor for iterator-style access to struct and fixed-size list
+    /// presence information.
+    ///
+    /// `StructFieldCursor` provides optimized access to nullability information for composite
+    /// data types through a forward-moving access pattern with sparse position requests. Unlike
+    /// other field cursors that read actual values, this cursor only provides access to presence
+    /// information since struct and fixed-size list fields serve as containers that indicate
+    /// which logical positions have valid child data, rather than storing values themselves.
+    ///
+    /// # Presence Information
+    ///
+    /// Struct and fixed-size list fields store presence (nullability) information that indicates
+    /// whether child fields contain valid data at each logical position. This cursor provides
+    /// efficient access to this presence information through null checking methods.
+    ///
+    /// For non-nullable fields, all positions are implicitly valid and null checks will always
+    /// return `false`. For nullable fields, the presence information is read from bit buffers
+    /// stored in the stripe format.
+    ///
+    /// # Supported Field Types
+    ///
+    /// This cursor supports:
+    /// - `Struct` - Multi-field composite types with named child fields
+    /// - `FixedSizeList` - Fixed-length array types with homogeneous elements
+    ///
+    /// # Arguments
+    ///
+    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
+    ///   to be accessed. These hints are used to optimize prefetching strategies for better
+    ///   performance when reading from storage. The positions must be in non-descending order
+    ///   but don't need to be unique or contiguous.
+    ///
+    /// # Returns
+    ///
+    /// A specialized `StructFieldCursor` configured for accessing presence information at the
+    /// specified positions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The field type is not `Struct` or `FixedSizeList`
+    /// - The underlying reader creation fails
+    /// - I/O errors occur during initialization
+    pub fn create_struct_cursor(
+        &self,
+        positions_hint: impl Iterator<Item = u64> + Clone,
+    ) -> Result<unit::StructFieldCursor> {
+        let basic_type = self.basic_type();
+        if !matches!(
+            basic_type.basic_type,
+            BasicType::Struct | BasicType::FixedSizeList
+        ) {
+            return Err(Error::invalid_operation("create_struct_cursor"));
+        }
+        let reader = self.create_reader_with_positions(positions_hint)?;
+        Ok(unit::StructFieldCursor::new(reader, basic_type))
     }
 }
 

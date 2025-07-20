@@ -56,6 +56,16 @@ impl Field {
     pub fn position_count(&self) -> u64 {
         self.0.position_count()
     }
+
+    /// Returns the number of null positions (value slots) in the stripe field, if that count
+    /// is available.
+    pub fn null_count(&self) -> Option<u64> {
+        self.descriptor()
+            .field
+            .as_ref()
+            .and_then(|descriptor| descriptor.null_count)
+    }
+
     /// Returns the stripe that contains this field.
     pub fn get_stripe(&self) -> Stripe {
         Stripe::from_ctx(self.0.stripe().clone())

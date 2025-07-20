@@ -11,6 +11,9 @@ mod decimal_integration;
 mod dictionary;
 
 #[cfg(test)]
+mod field_cursors;
+
+#[cfg(test)]
 mod floating_integration;
 
 #[cfg(test)]

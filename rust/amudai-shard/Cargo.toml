@@ -37,3 +37,4 @@ amudai-objectstore = { workspace = true }
 amudai-sequence = { workspace = true }
 
 [dev-dependencies]
+amudai-testkit = { workspace = true }

@@ -684,3 +684,56 @@ fn test_bool_builder() {
     assert!(s.contains(r#""flag":true"#));
     assert!(s.contains(r#""flag":false"#));
 }
+
+struct_builder!(
+    struct MetadataTestRecord {
+        id: u64,
+        name: String,
+        #[metadata("ARROW:extension:name", "KustoDecimal")]
+        num_decimal: FixedSizeBinary<16>,
+        #[metadata("custom:type", "encrypted")]
+        #[metadata("custom:version", "1.2")]
+        encrypted_data: Binary,
+    },
+    crate
+);
+
+#[test]
+fn test_metadata_support() {
+    let mut builder = MetadataTestRecordBuilder::default();
+
+    builder.id_field().push(1);
+    builder.name_field().push("test");
+    builder.num_decimal_field().push(b"0123456789ABCDEF");
+    builder.encrypted_data_field().push(b"secret");
+    builder.finish_struct();
+
+    let array = builder.build();
+    let struct_array = array.as_struct();
+    let schema = struct_array.fields();
+
+    // Check that metadata is correctly applied to the num_decimal field
+    let num_decimal_field = &schema[2]; // id=0, name=1, num_decimal=2
+    assert_eq!(num_decimal_field.name(), "num_decimal");
+    let metadata = num_decimal_field.metadata();
+    assert_eq!(
+        metadata.get("ARROW:extension:name"),
+        Some(&"KustoDecimal".to_string())
+    );
+
+    // Check that metadata is correctly applied to the encrypted_data field
+    let encrypted_data_field = &schema[3]; // encrypted_data=3
+    assert_eq!(encrypted_data_field.name(), "encrypted_data");
+    let metadata = encrypted_data_field.metadata();
+    assert_eq!(metadata.get("custom:type"), Some(&"encrypted".to_string()));
+    assert_eq!(metadata.get("custom:version"), Some(&"1.2".to_string()));
+
+    // Check fields without metadata don't have any
+    let id_field = &schema[0];
+    assert_eq!(id_field.name(), "id");
+    assert!(id_field.metadata().is_empty());
+
+    let name_field = &schema[1];
+    assert_eq!(name_field.name(), "name");
+    assert!(name_field.metadata().is_empty());
+}
