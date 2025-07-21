@@ -170,7 +170,7 @@ impl BooleanFieldDecoder {
         for encoded_buffer in encoded_buffers {
             match encoded_buffer.kind {
                 kind if kind == BufferKind::Data as i32 => {
-                    let reader = field.open_data_ref(
+                    let reader = field.open_artifact(
                         encoded_buffer
                             .buffer
                             .as_ref()
@@ -182,7 +182,7 @@ impl BooleanFieldDecoder {
                     )?);
                 }
                 kind if kind == BufferKind::Presence as i32 => {
-                    let reader = field.open_data_ref(
+                    let reader = field.open_artifact(
                         encoded_buffer
                             .buffer
                             .as_ref()

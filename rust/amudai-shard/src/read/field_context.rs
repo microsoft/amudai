@@ -6,11 +6,13 @@ use amudai_bloom_filters::decoder::SbbfDecoder;
 use amudai_common::{Result, error::Error};
 use amudai_format::{
     defs::{
-        common::{AnyValue, DataRef, UnitValue, any_value::Kind},
+        common::{AnyValue, UnitValue, any_value::Kind},
         shard,
     },
     schema::{self, BasicType, SchemaId},
 };
+
+use crate::read::properties::PropertyBag;
 
 use super::{
     artifact_reader::ArtifactReader,
@@ -86,6 +88,15 @@ impl FieldContext {
             .position_count
     }
 
+    /// Returns the field properties
+    pub fn properties(&self) -> FieldPropertyBag {
+        let descriptor = self.descriptor().field.as_ref().expect("field descriptor");
+        FieldPropertyBag {
+            _standard: PropertyBag::new(&descriptor.standard_properties),
+            custom: PropertyBag::new(&descriptor.custom_properties),
+        }
+    }
+
     /// Returns a constant value if this field contains only constant data.
     ///
     /// This method returns `Some(AnyValue)` in two cases:
@@ -133,10 +144,10 @@ impl FieldContext {
     /// # Errors
     ///
     /// Returns an error if the `DataRef` cannot be opened or resolved.
-    pub fn open_data_ref(&self, data_ref: &DataRef) -> Result<ArtifactReader> {
+    pub fn open_artifact(&self, data_ref: impl AsRef<str>) -> Result<ArtifactReader> {
         self.stripe()
             .shard()
-            .open_data_ref(data_ref, Some(self.descriptor.anchor()))
+            .open_artifact(data_ref, Some(self.descriptor.anchor()))
     }
 
     /// Creates a `FieldDecoder` for this field.
@@ -300,5 +311,27 @@ impl FieldContext {
                     .and_then(|sbbf_bytes| SbbfDecoder::from_aligned_data(sbbf_bytes).ok())
             })
             .as_ref()
+    }
+}
+
+/// A specialized property bag for field-level properties.
+///
+/// `FieldPropertyBag` provides access to both standard and custom properties
+/// associated with a specific field. It automatically delegates to the custom
+/// properties when used directly, while maintaining access to standard properties
+/// through its internal structure.
+///
+/// This wrapper ensures type-safe access to field properties while maintaining
+/// compatibility with the general `PropertyBag` interface.
+pub struct FieldPropertyBag<'a> {
+    _standard: PropertyBag<'a>,
+    custom: PropertyBag<'a>,
+}
+
+impl<'a> std::ops::Deref for FieldPropertyBag<'a> {
+    type Target = PropertyBag<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.custom
     }
 }

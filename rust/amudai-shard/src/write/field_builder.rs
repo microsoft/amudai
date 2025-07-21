@@ -17,6 +17,7 @@ use amudai_objectstore::url::ObjectUrl;
 use arrow_array::{Array, ArrayRef, cast::AsArray};
 
 use crate::write::field_encoder::{DictionaryEncoding, FieldEncoderParams};
+use crate::write::properties::FieldPropertiesBuilder;
 use crate::write::stripe_builder::create_field_locators;
 
 use super::format_elements_ext::CompactDataRefs;
@@ -35,6 +36,7 @@ pub struct FieldBuilder {
     basic_type: BasicTypeDescriptor,
     encoder: FieldEncoder,
     children: FieldBuilders,
+    properties: FieldPropertiesBuilder,
 }
 
 impl FieldBuilder {
@@ -66,6 +68,7 @@ impl FieldBuilder {
             basic_type,
             encoder,
             children,
+            properties: Default::default(),
         })
     }
 
@@ -161,6 +164,31 @@ impl FieldBuilder {
         Ok(())
     }
 
+    /// Returns a reference to the field properties builder.
+    ///
+    /// This method provides read-only access to the `FieldPropertiesBuilder`
+    /// associated with this field, allowing inspection of current property values
+    /// without the ability to modify them.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the field's `FieldPropertiesBuilder`.
+    pub fn properties(&self) -> &FieldPropertiesBuilder {
+        &self.properties
+    }
+
+    /// Returns a mutable reference to the field properties builder.
+    ///
+    /// This method provides mutable access to the `FieldPropertiesBuilder`
+    /// associated with this field, allowing properties to be set or modified.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the field's `FieldPropertiesBuilder`.
+    pub fn properties_mut(&mut self) -> &mut FieldPropertiesBuilder {
+        &mut self.properties
+    }
+
     /// Completes the construction of the field by consuming the `FieldBuilder`.
     /// This method appends the `PreparedField` instances of both the current field
     /// and all its child fields to the specified vector.
@@ -180,6 +208,7 @@ impl FieldBuilder {
             basic_type,
             encoder,
             children,
+            properties,
         } = self;
 
         // For `Struct`, `FixedSizeList` and `Union` fields, the children should synchronize
@@ -197,7 +226,10 @@ impl FieldBuilder {
         let encoded_field = encoder.finish()?;
 
         // Create field descriptor with statistics populated from encoded field
-        let descriptor = field_descriptor::create_with_stats(position_count, &encoded_field);
+        let mut descriptor = field_descriptor::create_with_stats(position_count, &encoded_field);
+
+        // Populate field properties
+        properties.finish_to(&mut descriptor);
 
         let prepared_field = PreparedStripeField {
             schema_id: params.data_type.schema_id()?,

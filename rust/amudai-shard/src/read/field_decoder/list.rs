@@ -92,7 +92,7 @@ impl ListFieldDecoder {
 
         let encoded_buffer = field.get_encoded_buffer(BufferKind::Offsets)?;
 
-        let reader = field.open_data_ref(
+        let reader = field.open_artifact(
             encoded_buffer
                 .buffer
                 .as_ref()

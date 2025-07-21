@@ -858,7 +858,7 @@ impl Header {
 /// ## Input Format
 ///
 /// Expects two encoded buffers:
-///  - **Codes buffer**: U32 integer sequence referencing dictionary entries.
+///  - **Codes buffer**: `u32` integer sequence referencing dictionary entries.
 ///  - **Dictionary buffer**: The dictionary buffer follows the ValueDictionaryHeader message design.
 #[derive(Clone)]
 pub struct DictionaryFieldDecoder {
@@ -905,7 +905,7 @@ impl DictionaryFieldDecoder {
 
         // First buffer is the codes buffer (u32 values)
         let codes_encoded_buffer = field.get_encoded_buffer(BufferKind::Data)?;
-        let codes_reader = field.open_data_ref(
+        let codes_reader = field.open_artifact(
             codes_encoded_buffer
                 .buffer
                 .as_ref()
@@ -929,7 +929,7 @@ impl DictionaryFieldDecoder {
             .buffer
             .as_ref()
             .ok_or_else(|| Error::invalid_format("Missing dictionary buffer reference"))?;
-        let dictionary_reader = field.open_data_ref(dictionary_ref)?;
+        let dictionary_reader = field.open_artifact(dictionary_ref)?;
 
         let dictionary = Arc::new(DictionaryDecoder::from_encoded_buffer(
             dictionary_reader.into_inner(),

@@ -120,8 +120,8 @@ message FieldDescriptor {
     // at the shard or stripe level).
     optional IndexCollection indexes = 9;
     // Additional properties associated with the field.
-    repeated amudai.common.NameValuePair properties = 10;
-    
+    repeated amudai.common.NameValuePair standard_properties = 10;
+
     oneof type_specific {
         // Applicable only for the string type. All sizes are measured in bytes, not code points.
         StringStats string_stats = 20;

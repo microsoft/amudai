@@ -9,6 +9,7 @@ pub mod field_context;
 pub mod field_decoder;
 pub mod numeric_index;
 mod opened_artifact_cache;
+pub mod properties;
 pub mod shard;
 mod shard_context;
 pub mod stripe;

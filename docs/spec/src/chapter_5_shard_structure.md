@@ -78,7 +78,7 @@ In practice, we aim to support and recommend adhering to the following limits:
 - Shards containing up to 10 billion records.
 - A maximum of 50,000 fields in the schema, including nested fields.
 - A total compressed data size of up to 1 terabyte per shard.
-- A total size of custom shard tags of up to a few megabytes.
+- A total size of custom shard properties of up to a few megabytes.
 
 ### Shard elements hierarchy
 
@@ -89,7 +89,6 @@ Below is the logical structure of a shard. Items highlighted in `code span` repr
     - Shard record count
     - Stripe count
     - 'Schema' message reference
-    - 'Tags' message reference
     - 'Indexes' reference
     - 'Stripes table' reference
     - 'Field descriptors' reference

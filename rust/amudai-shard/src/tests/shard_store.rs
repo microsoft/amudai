@@ -101,9 +101,21 @@ impl ShardStore {
         let shard = shard_builder
             .finish()
             .unwrap()
-            .seal(&format!("file:///{}/test.amudai.shard", fastrand::u32(..)))
+            .seal(&self.generate_shard_url())
             .unwrap();
         shard.directory_blob
+    }
+
+    /// Generates a unique test shard URL.
+    ///
+    /// This method creates a file-based URL with a random component to ensure
+    /// unique shard identifiers during testing. Each call returns a different URL.
+    ///
+    /// # Returns
+    ///
+    /// A unique file URL string suitable for test shard identification.
+    pub fn generate_shard_url(&self) -> String {
+        format!("file:///{}/test.amudai.shard", fastrand::u32(..))
     }
 
     pub fn verify_shard(&self, shard: crate::read::shard::Shard) {

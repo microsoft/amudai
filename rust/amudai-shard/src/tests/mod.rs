@@ -21,3 +21,6 @@ mod floating_integration;
 
 #[cfg(test)]
 mod numeric_index;
+
+#[cfg(test)]
+mod shard_properties;

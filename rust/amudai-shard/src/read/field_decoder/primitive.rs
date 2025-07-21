@@ -94,7 +94,7 @@ impl PrimitiveFieldDecoder {
 
         let data_buffer = field.get_encoded_buffer(shard::BufferKind::Data)?;
 
-        let reader = field.open_data_ref(
+        let reader = field.open_artifact(
             data_buffer
                 .buffer
                 .as_ref()

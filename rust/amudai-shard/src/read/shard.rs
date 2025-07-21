@@ -9,7 +9,9 @@ use amudai_objectstore::{ObjectStore, ReferenceResolver, url::ObjectUrl};
 
 use super::{shard_context::ShardContext, stripe::Stripe};
 
-pub use super::shard_context::ShardFieldDescriptor;
+pub use super::shard_context::{
+    ShardFieldDescriptor, ShardIndexCollection, ShardProperties, ShardPropertyBag,
+};
 
 /// Represents a single data shard.
 ///
@@ -77,6 +79,41 @@ impl Shard {
     /// Returns a shard field descriptor for the specified `schema_id`.
     pub fn fetch_field_descriptor(&self, schema_id: SchemaId) -> Result<Arc<ShardFieldDescriptor>> {
         self.0.fetch_field_descriptor(schema_id)
+    }
+
+    /// Retrieves the shard properties with convenient typed access.
+    ///
+    /// This method returns a `ShardPropertyBag` that provides convenient access
+    /// to shard-level properties, including creation timestamps and custom metadata.
+    /// The properties are loaded from storage if not already cached.
+    ///
+    /// # Returns
+    ///
+    /// A `ShardPropertyBag` providing typed access to shard properties.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the properties cannot be loaded from storage.
+    pub fn fetch_properties(&self) -> Result<ShardPropertyBag> {
+        self.0.fetch_properties()
+    }
+
+    /// Retrieves the shard-level index descriptor collection.
+    ///
+    /// This method returns metadata about indexes available at the shard level,
+    /// such as inverted term indexes and other data structures that can accelerate
+    /// queries across the entire shard. The index descriptors are loaded from storage
+    /// if not already cached.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the loaded `ShardIndexCollection`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the index descriptors cannot be loaded from storage.
+    pub fn fetch_indexes(&self) -> Result<&ShardIndexCollection> {
+        self.0.fetch_indexes()
     }
 }
 

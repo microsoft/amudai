@@ -160,7 +160,7 @@ struct FieldDescriptorInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     range_stats: Option<RangeStatsInfo>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    properties: Vec<PropertyInfo>,
+    standard_properties: Vec<PropertyInfo>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     custom_properties: Vec<PropertyInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -281,8 +281,8 @@ fn create_field_descriptor_info(
         dictionary_size: field_desc.dictionary_size,
         raw_data_size: field_desc.raw_data_size,
         range_stats: field_desc.range_stats.as_ref().map(create_range_stats_info),
-        properties: field_desc
-            .properties
+        standard_properties: field_desc
+            .standard_properties
             .iter()
             .map(create_property_info)
             .collect(),
@@ -316,8 +316,8 @@ fn create_stripe_field_descriptor_info(
             dictionary_size: field_desc.dictionary_size,
             raw_data_size: field_desc.raw_data_size,
             range_stats: field_desc.range_stats.as_ref().map(create_range_stats_info),
-            properties: field_desc
-                .properties
+            standard_properties: field_desc
+                .standard_properties
                 .iter()
                 .map(create_property_info)
                 .collect(),

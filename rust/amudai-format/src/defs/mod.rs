@@ -5,6 +5,8 @@ pub mod anyvalue_ext;
 pub mod common_ext;
 pub mod field_ext;
 pub mod hash_lookup_ext;
+pub mod shard_ext;
+pub mod stripe_ext;
 
 #[path = "./amudai.shard.rs"]
 pub mod shard;

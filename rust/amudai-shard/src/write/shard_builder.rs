@@ -13,7 +13,7 @@ use amudai_format::{
     defs::{
         CHECKSUM_SIZE, MESSAGE_LEN_SIZE,
         common::{DataRef, DataRefArray},
-        shard,
+        shard::{self, ShardProperties},
     },
     schema::{DataType, Schema, SchemaId, SchemaMessage},
 };
@@ -22,6 +22,8 @@ use amudai_objectstore::{
     ObjectStore,
     url::{ObjectUrl, RelativePath},
 };
+
+use crate::write::properties::ShardPropertiesBuilder;
 
 use super::{
     artifact_writer::ArtifactWriter,
@@ -35,6 +37,7 @@ pub struct ShardBuilder {
     params: ShardBuilderParams,
     schema: Schema,
     stripes: Vec<PreparedStripe>,
+    properties: ShardPropertiesBuilder,
 }
 
 impl ShardBuilder {
@@ -45,6 +48,7 @@ impl ShardBuilder {
             params,
             schema,
             stripes: Vec::new(),
+            properties: Default::default(),
         })
     }
 
@@ -79,6 +83,32 @@ impl ShardBuilder {
         Ok(())
     }
 
+    /// Returns a reference to the shard properties builder.
+    ///
+    /// This method provides read-only access to the `ShardPropertiesBuilder`
+    /// associated with this shard, allowing inspection of current property values
+    /// and creation timestamps without the ability to modify them.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the shard's `ShardPropertiesBuilder`.
+    pub fn properties(&self) -> &ShardPropertiesBuilder {
+        &self.properties
+    }
+
+    /// Returns a mutable reference to the shard properties builder.
+    ///
+    /// This method provides mutable access to the `ShardPropertiesBuilder`
+    /// associated with this shard, allowing properties to be set or modified,
+    /// including creation timestamps and custom metadata.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the shard's `ShardPropertiesBuilder`.
+    pub fn properties_mut(&mut self) -> &mut ShardPropertiesBuilder {
+        &mut self.properties
+    }
+
     /// Creates a field decoder from the prepared stripe field with the given `schema_id`.
     ///
     /// This method constructs a [`FieldDecoder`](crate::read::field_decoder::FieldDecoder)
@@ -104,6 +134,7 @@ impl ShardBuilder {
         Ok(PreparedShard {
             params: self.params,
             stripes: self.stripes,
+            properties: self.properties,
         })
     }
 }
@@ -200,6 +231,7 @@ pub struct ShardBuilderParams {
     /// between compression ratio and encoding performance for most use cases.
     pub encoding_profile: BlockEncodingProfile,
 
+    /// File-level structure of the data shard.
     pub file_organization: ShardFileOrganization,
 }
 
@@ -207,6 +239,7 @@ pub struct ShardBuilderParams {
 pub struct PreparedShard {
     params: ShardBuilderParams,
     stripes: Vec<PreparedStripe>,
+    properties: ShardPropertiesBuilder,
 }
 
 impl PreparedShard {
@@ -217,7 +250,11 @@ impl PreparedShard {
     /// * `shard_url`: The URL of the resulting shard that points to the root shard file
     ///   (also known as the shard directory, typically named *.amudai.shard).
     pub fn seal(self, shard_url: &str) -> Result<SealedShard> {
-        let PreparedShard { params, stripes } = self;
+        let PreparedShard {
+            params,
+            stripes,
+            properties,
+        } = self;
         let shard_url = ObjectUrl::parse(shard_url)?;
         let container = shard_url.get_container()?;
         let mut writer =
@@ -232,8 +269,10 @@ impl PreparedShard {
             }
         };
 
+        let properties = properties.finish();
+
         let (directory_blob, directory) =
-            Self::write_directory(writer, stripes, &shard_url, &params)?;
+            Self::write_directory(writer, stripes, properties, &shard_url, &params)?;
 
         Ok(SealedShard {
             directory_blob,
@@ -244,6 +283,7 @@ impl PreparedShard {
     fn write_directory(
         mut writer: ArtifactWriter,
         stripes: Vec<SealedStripe>,
+        properties: ShardProperties,
         shard_url: &ObjectUrl,
         params: &ShardBuilderParams,
     ) -> Result<(DataRef, shard::ShardDirectory)> {
@@ -256,6 +296,7 @@ impl PreparedShard {
             Self::write_stripe_list(stripes, &mut writer, shard_url)?.into();
         directory.url_list_ref = Self::write_url_list(&mut writer, &url_list, shard_url)?.into();
         directory.field_list_ref = Self::write_field_list(&mut writer, &fields, shard_url)?.into();
+        directory.properties_ref = Self::write_properties(&mut writer, &properties, shard_url)?;
         directory.schema_ref = Self::write_schema(&mut writer, &params.schema)?.into();
 
         let directory_ref = writer.write_message(&directory)?;
@@ -352,6 +393,39 @@ impl PreparedShard {
         let mut field_list_ref = writer.write_message(&field_refs)?;
         field_list_ref.try_make_relative(Some(shard_url));
         Ok(field_list_ref)
+    }
+
+    /// Writes shard properties to storage.
+    ///
+    /// This internal method serializes the shard properties to the artifact writer
+    /// and returns a reference to the written data. If the properties are empty,
+    /// no data is written and `None` is returned.
+    ///
+    /// # Arguments
+    ///
+    /// * `writer` - The artifact writer to write the properties to
+    /// * `properties` - The shard properties to serialize
+    /// * `shard_url` - The base URL of the shard for making relative references
+    ///
+    /// # Returns
+    ///
+    /// `Some(DataRef)` pointing to the written properties data, or `None` if
+    /// the properties are empty and nothing was written.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the properties cannot be serialized or written.
+    fn write_properties(
+        writer: &mut ArtifactWriter,
+        properties: &ShardProperties,
+        shard_url: &ObjectUrl,
+    ) -> Result<Option<DataRef>> {
+        if properties.is_empty() {
+            return Ok(None);
+        }
+        let mut data_ref = writer.write_message(properties)?;
+        data_ref.try_make_relative(Some(shard_url));
+        Ok(Some(data_ref))
     }
 
     fn write_schema(writer: &mut ArtifactWriter, schema: &SchemaMessage) -> Result<DataRef> {

@@ -4,7 +4,7 @@ use amudai_blockstream::read::block_stream::BlockStreamDecoder;
 use amudai_bloom_filters::decoder::SbbfDecoder;
 use amudai_common::Result;
 use amudai_format::{
-    defs::shard,
+    defs::{common::AnyValue, shard},
     schema::{self, SchemaId},
 };
 use amudai_io::ReadAt;
@@ -14,6 +14,8 @@ use super::{
     field_decoder::FieldDecoder,
     stripe::{Stripe, StripeFieldDescriptor},
 };
+
+pub use super::field_context::FieldPropertyBag;
 
 /// Represents a field within a shard's stripe that can be read.
 ///
@@ -64,6 +66,16 @@ impl Field {
             .field
             .as_ref()
             .and_then(|descriptor| descriptor.null_count)
+    }
+
+    /// Returns the field properties
+    pub fn properties(&self) -> FieldPropertyBag {
+        self.0.properties()
+    }
+
+    /// Returns a constant value if this field contains only constant data.
+    pub fn try_get_constant(&self) -> Option<AnyValue> {
+        self.0.try_get_constant()
     }
 
     /// Returns the stripe that contains this field.
@@ -164,7 +176,7 @@ impl Field {
         self.0.get_encoded_buffer(kind)
     }
 
-    /// Opens a buffer reader for the given encoded buffer.
+    /// Opens a storage artifact reader containing the given encoded buffer.
     ///
     /// This method creates a reader that can access the data referenced by the
     /// encoded buffer within the context of this field's stripe.
@@ -182,7 +194,7 @@ impl Field {
     ///
     /// # Returns
     ///
-    /// An Arc-wrapped reader that implements `ReadAt` for accessing the buffer data
+    /// An Arc-wrapped artifact reader that implements `ReadAt`, containing the buffer data
     ///
     /// # Errors
     ///
@@ -192,7 +204,7 @@ impl Field {
             amudai_common::error::Error::invalid_format("Missing buffer reference")
         })?;
 
-        let reader = self.0.open_data_ref(data_ref)?;
+        let reader = self.0.open_artifact(data_ref)?;
         Ok(reader.into_inner())
     }
 

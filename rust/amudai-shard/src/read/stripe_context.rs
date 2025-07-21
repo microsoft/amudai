@@ -1,10 +1,12 @@
 use std::sync::{Arc, OnceLock};
 
-use amudai_common::{Result, verify_arg, verify_data};
+use amudai_common::{Result, error::Error, verify_arg, verify_data};
 use amudai_format::{
     defs::shard,
     schema::{DataType, SchemaId},
 };
+
+use crate::read::properties::PropertyBag;
 
 use super::{
     anchored_element::AnchoredElement,
@@ -17,6 +19,8 @@ pub struct StripeContext {
     ordinal: usize,
     field_refs: OnceLock<StripeFieldRefs>,
     field_descriptors: Memo<SchemaId, Arc<StripeFieldDescriptor>>,
+    properties: OnceLock<StripeProperties>,
+    indexes: OnceLock<StripeIndexCollection>,
     shard: Arc<ShardContext>,
 }
 
@@ -32,6 +36,8 @@ impl StripeContext {
             ordinal,
             field_refs: Default::default(),
             field_descriptors: Memo::new(),
+            properties: Default::default(),
+            indexes: Default::default(),
             shard,
         })
     }
@@ -70,6 +76,9 @@ impl StripeContext {
             return Ok(desc);
         }
         let desc = self.load_field_descriptor(schema_id)?;
+        desc.field
+            .as_ref()
+            .ok_or_else(|| Error::invalid_format("field descriptor inner field"))?;
         let desc = Arc::new(desc);
         self.field_descriptors.put(schema_id, desc.clone());
         Ok(desc)
@@ -94,7 +103,7 @@ impl StripeContext {
         }
         let reader = self
             .shard
-            .open_data_ref(&field_ref, Some(field_refs.anchor()))?;
+            .open_artifact(&field_ref, Some(field_refs.anchor()))?;
         let descriptor = reader.read_message::<shard::StripeFieldDescriptor>(&field_ref)?;
         Ok(StripeFieldDescriptor::new(descriptor, reader.url().clone()))
     }
@@ -108,15 +117,144 @@ impl StripeContext {
         Ok(self.field_refs.get().expect("field_refs"))
     }
 
+    /// Retrieves the stripe properties, loading them if not already cached.
+    ///
+    /// This method returns a convenient wrapper around the stripe properties
+    /// that provides typed access to both standard stripe metadata and
+    /// custom properties.
+    ///
+    /// # Returns
+    ///
+    /// A `StripePropertyBag` providing access to all stripe-level properties.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the properties cannot be loaded from storage.
+    pub fn fetch_properties(&self) -> Result<StripePropertyBag> {
+        let props = self.fetch_properties_message()?;
+        Ok(StripePropertyBag {
+            _standard: PropertyBag::new(&props.standard_properties),
+            custom: PropertyBag::new(&props.custom_properties),
+        })
+    }
+
+    /// Retrieves the raw stripe properties message, loading it if not already cached.
+    ///
+    /// This method returns the underlying protobuf message structure containing
+    /// the stripe properties. For convenient typed access, use `fetch_properties()`
+    /// instead.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the loaded `StripeProperties` message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the properties cannot be loaded from storage.
+    pub fn fetch_properties_message(&self) -> Result<&StripeProperties> {
+        if let Some(properties) = self.properties.get() {
+            return Ok(properties);
+        }
+        let properties = self.load_properties()?;
+        let _ = self.properties.set(properties);
+        Ok(self.properties.get().expect("properties"))
+    }
+
+    /// Retrieves the stripe-level index descriptor collection, loading it if not already
+    /// cached.
+    ///
+    /// The index collection contains metadata about various indexes available for this stripe.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the loaded `StripeIndexCollection`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the index collection cannot be loaded from storage.
+    pub fn fetch_indexes(&self) -> Result<&StripeIndexCollection> {
+        if let Some(indexes) = self.indexes.get() {
+            return Ok(indexes);
+        }
+        let indexes = self.load_indexes()?;
+        let _ = self.indexes.set(indexes);
+        Ok(self.indexes.get().expect("indexes"))
+    }
+
     fn load_field_refs(&self) -> Result<StripeFieldRefs> {
         let stripe_list = self.shard.get_stripe_list().expect("loaded stripe list");
         let directory_anchor = stripe_list.anchor();
         let directory = stripe_list.get_at(self.ordinal);
-        let list_ref = directory.field_list_ref.as_ref().expect("field_list_ref");
-        let reader = self.shard.open_data_ref(list_ref, Some(directory_anchor))?;
+        let list_ref = directory
+            .field_list_ref
+            .as_ref()
+            .ok_or_else(|| Error::invalid_format("stripe field list ref"))?;
+        let reader = self.shard.open_artifact(list_ref, Some(directory_anchor))?;
         let field_refs = reader.read_message(list_ref)?;
         let field_refs = StripeFieldRefs::new(field_refs, reader.url().clone());
         Ok(field_refs)
+    }
+
+    /// Loads the stripe properties from storage.
+    ///
+    /// This internal method reads the properties protobuf message from the
+    /// object store using the properties reference from the stripe directory.
+    /// If no properties reference exists, returns default empty properties.
+    ///
+    /// # Returns
+    ///
+    /// The loaded `StripeProperties` anchored to its storage location.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the properties cannot be loaded from storage.
+    fn load_properties(&self) -> Result<StripeProperties> {
+        let stripe_list = self.shard.get_stripe_list().expect("loaded stripe list");
+        let directory_anchor = stripe_list.anchor();
+        let directory = stripe_list.get_at(self.ordinal);
+        let Some(properties_ref) = directory.properties_ref.as_ref() else {
+            return Ok(StripeProperties::new(
+                Default::default(),
+                directory_anchor.clone(),
+            ));
+        };
+        let reader = self
+            .shard
+            .open_artifact(properties_ref, Some(directory_anchor))?;
+        let properties = reader.read_message(properties_ref)?;
+        let properties = StripeProperties::new(properties, reader.url().clone());
+        Ok(properties)
+    }
+
+    /// Loads the stripe index descriptor collection from storage.
+    ///
+    /// This internal method reads the index collection protobuf message from the
+    /// object store using the indexes reference from the stripe directory.
+    /// If no indexes reference exists, returns a default empty index collection.
+    ///
+    /// # Returns
+    ///
+    /// The loaded `StripeIndexCollection` anchored to its storage location.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the index collection cannot be loaded from storage.
+    fn load_indexes(&self) -> Result<StripeIndexCollection> {
+        let stripe_list = self.shard.get_stripe_list().expect("loaded stripe list");
+        let directory_anchor = stripe_list.anchor();
+        let directory = stripe_list.get_at(self.ordinal);
+        let Some(indexes_ref) = directory.indexes_ref.as_ref() else {
+            return Ok(StripeIndexCollection::new(
+                Default::default(),
+                directory_anchor.clone(),
+            ));
+        };
+        let reader = self
+            .shard
+            .open_artifact(indexes_ref, Some(directory_anchor))?;
+        let indexes = reader.read_message(indexes_ref)?;
+        let indexes = StripeIndexCollection::new(indexes, reader.url().clone());
+        Ok(indexes)
     }
 
     fn create_missing_field_descriptor(
@@ -140,3 +278,29 @@ impl StripeContext {
 pub type StripeFieldRefs = ShardFieldRefs;
 
 pub type StripeFieldDescriptor = AnchoredElement<shard::StripeFieldDescriptor>;
+
+pub type StripeProperties = AnchoredElement<shard::StripeProperties>;
+
+pub type StripeIndexCollection = AnchoredElement<shard::IndexCollection>;
+
+/// A specialized property bag for stripe-level properties.
+///
+/// `StripePropertyBag` provides access to both standard and custom properties
+/// associated with a specific stripe within a shard. It automatically delegates
+/// to the custom properties when used directly, while maintaining access to
+/// standard properties through its internal structure.
+///
+/// This wrapper ensures type-safe access to stripe properties while maintaining
+/// compatibility with the general `PropertyBag` interface.
+pub struct StripePropertyBag<'a> {
+    _standard: PropertyBag<'a>,
+    custom: PropertyBag<'a>,
+}
+
+impl<'a> std::ops::Deref for StripePropertyBag<'a> {
+    type Target = PropertyBag<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.custom
+    }
+}

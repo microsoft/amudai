@@ -134,7 +134,7 @@ impl StructFieldDecoder {
             encoded_buffer.kind == BufferKind::Presence as i32
         );
 
-        let reader = field.open_data_ref(
+        let reader = field.open_artifact(
             encoded_buffer
                 .buffer
                 .as_ref()

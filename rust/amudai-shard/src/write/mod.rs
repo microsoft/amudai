@@ -7,6 +7,7 @@ pub mod field_descriptor;
 pub mod field_encoder;
 pub mod format_elements_ext;
 pub mod numeric_index;
+pub mod properties;
 pub mod shard_builder;
 pub mod stripe_builder;
 #[cfg(test)]

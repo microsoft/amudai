@@ -142,7 +142,7 @@ pub struct FieldDescriptor {
     pub indexes: ::core::option::Option<IndexCollection>,
     /// Additional properties associated with the field.
     #[prost(message, repeated, tag = "10")]
-    pub properties: ::prost::alloc::vec::Vec<super::common::NameValuePair>,
+    pub standard_properties: ::prost::alloc::vec::Vec<super::common::NameValuePair>,
     #[prost(message, repeated, tag = "40")]
     pub custom_properties: ::prost::alloc::vec::Vec<super::common::NameValuePair>,
     /// Size of the data in its raw, uncompressed format in bytes.

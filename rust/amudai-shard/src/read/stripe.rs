@@ -10,7 +10,9 @@ use super::{
     field::Field, shard::Shard, shard_context::ShardContext, stripe_context::StripeContext,
 };
 
-pub use super::stripe_context::StripeFieldDescriptor;
+pub use super::stripe_context::{
+    StripeFieldDescriptor, StripeIndexCollection, StripeProperties, StripePropertyBag,
+};
 
 /// A `Stripe` represents a horizontal segment of data within a shard.
 #[derive(Clone)]
@@ -123,5 +125,37 @@ impl Stripe {
         schema_id: SchemaId,
     ) -> Result<Arc<StripeFieldDescriptor>> {
         self.0.fetch_field_descriptor(schema_id)
+    }
+
+    /// Retrieves the stripe properties with convenient typed access.
+    ///
+    /// This method returns a `StripePropertyBag` that provides convenient access
+    /// to stripe-level properties and custom metadata. The properties are loaded
+    /// from storage if not already cached.
+    ///
+    /// # Returns
+    ///
+    /// A `StripePropertyBag` providing typed access to stripe properties.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the properties cannot be loaded from storage.
+    pub fn fetch_properties(&self) -> Result<StripePropertyBag> {
+        self.0.fetch_properties()
+    }
+
+    /// Retrieves the stripe-level index collection.
+    ///
+    /// This method returns metadata about indexes available at the stripe level.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the loaded `StripeIndexCollection`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the index collection cannot be loaded from storage.
+    pub fn fetch_indexes(&self) -> Result<&StripeIndexCollection> {
+        self.0.fetch_indexes()
     }
 }

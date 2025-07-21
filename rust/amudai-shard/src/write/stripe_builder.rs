@@ -5,12 +5,15 @@ use std::sync::Arc;
 use amudai_common::{Result, error::Error};
 use amudai_encodings::block_encoder::BlockEncodingProfile;
 use amudai_format::defs::common::DataRef;
+use amudai_format::defs::shard::StripeProperties;
 use amudai_format::defs::{self, shard};
 use amudai_format::schema::{DataType, FieldLocator, Schema, SchemaId};
 use amudai_io::temp_file_store::TemporaryFileStore;
 use amudai_keyed_vector::KeyedVector;
 use amudai_objectstore::url::ObjectUrl;
 use arrow_array::RecordBatch;
+
+use crate::write::properties::StripePropertiesBuilder;
 
 use super::format_elements_ext::{CompactDataRefs, DataRefExt};
 use super::{
@@ -30,6 +33,7 @@ pub struct StripeBuilder {
     /// Logical position of the next record batch, aka the total number of records
     /// in already consumed batches.
     batch_pos: usize,
+    properties: StripePropertiesBuilder,
 }
 
 impl StripeBuilder {
@@ -40,6 +44,7 @@ impl StripeBuilder {
             params,
             fields: FieldBuilders::new(schema)?,
             batch_pos: 0,
+            properties: Default::default(),
         })
     }
 
@@ -271,6 +276,31 @@ impl StripeBuilder {
         self.batch_pos = pos as usize;
     }
 
+    /// Returns a reference to the stripe properties builder.
+    ///
+    /// This method provides read-only access to the `StripePropertiesBuilder`
+    /// associated with this stripe, allowing inspection of current property values
+    /// without the ability to modify them.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the stripe's `StripePropertiesBuilder`.
+    pub fn properties(&self) -> &StripePropertiesBuilder {
+        &self.properties
+    }
+
+    /// Returns a mutable reference to the stripe properties builder.
+    ///
+    /// This method provides mutable access to the `StripePropertiesBuilder`
+    /// associated with this stripe, allowing properties to be set or modified.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the stripe's `StripePropertiesBuilder`.
+    pub fn properties_mut(&mut self) -> &mut StripePropertiesBuilder {
+        &mut self.properties
+    }
+
     /// Finishes building the stripe and returns a `PreparedStripe`
     /// that can be added to the `ShardBuilder`.
     pub fn finish(self) -> Result<PreparedStripe> {
@@ -279,6 +309,7 @@ impl StripeBuilder {
         self.fields.finish(Some(logical_pos), &mut fields)?;
         Ok(PreparedStripe {
             fields: fields.into(),
+            properties: self.properties,
             record_count: logical_pos as u64,
         })
     }
@@ -302,6 +333,7 @@ impl StripeBuilder {
 /// A prepared stripe that is ready to be added to a shard.
 pub struct PreparedStripe {
     pub fields: KeyedVector<SchemaId, PreparedStripeField>,
+    pub properties: StripePropertiesBuilder,
     pub record_count: u64,
 }
 
@@ -341,6 +373,7 @@ impl PreparedStripe {
         }
         Ok(SealedStripe {
             fields: fields.into(),
+            properties: self.properties.finish(),
             total_record_count: self.record_count,
             deleted_record_count: 0,
         })
@@ -351,6 +384,8 @@ impl PreparedStripe {
 pub struct SealedStripe {
     /// Sealed stripe fields.
     pub fields: KeyedVector<SchemaId, SealedStripeField>,
+    /// Stripe properties
+    pub properties: StripeProperties,
     pub total_record_count: u64,
     pub deleted_record_count: u64,
 }
@@ -397,8 +432,16 @@ impl SealedStripe {
         let mut field_list_ref = writer.write_message(&field_list)?;
         field_list_ref.try_make_relative(shard_url);
 
+        let properties_ref = if !self.properties.is_empty() {
+            let mut properties_ref = writer.write_message(&self.properties)?;
+            properties_ref.try_make_relative(shard_url);
+            Some(properties_ref)
+        } else {
+            None
+        };
+
         Ok(shard::StripeDirectory {
-            properties_ref: None,
+            properties_ref,
             field_list_ref: Some(field_list_ref),
             indexes_ref: None,
             total_record_count: self.total_record_count,
