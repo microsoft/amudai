@@ -1,12 +1,14 @@
 use amudai_common::Result;
 use amudai_format::schema::BasicType;
-use arrow_array::RecordBatchIterator;
+use arrow_array::{ArrayRef, FixedSizeBinaryArray, RecordBatch, RecordBatchIterator};
+use std::sync::Arc;
 
 use crate::{
     read::shard::ShardOptions,
     tests::{
         data_generator::{
             create_decimal_test_schema, create_mixed_schema_with_decimals, generate_batches,
+            generate_field,
         },
         shard_store::ShardStore,
     },
@@ -586,4 +588,164 @@ fn test_decimal_with_index_end_to_end() -> Result<()> {
     println!("  Read back values: first decoded decimal = {decoded_decimal}");
 
     Ok(())
+}
+
+#[test]
+fn test_constant_decimal_stripe_integration() -> Result<()> {
+    let shard_store = ShardStore::new();
+
+    // Create a schema with decimal fields
+    let schema = create_decimal_test_schema();
+
+    // Create a constant decimal value (same as used in unit tests)
+    let constant_decimal_bytes = [
+        0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD,
+        0xEF,
+    ];
+
+    // Generate batches with constant decimal values
+    let record_count = 1000;
+    let batches = generate_constant_decimal_batches(
+        schema.clone(),
+        50..100,
+        record_count,
+        constant_decimal_bytes,
+    );
+    let batch_iter = RecordBatchIterator::new(batches.map(Ok), schema.clone());
+
+    // Write to shard
+    let data_ref = shard_store.ingest_shard_from_record_batches(batch_iter);
+
+    // Verify shard was created successfully
+    let shard = shard_store.open_shard(&data_ref.url);
+    assert_eq!(shard.directory().total_record_count, 1000);
+    assert_eq!(shard.directory().stripe_count, 1);
+
+    // Open the stripe and verify schema
+    let stripe = shard.open_stripe(0)?;
+    let stripe_schema = stripe.fetch_schema()?;
+
+    // Find the decimal fields
+    let amount_field_info = stripe_schema.find_field("amount")?.unwrap();
+    let price_field_info = stripe_schema.find_field("price")?.unwrap();
+
+    // Open the decimal fields
+    let amount_field = stripe.open_field(amount_field_info.1.data_type().unwrap())?;
+    let price_field = stripe.open_field(price_field_info.1.data_type().unwrap())?;
+
+    // Verify field types
+    assert_eq!(
+        amount_field.data_type().basic_type()?,
+        BasicType::FixedSizeBinary
+    );
+    assert_eq!(
+        price_field.data_type().basic_type()?,
+        BasicType::FixedSizeBinary
+    );
+
+    // Create decoder and reader for the amount field
+    let amount_decoder = amount_field.create_decoder()?;
+    let mut amount_reader = amount_decoder.create_reader_with_ranges(std::iter::empty())?;
+
+    // Read a range of values and verify they're all the same constant
+    let seq = amount_reader.read_range(0..10)?;
+    assert_eq!(seq.len(), 10);
+
+    // For fixed-size decimals, there should be no offsets
+    assert!(
+        seq.offsets.is_none(),
+        "Decimals should not have offsets as they are fixed-size"
+    );
+
+    // Verify all values are the same constant decimal
+    let values_bytes = seq.values.as_bytes();
+    assert_eq!(values_bytes.len(), 10 * 16); // 10 decimals * 16 bytes each
+
+    for i in 0..10 {
+        let start = i * 16;
+        let end = start + 16;
+        let decimal_bytes = &values_bytes[start..end];
+        assert_eq!(decimal_bytes, constant_decimal_bytes);
+    }
+
+    // Test reading different ranges
+    let seq2 = amount_reader.read_range(100..150)?;
+    assert_eq!(seq2.len(), 50);
+
+    let values_bytes2 = seq2.values.as_bytes();
+    assert_eq!(values_bytes2.len(), 50 * 16);
+
+    // Verify all values in this range are also the same constant
+    for i in 0..50 {
+        let start = i * 16;
+        let end = start + 16;
+        let decimal_bytes = &values_bytes2[start..end];
+        assert_eq!(decimal_bytes, constant_decimal_bytes);
+    }
+
+    // Test the price field as well
+    let price_decoder = price_field.create_decoder()?;
+    let mut price_reader = price_decoder.create_reader_with_ranges(std::iter::empty())?;
+
+    let price_seq = price_reader.read_range(0..5)?;
+    assert_eq!(price_seq.len(), 5);
+
+    let price_values = price_seq.values.as_bytes();
+    for i in 0..5 {
+        let start = i * 16;
+        let end = start + 16;
+        let decimal_bytes = &price_values[start..end];
+        assert_eq!(decimal_bytes, constant_decimal_bytes);
+    }
+
+    println!("✓ Constant decimal stripe integration test passed!");
+    println!("  Successfully created and read constant decimal values from stripe");
+    println!("  Verified {record_count} records with constant decimal values");
+
+    Ok(())
+}
+
+/// Generate batches with constant decimal values for testing
+fn generate_constant_decimal_batches(
+    schema: Arc<arrow_schema::Schema>,
+    batch_size: std::ops::Range<usize>,
+    record_count: usize,
+    constant_decimal_bytes: [u8; 16],
+) -> Box<dyn Iterator<Item = RecordBatch>> {
+    let batch_sizes = amudai_arrow_processing::array_sequence::random_split(
+        record_count,
+        batch_size.start,
+        batch_size.end,
+    );
+    Box::new(batch_sizes.into_iter().map(move |batch_size| {
+        generate_constant_decimal_batch(schema.clone(), batch_size, constant_decimal_bytes)
+    }))
+}
+
+/// Generate a single batch with constant decimal values
+fn generate_constant_decimal_batch(
+    schema: Arc<arrow_schema::Schema>,
+    batch_size: usize,
+    constant_decimal_bytes: [u8; 16],
+) -> RecordBatch {
+    let mut columns = Vec::<ArrayRef>::new();
+
+    for field in schema.fields() {
+        let array = match field.name().as_str() {
+            "amount" | "price" => {
+                // Generate constant decimal values
+                let values: Vec<Option<&[u8]>> = (0..batch_size)
+                    .map(|_| Some(constant_decimal_bytes.as_slice()))
+                    .collect();
+                Arc::new(FixedSizeBinaryArray::from(values))
+            }
+            _ => {
+                // Use the normal generator for other fields
+                generate_field(field, batch_size)
+            }
+        };
+        columns.push(array);
+    }
+
+    RecordBatch::try_new(schema, columns).expect("Failed to create constant decimal batch")
 }

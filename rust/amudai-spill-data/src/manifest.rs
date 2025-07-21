@@ -792,7 +792,7 @@ mod tests {
         // Generate properties (around breadth count, +/- 2)
         let prop_count = breadth.saturating_sub(2) + (depth % 5); // Vary between breadth-2 to breadth+2
         for i in 0..prop_count {
-            let key = format!("prop_{}", i);
+            let key = format!("prop_{i}");
             let value = vec![i as u8; 8 + (i % 16)]; // Varying sizes
             manifest.put_bytes(&key, value);
         }
@@ -801,7 +801,7 @@ mod tests {
             // Generate named children (child_map) - around breadth/2 count
             let named_child_count = (breadth / 2).max(1);
             for i in 0..named_child_count {
-                let child_name = format!("child_{}", i);
+                let child_name = format!("child_{i}");
                 let child_manifest = gen_manifest(depth - 1, breadth);
                 let range_start = i as u64 * 1000;
                 let range_end = range_start + 800;

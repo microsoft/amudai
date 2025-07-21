@@ -5,6 +5,9 @@ pub mod shard_store;
 mod bloom_filter_integration;
 
 #[cfg(test)]
+mod bytes_integration;
+
+#[cfg(test)]
 mod decimal_integration;
 
 #[cfg(test)]

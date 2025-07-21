@@ -3,6 +3,7 @@
 //! This module provides functionality to collect statistics from d128 decimal values
 //! that have been converted from Arrow decimal array types.
 
+use amudai_format::defs::common::{AnyValue, UnitValue, any_value::Kind};
 use decimal::d128;
 
 /// Statistics collector for d128 decimal values.
@@ -199,6 +200,43 @@ impl DecimalStats {
         }
     }
 
+    /// Detects if all values in the stats are the same constant value.
+    /// Returns Some(AnyValue) if all values are the same (all null or all the same non-null value).
+    /// Returns None if the field has varying values or a mix of null and non-null values.
+    ///
+    /// # Returns
+    /// Some(AnyValue) if all values are constant, None otherwise
+    pub fn try_get_constant(&self) -> Option<amudai_format::defs::common::AnyValue> {
+        // If we have no values, not a constant
+        if self.total_count == 0 {
+            return None;
+        }
+
+        // If all values are null, constant null
+        if self.null_count == self.total_count {
+            return Some(AnyValue {
+                annotation: None,
+                kind: Some(Kind::NullValue(UnitValue {})),
+            });
+        }
+
+        // Only check for constant non-null values if there are no nulls
+        if self.null_count == 0 {
+            // For decimal, check if min == max directly
+            if let (Some(min_val), Some(max_val)) = (self.min_value, self.max_value) {
+                if min_val == max_val {
+                    // Convert d128 to raw bytes for DecimalValue in AnyValue representation
+                    // Use DecimalValue kind for proper decimal constant value handling
+                    return Some(AnyValue {
+                        annotation: None,
+                        kind: Some(Kind::DecimalValue(min_val.to_raw_bytes().to_vec())),
+                    });
+                }
+            }
+        }
+
+        None
+    }
     /// Returns the count of non-null values.
     ///
     /// # Returns
@@ -347,5 +385,68 @@ mod tests {
         assert_eq!(stats.max_value, None);
         // When all values are null, no storage is needed at all
         assert_eq!(stats.raw_data_size, 0);
+    }
+
+    #[test]
+    fn test_decimal_constant_value_detection_all_nulls() {
+        let mut collector = DecimalStatsCollector::new();
+        collector.process_nulls(3);
+        let stats = collector.finalize();
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_some());
+        let any_value = constant_value.unwrap();
+        assert!(matches!(
+            any_value.kind,
+            Some(amudai_format::defs::common::any_value::Kind::NullValue(_))
+        ));
+    }
+
+    #[test]
+    fn test_decimal_constant_value_detection_all_same() {
+        let mut collector = DecimalStatsCollector::new();
+        let value = d128::from_str("123.456").unwrap();
+        collector.process_value(value);
+        collector.process_value(value);
+        collector.process_value(value);
+        let stats = collector.finalize();
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_some());
+        let any_value = constant_value.unwrap();
+        if let Some(amudai_format::defs::common::any_value::Kind::DecimalValue(bytes)) =
+            any_value.kind
+        {
+            assert_eq!(bytes, value.to_raw_bytes().to_vec());
+        } else {
+            panic!("Expected DecimalValue but got {:?}", any_value.kind);
+        }
+    }
+
+    #[test]
+    fn test_decimal_constant_value_detection_mixed_null_and_constant() {
+        let mut collector = DecimalStatsCollector::new();
+        let value = d128::from_str("123.456").unwrap();
+        collector.process_value(value);
+        collector.process_null();
+        collector.process_value(value);
+        let stats = collector.finalize();
+
+        // Should NOT detect as constant because there are both null and non-null values
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_none());
+    }
+
+    #[test]
+    fn test_decimal_constant_value_detection_different_values() {
+        let mut collector = DecimalStatsCollector::new();
+        let value1 = d128::from_str("123.456").unwrap();
+        let value2 = d128::from_str("789.012").unwrap();
+        collector.process_value(value1);
+        collector.process_value(value2);
+        let stats = collector.finalize();
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_none());
     }
 }

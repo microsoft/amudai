@@ -263,6 +263,44 @@ impl FloatingStats {
         }
     }
 
+    /// Detects if all non-null values in the stats are the same constant value.
+    ///
+    /// # Returns
+    /// Some(AnyValue) if all non-null values are constant, None otherwise
+    /// Detects if all values in the stats are the same constant value.
+    /// Returns Some(AnyValue) if all values are the same (all null or all the same non-null value).
+    /// Returns None if the field has varying values or a mix of null and non-null values.
+    pub fn try_get_constant(&self) -> Option<amudai_format::defs::common::AnyValue> {
+        use amudai_format::defs::common::{AnyValue, UnitValue, any_value::Kind};
+
+        // If we have no values, not a constant
+        if self.total_count == 0 {
+            return None;
+        }
+
+        // If all values are null, constant null
+        if self.null_count == self.total_count {
+            return Some(AnyValue {
+                annotation: None,
+                kind: Some(Kind::NullValue(UnitValue {})),
+            });
+        }
+
+        // Only check for constant non-null values if there are no nulls
+        if self.null_count == 0 {
+            // For floating point, check if min == max directly
+            if let (Some(min_val), Some(max_val)) = (self.min_value, self.max_value) {
+                if min_val == max_val {
+                    return Some(AnyValue {
+                        annotation: None,
+                        kind: Some(Kind::DoubleValue(min_val)),
+                    });
+                }
+            }
+        }
+
+        None
+    }
     /// Returns the count of non-null values.
     ///
     /// # Returns
@@ -433,5 +471,65 @@ mod tests {
         assert_eq!(stats.max_value, None);
         // When all values are null, no storage is needed at all
         assert_eq!(stats.raw_data_size, 0);
+    }
+
+    #[test]
+    fn test_floating_constant_value_detection_all_nulls() {
+        let mut collector = FloatingStatsCollector::new();
+        collector.process_nulls(3);
+        let stats = collector.finalize();
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_some());
+        let any_value = constant_value.unwrap();
+        assert!(matches!(
+            any_value.kind,
+            Some(amudai_format::defs::common::any_value::Kind::NullValue(_))
+        ));
+    }
+
+    #[test]
+    fn test_floating_constant_value_detection_all_same() {
+        let mut collector = FloatingStatsCollector::new();
+        let value = 123.456;
+        collector.process_f64_value(value);
+        collector.process_f64_value(value);
+        collector.process_f64_value(value);
+        let stats = collector.finalize();
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_some());
+        let any_value = constant_value.unwrap();
+        if let Some(amudai_format::defs::common::any_value::Kind::DoubleValue(val)) = any_value.kind
+        {
+            assert!((val - value).abs() < f64::EPSILON);
+        } else {
+            panic!("Expected DoubleValue but got {:?}", any_value.kind);
+        }
+    }
+
+    #[test]
+    fn test_floating_constant_value_detection_mixed_null_and_constant() {
+        let mut collector = FloatingStatsCollector::new();
+        let value = 123.456;
+        collector.process_f64_value(value);
+        collector.process_null();
+        collector.process_f64_value(value);
+        let stats = collector.finalize();
+
+        // Should NOT detect as constant because there are both null and non-null values
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_none());
+    }
+
+    #[test]
+    fn test_floating_constant_value_detection_different_values() {
+        let mut collector = FloatingStatsCollector::new();
+        collector.process_f64_value(123.456);
+        collector.process_f64_value(789.012);
+        let stats = collector.finalize();
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_none());
     }
 }

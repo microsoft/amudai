@@ -159,6 +159,44 @@ pub struct PrimitiveStats {
     pub raw_data_size: u64,
 }
 
+impl PrimitiveStats {
+    /// Detects if this field has a constant value based on the statistics.
+    /// Returns Some(AnyValue) if all values are the same (all null or all the same non-null value).
+    /// Returns None if the field has varying values or a mix of null and non-null values.
+    pub fn try_get_constant(&self) -> Option<amudai_format::defs::common::AnyValue> {
+        use amudai_format::defs::common::{AnyValue, UnitValue, any_value::Kind};
+
+        if self.count == 0 {
+            return None;
+        }
+
+        // Check if all values are null
+        if self.null_count == self.count {
+            return Some(AnyValue {
+                annotation: None,
+                kind: Some(Kind::NullValue(UnitValue {})),
+            });
+        }
+
+        // Only check for constant non-null values if there are no nulls
+        if self.null_count == 0 {
+            // Check if min == max (constant non-null value)
+            if let (Some(min_val), Some(max_val)) =
+                (&self.range_stats.min_value, &self.range_stats.max_value)
+            {
+                if amudai_format::defs::anyvalue_ext::compare_any_values(min_val, max_val)
+                    .unwrap_or(1)
+                    == 0
+                {
+                    return Some(min_val.clone());
+                }
+            }
+        }
+
+        None
+    }
+}
+
 /// A trait for collecting range statistics.
 trait RangeStatsCollector: Send + Sync {
     fn get_count(&self) -> usize;
@@ -864,5 +902,79 @@ mod tests {
         // Try to process a string array with an int32 collector
         let array = arrow_array::StringArray::from(vec!["hello", "world"]);
         let _ = collector.process_array(&array);
+    }
+
+    #[test]
+    fn test_primitive_constant_value_detection_all_nulls() {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+            extended_type: Default::default(),
+        });
+
+        collector.process_nulls(3);
+        let stats = collector.finish().unwrap();
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_some());
+        let any_value = constant_value.unwrap();
+        assert!(matches!(
+            any_value.kind,
+            Some(amudai_format::defs::common::any_value::Kind::NullValue(_))
+        ));
+    }
+
+    #[test]
+    fn test_primitive_constant_value_detection_all_same() {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+            extended_type: Default::default(),
+        });
+
+        let array = arrow_array::Int32Array::from(vec![42, 42, 42]);
+        collector.process_array(&array).unwrap();
+        let stats = collector.finish().unwrap();
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_some());
+        // We just check that it's some constant value - the specific type handling can vary
+    }
+
+    #[test]
+    fn test_primitive_constant_value_detection_mixed_null_and_constant() {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+            extended_type: Default::default(),
+        });
+
+        let array = arrow_array::Int32Array::from(vec![Some(42), None, Some(42)]);
+        collector.process_array(&array).unwrap();
+        let stats = collector.finish().unwrap();
+
+        // Should NOT detect as constant because there are both null and non-null values
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_none());
+    }
+
+    #[test]
+    fn test_primitive_constant_value_detection_different_values() {
+        let mut collector = PrimitiveStatsCollector::new(BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+            extended_type: Default::default(),
+        });
+
+        let array = arrow_array::Int32Array::from(vec![42, 123]);
+        collector.process_array(&array).unwrap();
+        let stats = collector.finish().unwrap();
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_none());
     }
 }

@@ -220,7 +220,7 @@ pub mod procedural {
         builder.name_field().push(format!("record_{pos}"));
 
         // Timestamp fields
-        let base_timestamp_ns = 1640995200_000_000_000i64; // 2022-01-01 00:00:00 UTC
+        let base_timestamp_ns = 1_640_995_200_000_000_000_i64; // 2022-01-01 00:00:00 UTC
         let timestamp_ns = base_timestamp_ns + (pos as i64 * 1_000_000_000); // Add seconds
         builder.timestamp_arrow_field().push(timestamp_ns);
 
@@ -235,7 +235,7 @@ pub mod procedural {
             bytes[8..16].copy_from_slice(&varied_bytes);
             bytes
         };
-        builder.guid_field().push(&guid_bytes);
+        builder.guid_field().push(guid_bytes);
 
         // KustoDateTime as ticks (100ns intervals since 0001-01-01)
         let base_ticks = 621355968000000000i64; // Ticks from 0001-01-01 to 1970-01-01

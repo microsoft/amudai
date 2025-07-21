@@ -19,7 +19,7 @@ use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 
 use crate::{
-    read::{block_map_ops::BlockDescriptor, block_stream::DecodedBlock},
+    read::{EPHEMERAL_BLOCK_SIZE, block_stream::DecodedBlock, get_ephemeral_block_descriptor},
     write::PreparedEncodedBuffer,
 };
 
@@ -329,25 +329,6 @@ impl BitBufferReader {
             BitBufferReader::Blocks(_) => None,
             BitBufferReader::Constant(value) => Some(*value),
         }
-    }
-}
-
-const EPHEMERAL_BLOCK_SIZE: usize = 256;
-
-pub fn get_ephemeral_block_range(position: u64) -> Range<u64> {
-    let ordinal = position / EPHEMERAL_BLOCK_SIZE as u64;
-    let logical_start = ordinal * EPHEMERAL_BLOCK_SIZE as u64;
-    let logical_end = logical_start + EPHEMERAL_BLOCK_SIZE as u64;
-    logical_start..logical_end
-}
-
-pub fn get_ephemeral_block_descriptor(position: u64) -> BlockDescriptor {
-    let ordinal = position / EPHEMERAL_BLOCK_SIZE as u64;
-    let range = get_ephemeral_block_range(position);
-    BlockDescriptor {
-        logical_range: range.clone(),
-        ordinal,
-        storage_range: range,
     }
 }
 

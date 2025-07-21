@@ -14,7 +14,10 @@ use amudai_blockstream::read::{
 };
 use amudai_common::{Result, error::Error, verify_arg, verify_data};
 use amudai_format::{
-    defs::shard::{self, BufferKind},
+    defs::{
+        common::any_value::Kind,
+        shard::{self, BufferKind},
+    },
     schema::{BasicType, BasicTypeDescriptor},
 };
 use amudai_sequence::sequence::ValueSequence;
@@ -79,6 +82,47 @@ impl BooleanFieldDecoder {
         }
     }
 
+    /// Creates decoders for constant boolean values.
+    ///
+    /// This helper method handles the creation of appropriate bit buffer decoders
+    /// for constant boolean values, including both non-null boolean values and null values.
+    ///
+    /// # Arguments
+    ///
+    /// * `constant_value` - The constant value to create decoders for
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (values_decoder, presence_decoder) configured for the constant value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the constant value type is not valid for boolean fields.
+    fn create_constant_decoders(
+        constant_value: &amudai_format::defs::common::AnyValue,
+    ) -> Result<(BitBufferDecoder, BitBufferDecoder)> {
+        match &constant_value.kind {
+            Some(Kind::BoolValue(bool_val)) => {
+                // For constant boolean values, create constant decoders
+                Ok((
+                    BitBufferDecoder::from_constant(*bool_val),
+                    BitBufferDecoder::from_constant(true), // Non-null
+                ))
+            }
+            Some(Kind::NullValue(_)) => {
+                // For constant null values, value doesn't matter but presence is false
+                Ok((
+                    BitBufferDecoder::from_constant(false), // Value doesn't matter for nulls
+                    BitBufferDecoder::from_constant(false), // All null
+                ))
+            }
+            _ => Err(Error::invalid_format(format!(
+                "Invalid constant value type for boolean field: {:?}",
+                constant_value.kind
+            ))),
+        }
+    }
+
     /// Creates a `BooleanFieldDecoder` from a field context.
     ///
     /// This method parses the field's metadata and encoded buffers to construct
@@ -103,6 +147,19 @@ impl BooleanFieldDecoder {
     pub(crate) fn from_field(field: &FieldContext) -> Result<BooleanFieldDecoder> {
         let basic_type = field.data_type().describe()?;
         verify_data!(basic_type, basic_type.basic_type == BasicType::Boolean);
+
+        // Check if this is a constant field first
+        if let Some(constant_value) = field.try_get_constant() {
+            let (values_decoder, presence_decoder) =
+                Self::create_constant_decoders(&constant_value)?;
+
+            return Ok(BooleanFieldDecoder::new(
+                basic_type,
+                values_decoder,
+                presence_decoder,
+                field.position_count(),
+            ));
+        }
 
         let encoded_buffers = field.get_encoded_buffers()?;
 
@@ -180,12 +237,26 @@ impl BooleanFieldDecoder {
     ) -> Result<BooleanFieldDecoder> {
         verify_data!(basic_type, basic_type.basic_type == BasicType::Boolean);
 
+        // Check if this field has a constant value
+        if let Some(constant_value) = &field.constant_value {
+            let (values_decoder, presence_decoder) =
+                Self::create_constant_decoders(constant_value)?;
+
+            return Ok(BooleanFieldDecoder::new(
+                basic_type,
+                values_decoder,
+                presence_decoder,
+                positions,
+            ));
+        }
+
+        // Handle buffered values
         let values_buffer = field.get_encoded_buffer(shard::BufferKind::Data)?;
         let presence_buffer = field.get_encoded_buffer(shard::BufferKind::Presence).ok();
 
         let values = BitBufferDecoder::from_prepared_buffer(values_buffer)?;
         let presence = presence_buffer
-            .map(|buf| BitBufferDecoder::from_prepared_buffer(buf))
+            .map(BitBufferDecoder::from_prepared_buffer)
             .unwrap_or_else(|| Ok(BitBufferDecoder::from_constant(true)))?;
         Ok(BooleanFieldDecoder::new(
             basic_type, values, presence, positions,
@@ -406,11 +477,13 @@ impl FieldReader for BooleanFieldReader {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use arrow_array::Array;
 
     use crate::{
         read::{field_decoder::FieldDecoder, shard::ShardOptions},
         tests::{data_generator::create_boolean_test_schema, shard_store::ShardStore},
+        write::field_encoder::EncodedFieldStatistics,
     };
 
     #[test]
@@ -475,5 +548,120 @@ mod tests {
         }
         assert!(null_count > 500);
         assert!(true_count > 2000);
+    }
+
+    #[test]
+    fn test_boolean_constant_decoder() {
+        use crate::write::field_encoder::EncodedField;
+        use amudai_format::{
+            defs::common::{AnyValue, any_value::Kind},
+            schema::{BasicType, BasicTypeDescriptor},
+        };
+
+        // Test constant true value
+        let constant_value = AnyValue {
+            annotation: None,
+            kind: Some(Kind::BoolValue(true)),
+        };
+
+        let mut encoded_field =
+            EncodedField::new(Vec::new(), EncodedFieldStatistics::Missing, None);
+        encoded_field.constant_value = Some(constant_value);
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Boolean,
+            fixed_size: 0,
+            signed: false,
+            extended_type: Default::default(),
+        };
+        let decoder =
+            BooleanFieldDecoder::from_encoded_field(&encoded_field, basic_type, 100).unwrap();
+
+        let mut reader = decoder
+            .create_boolean_reader_with_ranges(std::iter::empty())
+            .unwrap();
+
+        // Test reading a range
+        let array = reader.read_array(0..10).unwrap();
+        assert_eq!(array.len(), 10);
+        assert_eq!(array.true_count(), 10);
+        assert_eq!(array.null_count(), 0);
+
+        // Test using the generic FieldReader interface
+        let mut reader = decoder
+            .create_reader_with_ranges(std::iter::empty())
+            .unwrap();
+        let sequence = reader.read_range(5..15).unwrap();
+        assert_eq!(sequence.len(), 10);
+        assert!(sequence.presence.is_trivial_non_null());
+        assert!(sequence.values.as_bytes().iter().all(|&b| b == 1));
+
+        // Test constant false value
+        let constant_value = AnyValue {
+            annotation: None,
+            kind: Some(Kind::BoolValue(false)),
+        };
+
+        let mut encoded_field =
+            EncodedField::new(Vec::new(), EncodedFieldStatistics::Missing, None);
+        encoded_field.constant_value = Some(constant_value);
+
+        let decoder =
+            BooleanFieldDecoder::from_encoded_field(&encoded_field, basic_type, 50).unwrap();
+        let mut reader = decoder
+            .create_boolean_reader_with_ranges(std::iter::empty())
+            .unwrap();
+
+        let array = reader.read_array(0..5).unwrap();
+        assert_eq!(array.len(), 5);
+        assert_eq!(array.true_count(), 0);
+        assert_eq!(array.null_count(), 0);
+    }
+
+    #[test]
+    fn test_boolean_null_constant_decoder() {
+        use crate::write::field_encoder::EncodedField;
+        use amudai_format::{
+            defs::common::{AnyValue, UnitValue, any_value::Kind},
+            schema::{BasicType, BasicTypeDescriptor},
+        };
+
+        // Test constant null value
+        let constant_value = AnyValue {
+            annotation: None,
+            kind: Some(Kind::NullValue(UnitValue {})),
+        };
+
+        let mut encoded_field =
+            EncodedField::new(Vec::new(), EncodedFieldStatistics::Missing, None);
+        encoded_field.constant_value = Some(constant_value);
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Boolean,
+            fixed_size: 0,
+            signed: false,
+            extended_type: Default::default(),
+        };
+        let decoder =
+            BooleanFieldDecoder::from_encoded_field(&encoded_field, basic_type, 100).unwrap();
+
+        let mut reader = decoder
+            .create_boolean_reader_with_ranges(std::iter::empty())
+            .unwrap();
+
+        // Test reading a range
+        let array = reader.read_array(0..10).unwrap();
+        assert_eq!(array.len(), 10);
+        assert_eq!(array.true_count(), 0);
+        assert_eq!(array.null_count(), 10);
+
+        // Test using the generic FieldReader interface
+        let mut reader = decoder
+            .create_reader_with_ranges(std::iter::empty())
+            .unwrap();
+        let sequence = reader.read_range(5..15).unwrap();
+        assert_eq!(sequence.len(), 10);
+        assert!(sequence.presence.is_trivial_all_null());
+        assert!(sequence.values.as_bytes().iter().all(|&b| b == 0));
     }
 }

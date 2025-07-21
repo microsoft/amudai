@@ -5,7 +5,10 @@ use std::sync::{Arc, OnceLock};
 use amudai_bloom_filters::decoder::SbbfDecoder;
 use amudai_common::{Result, error::Error};
 use amudai_format::{
-    defs::{common::DataRef, shard},
+    defs::{
+        common::{AnyValue, DataRef, UnitValue, any_value::Kind},
+        shard,
+    },
     schema::{self, BasicType, SchemaId},
 };
 
@@ -83,6 +86,37 @@ impl FieldContext {
             .position_count
     }
 
+    /// Returns a constant value if this field contains only constant data.
+    ///
+    /// This method returns `Some(AnyValue)` in two cases:
+    /// 1. The field descriptor explicitly contains a constant value
+    /// 2. The null count equals the position count (all values are null)
+    ///
+    /// # Returns
+    ///
+    /// * `Some(AnyValue)` - If the field contains only constant values or is entirely null
+    /// * `None` - If the field contains varying values
+    pub fn try_get_constant(&self) -> Option<AnyValue> {
+        let descriptor = self.descriptor().field.as_ref()?;
+
+        // Case 1: Descriptor has an explicit constant value
+        if let Some(constant_value) = &descriptor.constant_value {
+            return Some(constant_value.clone());
+        }
+
+        // Case 2: All values are null (null_count == position_count)
+        if let Some(null_count) = descriptor.null_count {
+            if null_count == descriptor.position_count {
+                return Some(AnyValue {
+                    kind: Some(Kind::NullValue(UnitValue {})),
+                    annotation: None,
+                });
+            }
+        }
+
+        None
+    }
+
     /// Returns a reference to the stripe context that contains this field.
     pub fn stripe(&self) -> &Arc<StripeContext> {
         &self.stripe
@@ -123,19 +157,6 @@ impl FieldContext {
             .field
             .as_ref()
             .ok_or_else(|| Error::invalid_format("missing stripe field descriptor"))?;
-
-        if descriptor.null_count == Some(descriptor.position_count)
-            || descriptor
-                .constant_value
-                .as_ref()
-                .is_some_and(|c| c.is_null())
-        {
-            return Err(Error::not_implemented("null field decoder"));
-        }
-
-        if descriptor.constant_value.is_some() {
-            return Err(Error::not_implemented("constant field decoder"));
-        }
 
         // Check if this field uses dictionary encoding
         if descriptor.dictionary_size.is_some() {

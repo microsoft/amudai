@@ -10,6 +10,10 @@ use amudai_format::defs::schema::BasicType;
 use arrow_array::{Array, BinaryArray, FixedSizeBinaryArray, LargeBinaryArray};
 use arrow_schema::DataType;
 
+/// Maximum size in bytes for tracking min/max binary values for constant detection.
+/// Binary values larger than this will not be tracked to avoid memory bloat.
+const MAX_CONSTANT_BINARY_SIZE: u64 = 128;
+
 /// Statistics collector for binary data in Arrow arrays.
 ///
 /// This collector processes various Arrow binary array types and computes statistics
@@ -27,6 +31,11 @@ pub struct BinaryStatsCollector {
     bloom_filter_collector: Option<BloomFilterCollector>,
     // Flag to control bloom filter collection
     collect_bloom_filters: bool,
+    // Min/max value tracking for constant detection
+    min_value: Option<Vec<u8>>,
+    max_value: Option<Vec<u8>>,
+    // Flag to control whether we track min_value and max_value for constant detection
+    value_tracking_enabled: bool,
 }
 
 impl BinaryStatsCollector {
@@ -65,6 +74,9 @@ impl BinaryStatsCollector {
             raw_data_size: 0,
             bloom_filter_collector,
             collect_bloom_filters,
+            min_value: None,
+            max_value: None,
+            value_tracking_enabled: true,
         }
     }
 
@@ -83,8 +95,7 @@ impl BinaryStatsCollector {
                 self.null_count += 1;
             } else {
                 let value = array.value(i);
-                let length = value.len() as u64;
-                self.update_lengths(length, 1)?;
+                self.update_stats(value, 1)?;
 
                 // Update bloom filter if enabled
                 if let Some(ref mut collector) = self.bloom_filter_collector {
@@ -113,8 +124,7 @@ impl BinaryStatsCollector {
                 self.null_count += 1;
             } else {
                 let value = array.value(i);
-                let length = value.len() as u64;
-                self.update_lengths(length, 1)?;
+                self.update_stats(value, 1)?;
 
                 // Update bloom filter if enabled
                 if let Some(ref mut collector) = self.bloom_filter_collector {
@@ -137,14 +147,13 @@ impl BinaryStatsCollector {
     /// A `Result` indicating success or failure
     pub fn process_fixed_size_binary_array(&mut self, array: &FixedSizeBinaryArray) -> Result<()> {
         self.total_count += array.len() as u64;
-        let fixed_length = array.value_length() as u64;
 
         for i in 0..array.len() {
             if array.is_null(i) {
                 self.null_count += 1;
             } else {
                 let value = array.value(i);
-                self.update_lengths(fixed_length, 1)?;
+                self.update_stats(value, 1)?;
 
                 // Update bloom filter if enabled
                 if let Some(ref mut collector) = self.bloom_filter_collector {
@@ -234,7 +243,7 @@ impl BinaryStatsCollector {
     pub fn process_value(&mut self, value: &[u8], count: usize) -> Result<()> {
         self.total_count += count as u64;
 
-        self.update_lengths(value.len() as u64, count as u64)?;
+        self.update_stats(value, count as u64)?;
 
         // Update bloom filter if enabled
         if let Some(ref mut collector) = self.bloom_filter_collector {
@@ -245,15 +254,16 @@ impl BinaryStatsCollector {
         Ok(())
     }
 
-    /// Updates the length statistics with a new binary value length.
+    /// Updates the statistics with a new binary value.
     ///
     /// # Arguments
-    /// * `length` - The length of the binary value
-    /// * `count` - The number of times this length should be counted (for repeated values)
+    /// * `value` - The binary value to process
+    /// * `count` - The number of times this value should be counted (for repeated values)
     ///
     /// # Returns
     /// A `Result` indicating success or failure
-    fn update_lengths(&mut self, length: u64, count: u64) -> Result<()> {
+    fn update_stats(&mut self, value: &[u8], count: u64) -> Result<()> {
+        let length = value.len() as u64;
         // Update min_length
         self.min_length = Some(match self.min_length {
             Some(current_min) => current_min.min(length),
@@ -276,6 +286,34 @@ impl BinaryStatsCollector {
 
         // Update raw_data_size (sum of lengths of all non-null values)
         self.raw_data_size += length * count;
+
+        // Update min/max values for constant detection (optimized tracking)
+        if self.value_tracking_enabled {
+            // First calculate if this value would change the current bounds
+            let would_be_new_min =
+                self.min_value.is_none() || value < self.min_value.as_ref().unwrap().as_slice();
+            let would_be_new_max =
+                self.max_value.is_none() || value > self.max_value.as_ref().unwrap().as_slice();
+
+            if length <= MAX_CONSTANT_BINARY_SIZE {
+                // Small value - always track and update bounds
+                if would_be_new_min {
+                    self.min_value = Some(value.to_vec());
+                }
+                if would_be_new_max {
+                    self.max_value = Some(value.to_vec());
+                }
+            } else {
+                // Large value (>128 bytes) - only disable tracking if it would change bounds
+                if would_be_new_min || would_be_new_max {
+                    // Large value would become new min or max - disable tracking
+                    self.value_tracking_enabled = false;
+                    self.min_value = None;
+                    self.max_value = None;
+                }
+                // If large value is between current min/max, we can ignore it and keep tracking
+            }
+        }
 
         Ok(())
     }
@@ -336,6 +374,8 @@ impl BinaryStatsCollector {
             total_count: self.total_count,
             raw_data_size,
             bloom_filter,
+            min_value: self.min_value,
+            max_value: self.max_value,
         })
     }
 }
@@ -359,6 +399,12 @@ pub struct BinaryStats {
     pub raw_data_size: u64,
     /// Optional bloom filter protobuf if one was successfully constructed during statistics collection.
     pub bloom_filter: Option<amudai_format::defs::shard::SplitBlockBloomFilter>,
+    /// Minimum binary value (lexicographically, byte-wise comparison).
+    /// Only tracked if value size <= MAX_CONSTANT_BINARY_SIZE.
+    pub min_value: Option<Vec<u8>>,
+    /// Maximum binary value (lexicographically, byte-wise comparison).
+    /// Only tracked if value size <= MAX_CONSTANT_BINARY_SIZE.
+    pub max_value: Option<Vec<u8>>,
 }
 
 impl BinaryStats {
@@ -375,6 +421,8 @@ impl BinaryStats {
             total_count: 0,
             raw_data_size: 0,
             bloom_filter: None,
+            min_value: None,
+            max_value: None,
         }
     }
 
@@ -400,6 +448,39 @@ impl BinaryStats {
     /// The number of non-null values in the dataset
     pub fn non_null_count(&self) -> u64 {
         self.total_count - self.null_count
+    }
+
+    /// Detects if this field has a constant value based on the statistics.
+    /// Returns Some(AnyValue) if all values are the same (all null or all the same non-null value).
+    /// Returns None if the field has varying values or a mix of null and non-null values.
+    pub fn try_get_constant(&self) -> Option<amudai_format::defs::common::AnyValue> {
+        use amudai_format::defs::common::{AnyValue, UnitValue, any_value::Kind};
+
+        if self.total_count == 0 {
+            return None;
+        }
+
+        // Check if all values are null
+        if self.null_count == self.total_count {
+            return Some(AnyValue {
+                annotation: None,
+                kind: Some(Kind::NullValue(UnitValue {})),
+            });
+        }
+
+        // Check if min_value == max_value AND there are no null values (constant non-null value)
+        if self.null_count == 0 {
+            if let (Some(min_val), Some(max_val)) = (&self.min_value, &self.max_value) {
+                if min_val == max_val {
+                    return Some(AnyValue {
+                        annotation: None,
+                        kind: Some(Kind::BytesValue(min_val.clone())),
+                    });
+                }
+            }
+        }
+
+        None
     }
 }
 
@@ -1018,5 +1099,329 @@ mod tests {
         // Null bitmap: 17 bits = 3 bytes (rounded up from 2.125)
         // Total: 44 + 3 = 47 bytes
         assert_eq!(stats.raw_data_size, 47);
+    }
+
+    #[test]
+    fn test_binary_value_tracking_within_size_limit() {
+        // Test value tracking for binary values within the 128-byte limit
+        let data: Vec<&[u8]> = vec![
+            b"apple",  // 5 bytes
+            b"banana", // 6 bytes
+            b"cherry", // 6 bytes
+            b"date",   // 4 bytes
+        ];
+        let array = BinaryArray::from_vec(data);
+        let mut collector = BinaryStatsCollector::default();
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        assert_eq!(stats.total_count, 4);
+        assert_eq!(stats.null_count, 0);
+        // Min value should be "apple" (lexicographically first)
+        assert_eq!(stats.min_value, Some(b"apple".to_vec()));
+        // Max value should be "date" (lexicographically last)
+        assert_eq!(stats.max_value, Some(b"date".to_vec()));
+    }
+
+    #[test]
+    fn test_binary_value_tracking_disabled_for_large_values() {
+        // Test that value tracking is disabled when encountering large values that would become new min/max
+        let mut collector = BinaryStatsCollector::default();
+
+        // First, process small values to establish min/max: min="apple", max="banana"
+        let small_data: Vec<&[u8]> = vec![b"apple", b"banana"];
+        let small_array = BinaryArray::from_vec(small_data);
+        collector.process_binary_array(&small_array).unwrap();
+
+        // Then process a large value that would become new min ('X' < 'a')
+        let large_data = vec![b'X'; 200]; // 200 bytes, starts with 'X' (0x58) < 'a' (0x61)
+        let large_array = BinaryArray::from_vec(vec![large_data.as_slice()]);
+        collector.process_binary_array(&large_array).unwrap();
+
+        let stats = collector.finalize().unwrap();
+        assert_eq!(stats.total_count, 3);
+        assert_eq!(stats.null_count, 0);
+        // Value tracking should be disabled since large value would become new min
+        assert_eq!(stats.min_value, None);
+        assert_eq!(stats.max_value, None);
+    }
+
+    #[test]
+    fn test_binary_value_tracking_at_size_limit() {
+        // Test value tracking exactly at the 128-byte limit
+        let data_128 = vec![b'A'; 128]; // Exactly 128 bytes
+        let data_small = b"small";
+        let array = BinaryArray::from_vec(vec![data_small as &[u8], data_128.as_slice()]);
+        let mut collector = BinaryStatsCollector::default();
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        assert_eq!(stats.total_count, 2);
+        assert_eq!(stats.null_count, 0);
+        // Both values should be tracked since 128 bytes is within the limit
+        assert_eq!(stats.min_value, Some(data_128)); // All 'A's come before "small"
+        assert_eq!(stats.max_value, Some(b"small".to_vec()));
+    }
+
+    #[test]
+    fn test_binary_value_tracking_just_over_size_limit() {
+        // Test that value tracking is disabled for values just over 128 bytes
+        let data_129 = vec![b'A'; 129]; // 129 bytes (just over limit)
+        let array = BinaryArray::from_vec(vec![data_129.as_slice()]);
+        let mut collector = BinaryStatsCollector::default();
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        assert_eq!(stats.total_count, 1);
+        assert_eq!(stats.null_count, 0);
+        // Value tracking should be disabled for values > 128 bytes
+        assert_eq!(stats.min_value, None);
+        assert_eq!(stats.max_value, None);
+    }
+
+    #[test]
+    fn test_binary_constant_value_detection() {
+        // Test detection of constant binary values
+        let constant_value = b"constant_binary_value";
+        let data: Vec<&[u8]> = vec![
+            constant_value,
+            constant_value,
+            constant_value,
+            constant_value,
+        ];
+        let array = BinaryArray::from_vec(data);
+        let mut collector = BinaryStatsCollector::default();
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        assert_eq!(stats.total_count, 4);
+        assert_eq!(stats.null_count, 0);
+        // Min and max should be the same for constant values
+        assert_eq!(stats.min_value, Some(constant_value.to_vec()));
+        assert_eq!(stats.max_value, Some(constant_value.to_vec()));
+        // This indicates a constant value
+        assert_eq!(stats.min_value, stats.max_value);
+    }
+
+    #[test]
+    fn test_binary_byte_wise_comparison() {
+        // Test that comparison is done byte-wise, not as strings
+        let data: Vec<&[u8]> = vec![
+            &[0x00, 0xFF], // Binary data starting with null byte
+            &[0x80, 0x00], // Binary data with high bit set
+            &[0x7F, 0xFF], // Binary data
+            &[0x01, 0x00], // Binary data
+        ];
+        let array = BinaryArray::from_vec(data);
+        let mut collector = BinaryStatsCollector::default();
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        assert_eq!(stats.total_count, 4);
+        assert_eq!(stats.null_count, 0);
+        // Min should be [0x00, 0xFF] (starts with lowest byte)
+        assert_eq!(stats.min_value, Some(vec![0x00, 0xFF]));
+        // Max should be [0x80, 0x00] (highest first byte)
+        assert_eq!(stats.max_value, Some(vec![0x80, 0x00]));
+    }
+
+    #[test]
+    fn test_binary_value_tracking_optimized_for_large_values_between_bounds() {
+        // Test that large values between current min/max don't disable tracking
+        let mut collector = BinaryStatsCollector::default();
+
+        // First establish small min/max bounds
+        let small_data: Vec<&[u8]> = vec![&[0x10], &[0xF0]]; // min=[0x10], max=[0xF0]
+        let small_array = BinaryArray::from_vec(small_data);
+        collector.process_binary_array(&small_array).unwrap();
+
+        // Then process a large value that falls between the bounds
+        let mut large_middle_value = vec![0x80]; // Starts with 0x80, which is between 0x10 and 0xF0
+        large_middle_value.extend(vec![0x00; 199]); // Make it 200 bytes total
+        let large_array = BinaryArray::from_vec(vec![large_middle_value.as_slice()]);
+        collector.process_binary_array(&large_array).unwrap();
+
+        let stats = collector.finalize().unwrap();
+        assert_eq!(stats.total_count, 3);
+        assert_eq!(stats.null_count, 0);
+        // Value tracking should still be enabled since large value was between bounds
+        assert_eq!(stats.min_value, Some(vec![0x10]));
+        assert_eq!(stats.max_value, Some(vec![0xF0]));
+    }
+
+    #[test]
+    fn test_binary_value_tracking_disabled_when_large_value_becomes_new_min() {
+        // Test that large values that would become new min disable tracking
+        let mut collector = BinaryStatsCollector::default();
+
+        // First establish small bounds
+        let small_data: Vec<&[u8]> = vec![&[0x80], &[0xF0]]; // min=[0x80], max=[0xF0]
+        let small_array = BinaryArray::from_vec(small_data);
+        collector.process_binary_array(&small_array).unwrap();
+
+        // Then process a large value that would become new min
+        let mut large_min_value = vec![0x10]; // Starts with 0x10, which is < 0x80
+        large_min_value.extend(vec![0x00; 199]); // Make it 200 bytes total
+        let large_array = BinaryArray::from_vec(vec![large_min_value.as_slice()]);
+        collector.process_binary_array(&large_array).unwrap();
+
+        let stats = collector.finalize().unwrap();
+        assert_eq!(stats.total_count, 3);
+        assert_eq!(stats.null_count, 0);
+        // Value tracking should be disabled since large value would be new min
+        assert_eq!(stats.min_value, None);
+        assert_eq!(stats.max_value, None);
+    }
+
+    #[test]
+    fn test_binary_value_tracking_disabled_when_large_value_becomes_new_max() {
+        // Test that large values that would become new max disable tracking
+        let mut collector = BinaryStatsCollector::default();
+
+        // First establish small bounds
+        let small_data: Vec<&[u8]> = vec![&[0x10], &[0x80]]; // min=[0x10], max=[0x80]
+        let small_array = BinaryArray::from_vec(small_data);
+        collector.process_binary_array(&small_array).unwrap();
+
+        // Then process a large value that would become new max
+        let mut large_max_value = vec![0xF0]; // Starts with 0xF0, which is > 0x80
+        large_max_value.extend(vec![0x00; 199]); // Make it 200 bytes total
+        let large_array = BinaryArray::from_vec(vec![large_max_value.as_slice()]);
+        collector.process_binary_array(&large_array).unwrap();
+
+        let stats = collector.finalize().unwrap();
+        assert_eq!(stats.total_count, 3);
+        assert_eq!(stats.null_count, 0);
+        // Value tracking should be disabled since large value would be new max
+        assert_eq!(stats.min_value, None);
+        assert_eq!(stats.max_value, None);
+    }
+
+    #[test]
+    fn test_constant_value_detection_all_nulls() {
+        // Test that all-null dataset is detected as constant null value
+        let data: Vec<Option<&[u8]>> = vec![None, None, None];
+        let array = BinaryArray::from_opt_vec(data);
+        let mut collector = BinaryStatsCollector::default();
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_some());
+        let any_value = constant_value.unwrap();
+        assert!(matches!(
+            any_value.kind,
+            Some(amudai_format::defs::common::any_value::Kind::NullValue(_))
+        ));
+    }
+
+    #[test]
+    fn test_constant_value_detection_all_same_non_null() {
+        // Test that all same non-null values are detected as constant
+        let constant_value = b"constant";
+        let data: Vec<&[u8]> = vec![constant_value, constant_value, constant_value];
+        let array = BinaryArray::from_vec(data);
+        let mut collector = BinaryStatsCollector::default();
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        let detected_constant = stats.try_get_constant();
+        assert!(detected_constant.is_some());
+        let any_value = detected_constant.unwrap();
+        if let Some(amudai_format::defs::common::any_value::Kind::BytesValue(bytes)) =
+            any_value.kind
+        {
+            assert_eq!(bytes, constant_value.to_vec());
+        } else {
+            panic!("Expected BytesValue but got {:?}", any_value.kind);
+        }
+    }
+
+    #[test]
+    fn test_constant_value_detection_mixed_null_and_constant() {
+        // Test that mix of null and same non-null values is NOT detected as constant
+        let constant_value = b"constant";
+        let data: Vec<Option<&[u8]>> = vec![
+            Some(constant_value),
+            None,
+            Some(constant_value),
+            Some(constant_value),
+        ];
+        let array = BinaryArray::from_opt_vec(data);
+        let mut collector = BinaryStatsCollector::default();
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        // Should NOT detect as constant because there are both null and non-null values
+        let detected_constant = stats.try_get_constant();
+        assert!(detected_constant.is_none());
+    }
+
+    #[test]
+    fn test_constant_value_detection_different_values() {
+        // Test that different values are NOT detected as constant
+        let data: Vec<&[u8]> = vec![b"value1", b"value2", b"value3"];
+        let array = BinaryArray::from_vec(data);
+        let mut collector = BinaryStatsCollector::default();
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        let detected_constant = stats.try_get_constant();
+        assert!(detected_constant.is_none());
+    }
+
+    #[test]
+    fn test_constant_value_detection_with_value_tracking_disabled() {
+        // Test constant detection when value tracking is disabled due to large values
+        let mut collector = BinaryStatsCollector::default();
+
+        // Process a large value that disables value tracking
+        let large_data = vec![b'A'; 200]; // 200 bytes, over the limit
+        let array = BinaryArray::from_vec(vec![large_data.as_slice()]);
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        // Should not detect as constant since value tracking was disabled
+        let detected_constant = stats.try_get_constant();
+        assert!(detected_constant.is_none());
+    }
+
+    #[test]
+    fn test_constant_value_detection_single_null() {
+        // Test that single null value is detected as constant
+        let data: Vec<Option<&[u8]>> = vec![None];
+        let array = BinaryArray::from_opt_vec(data);
+        let mut collector = BinaryStatsCollector::default();
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_some());
+        let any_value = constant_value.unwrap();
+        assert!(matches!(
+            any_value.kind,
+            Some(amudai_format::defs::common::any_value::Kind::NullValue(_))
+        ));
+    }
+
+    #[test]
+    fn test_constant_value_detection_single_non_null() {
+        // Test that single non-null value is detected as constant
+        let data: Vec<&[u8]> = vec![b"single"];
+        let array = BinaryArray::from_vec(data);
+        let mut collector = BinaryStatsCollector::default();
+        collector.process_binary_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+
+        let detected_constant = stats.try_get_constant();
+        assert!(detected_constant.is_some());
+        let any_value = detected_constant.unwrap();
+        if let Some(amudai_format::defs::common::any_value::Kind::BytesValue(bytes)) =
+            any_value.kind
+        {
+            assert_eq!(bytes, b"single".to_vec());
+        } else {
+            panic!("Expected BytesValue but got {:?}", any_value.kind);
+        }
     }
 }

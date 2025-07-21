@@ -657,15 +657,13 @@ impl MapArrayReader {
         }
 
         let key_array = if child_start == child_end {
-            // arrow::array::new_empty_array(self.entry_field.data_type())
-            todo!()
+            arrow::array::new_empty_array(self.kv_fields[0].data_type())
         } else {
             self.key_reader.read(child_start..child_end)?
         };
 
         let value_array = if child_start == child_end {
-            // arrow::array::new_empty_array(self.entry_field.data_type())
-            todo!()
+            arrow::array::new_empty_array(self.kv_fields[1].data_type())
         } else {
             self.value_reader.read(child_start..child_end)?
         };

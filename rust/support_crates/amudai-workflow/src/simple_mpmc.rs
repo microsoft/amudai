@@ -1157,12 +1157,12 @@ mod tests {
 
         // Unbounded channel should never be full
         for i in 0..1000 {
-            assert!(sender.try_send(format!("msg{}", i)).is_ok());
+            assert!(sender.try_send(format!("msg{i}")).is_ok());
         }
 
         // Should be able to receive all messages
         for i in 0..1000 {
-            assert_eq!(receiver.try_recv().unwrap(), format!("msg{}", i));
+            assert_eq!(receiver.try_recv().unwrap(), format!("msg{i}"));
         }
 
         // Channel should be empty now

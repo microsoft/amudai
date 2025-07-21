@@ -515,10 +515,7 @@ mod tests {
 
         // Add various sizes of data
         for i in 0..100 {
-            let data = format!(
-                "entry_{:04}_with_some_longer_content_to_test_larger_offsets",
-                i
-            );
+            let data = format!("entry_{i:04}_with_some_longer_content_to_test_larger_offsets");
             bytes_collector.push(data.as_bytes());
         }
 

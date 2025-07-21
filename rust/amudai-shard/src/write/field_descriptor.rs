@@ -31,6 +31,7 @@ pub fn create_with_stats(
     populate_statistics(&mut descriptor, encoded_field);
 
     descriptor.dictionary_size = encoded_field.dictionary_size;
+    descriptor.constant_value = encoded_field.constant_value.clone();
     descriptor
 }
 
@@ -41,26 +42,27 @@ pub fn create_with_stats(
 /// * `descriptor` - The field descriptor to populate with statistics
 /// * `encoded_field` - The encoded field containing optional statistics
 pub fn populate_statistics(descriptor: &mut shard::FieldDescriptor, encoded_field: &EncodedField) {
-    if let Some(ref stats) = encoded_field.statistics {
-        match stats {
-            EncodedFieldStatistics::Primitive(primitive_stats) => {
-                populate_primitive_statistics(descriptor, primitive_stats);
-            }
-            EncodedFieldStatistics::String(string_stats) => {
-                populate_string_statistics(descriptor, string_stats);
-            }
-            EncodedFieldStatistics::Boolean(boolean_stats) => {
-                populate_boolean_statistics(descriptor, boolean_stats);
-            }
-            EncodedFieldStatistics::Binary(binary_stats) => {
-                populate_binary_statistics(descriptor, binary_stats);
-            }
-            EncodedFieldStatistics::Decimal(decimal_stats) => {
-                populate_decimal_statistics(descriptor, decimal_stats);
-            }
-            EncodedFieldStatistics::Floating(floating_stats) => {
-                populate_floating_statistics(descriptor, floating_stats);
-            }
+    match &encoded_field.statistics {
+        EncodedFieldStatistics::Primitive(primitive_stats) => {
+            populate_primitive_statistics(descriptor, primitive_stats);
+        }
+        EncodedFieldStatistics::String(string_stats) => {
+            populate_string_statistics(descriptor, string_stats);
+        }
+        EncodedFieldStatistics::Boolean(boolean_stats) => {
+            populate_boolean_statistics(descriptor, boolean_stats);
+        }
+        EncodedFieldStatistics::Binary(binary_stats) => {
+            populate_binary_statistics(descriptor, binary_stats);
+        }
+        EncodedFieldStatistics::Decimal(decimal_stats) => {
+            populate_decimal_statistics(descriptor, decimal_stats);
+        }
+        EncodedFieldStatistics::Floating(floating_stats) => {
+            populate_floating_statistics(descriptor, floating_stats);
+        }
+        EncodedFieldStatistics::Missing => {
+            // No statistics to populate
         }
     }
 }
@@ -160,6 +162,30 @@ pub fn merge(
         (_, None) => {
             // Current has no range stats - disable them (makes them sticky)
             accumulated.range_stats = None;
+        }
+    }
+
+    // Merge constant value - if any stripe doesn't have a constant value, or has a different
+    // constant value, the shard-level constant value should be None
+    match (&accumulated.constant_value, &current.constant_value) {
+        (Some(accumulated_constant), Some(current_constant)) => {
+            // Both stripes have constant values - check if they are equal
+            if accumulated_constant != current_constant {
+                // Different constant values across stripes - field is not constant at shard level
+                accumulated.constant_value = None;
+            }
+            // If they're equal, keep the existing value
+        }
+        (None, Some(_)) => {
+            // Accumulated has no constant value (from previous stripes),
+            // so shard-level field is not constant
+        }
+        (Some(_), None) => {
+            // Current stripe has no constant value, so shard-level field is not constant
+            accumulated.constant_value = None;
+        }
+        (None, None) => {
+            // Neither has constant values, keep as None
         }
     }
 

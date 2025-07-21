@@ -8,14 +8,14 @@ use amudai_blockstream::read::{
 };
 use amudai_common::{Result, error::Error};
 use amudai_format::{
-    defs::shard,
+    defs::{common::AnyValue, shard},
     schema::{BasicType, BasicTypeDescriptor},
 };
 use amudai_sequence::sequence::ValueSequence;
 
 use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
 
-use super::FieldReader;
+use super::{ConstantFieldReader, FieldReader};
 
 /// Decodes primitive typed fields from encoded buffer data in a stripe.
 ///
@@ -26,7 +26,11 @@ use super::FieldReader;
 #[derive(Clone)]
 pub struct PrimitiveFieldDecoder {
     /// Decoder for the buffer containing the encoded primitive values
-    value_buffer: PrimitiveBufferDecoder,
+    value_buffer: Option<PrimitiveBufferDecoder>,
+    /// If the field contains only constant values, this stores the constant
+    constant_value: Option<AnyValue>,
+    /// The basic type descriptor for this field
+    basic_type: BasicTypeDescriptor,
     // TODO: add optional presence buffer decoder
     // (when nulls are not embedded in the value buffer)
 }
@@ -37,8 +41,31 @@ impl PrimitiveFieldDecoder {
     /// # Arguments
     ///
     /// * `value_buffer` - Decoder for the buffer containing the encoded primitive values
+    /// * `basic_type` - The basic type descriptor for the values in this field
     pub fn new(value_buffer: PrimitiveBufferDecoder) -> PrimitiveFieldDecoder {
-        PrimitiveFieldDecoder { value_buffer }
+        let basic_type = value_buffer.basic_type();
+        PrimitiveFieldDecoder {
+            value_buffer: Some(value_buffer),
+            constant_value: None,
+            basic_type,
+        }
+    }
+
+    /// Creates a new primitive field decoder for a constant value.
+    ///
+    /// # Arguments
+    ///
+    /// * `constant_value` - The constant value for all positions in this field
+    /// * `basic_type` - The basic type descriptor for the values in this field
+    pub fn new_constant(
+        constant_value: AnyValue,
+        basic_type: BasicTypeDescriptor,
+    ) -> PrimitiveFieldDecoder {
+        PrimitiveFieldDecoder {
+            value_buffer: None,
+            constant_value: Some(constant_value),
+            basic_type,
+        }
     }
 
     /// Creates a primitive field decoder from a field context.
@@ -56,6 +83,14 @@ impl PrimitiveFieldDecoder {
     /// cannot be decoded as a primitive field
     pub(crate) fn from_field(field: &FieldContext) -> Result<PrimitiveFieldDecoder> {
         let basic_type = field.data_type().describe()?;
+
+        // Check if this is a constant field first
+        if let Some(constant_value) = field.try_get_constant() {
+            return Ok(PrimitiveFieldDecoder::new_constant(
+                constant_value,
+                basic_type,
+            ));
+        }
 
         let data_buffer = field.get_encoded_buffer(shard::BufferKind::Data)?;
 
@@ -89,6 +124,14 @@ impl PrimitiveFieldDecoder {
         field: &EncodedField,
         basic_type: BasicTypeDescriptor,
     ) -> Result<PrimitiveFieldDecoder> {
+        // Check if this is a constant field first
+        if let Some(constant_value) = &field.constant_value {
+            return Ok(PrimitiveFieldDecoder::new_constant(
+                constant_value.clone(),
+                basic_type,
+            ));
+        }
+
         let prepared_buffer = field.get_encoded_buffer(shard::BufferKind::Data)?;
         let value_buffer =
             PrimitiveBufferDecoder::from_prepared_buffer(prepared_buffer, basic_type)?;
@@ -97,7 +140,7 @@ impl PrimitiveFieldDecoder {
 
     /// Returns the basic type descriptor for the values in this field.
     pub fn basic_type(&self) -> BasicTypeDescriptor {
-        self.value_buffer.basic_type()
+        self.basic_type
     }
 
     /// Creates a reader for efficiently accessing ranges of values in this field.
@@ -114,8 +157,17 @@ impl PrimitiveFieldDecoder {
         &self,
         pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
     ) -> Result<Box<dyn FieldReader>> {
+        if let Some(constant_value) = &self.constant_value {
+            return Ok(Box::new(ConstantFieldReader::new(
+                constant_value.clone(),
+                self.basic_type,
+            )));
+        }
+
         let buffer_reader = self
             .value_buffer
+            .as_ref()
+            .expect("value_buffer")
             .create_reader_with_ranges(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
         Ok(Box::new(PrimitiveFieldReader::new(buffer_reader)))
     }
@@ -136,8 +188,17 @@ impl PrimitiveFieldDecoder {
         &self,
         positions_hint: impl Iterator<Item = u64> + Clone,
     ) -> Result<Box<dyn FieldReader>> {
+        if let Some(constant_value) = &self.constant_value {
+            return Ok(Box::new(ConstantFieldReader::new(
+                constant_value.clone(),
+                self.basic_type,
+            )));
+        }
+
         let buffer_reader = self
             .value_buffer
+            .as_ref()
+            .expect("value_buffer")
             .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
         Ok(Box::new(PrimitiveFieldReader::new(buffer_reader)))
     }
@@ -380,12 +441,84 @@ impl FieldReader for PrimitiveFieldReader {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use amudai_format::defs::common::{AnyValue, any_value::Kind};
     use amudai_objectstore::url::ObjectUrl;
 
     use crate::{
         read::shard::ShardOptions,
         tests::{data_generator::create_primitive_flat_test_schema, shard_store::ShardStore},
+        write::field_encoder::{EncodedField, EncodedFieldStatistics},
     };
+
+    #[test]
+    fn test_constant_field_reader_i32() {
+        let basic_type = BasicTypeDescriptor {
+            basic_type: amudai_format::schema::BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+            extended_type: amudai_format::defs::schema_ext::KnownExtendedType::None,
+        };
+
+        let constant_value = AnyValue {
+            kind: Some(Kind::I64Value(42)),
+            annotation: None,
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![], // No buffers needed for constant fields
+            statistics: EncodedFieldStatistics::Missing,
+            dictionary_size: None,
+            constant_value: Some(constant_value),
+        };
+
+        let decoder =
+            PrimitiveFieldDecoder::from_encoded_field(&encoded_field, basic_type).unwrap();
+        let mut reader = decoder
+            .create_reader_with_ranges(std::iter::once(0..5))
+            .unwrap();
+
+        let sequence = reader.read_range(0..5).unwrap();
+
+        // Verify the sequence has the correct length and values
+        assert_eq!(sequence.len(), 5);
+        let values = sequence.values.as_slice::<i32>();
+        assert_eq!(values, &[42i32; 5]);
+    }
+
+    #[test]
+    fn test_constant_field_reader_null() {
+        let basic_type = BasicTypeDescriptor {
+            basic_type: amudai_format::schema::BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+            extended_type: amudai_format::defs::schema_ext::KnownExtendedType::None,
+        };
+
+        let constant_value = AnyValue {
+            kind: Some(Kind::NullValue(amudai_format::defs::common::UnitValue {})),
+            annotation: None,
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Missing,
+            dictionary_size: None,
+            constant_value: Some(constant_value),
+        };
+
+        let decoder =
+            PrimitiveFieldDecoder::from_encoded_field(&encoded_field, basic_type).unwrap();
+        let mut reader = decoder
+            .create_reader_with_ranges(std::iter::once(0..3))
+            .unwrap();
+
+        let sequence = reader.read_range(0..3).unwrap();
+
+        // Verify the sequence has the correct length and all nulls
+        assert_eq!(sequence.len(), 3);
+        assert_eq!(sequence.presence.count_nulls(), 3);
+    }
 
     #[test]
     fn test_primitive_field_reader() {

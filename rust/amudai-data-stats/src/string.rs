@@ -5,6 +5,11 @@ use amudai_format::defs::shard::StringStats as ProtoStringStats;
 use arrow_array::{Array, LargeStringArray, StringArray, StringViewArray, cast::AsArray};
 use std::cmp;
 
+/// Maximum size (in bytes) of a string value to track for constant detection.
+/// If all string values are the same and not larger than this limit, the value will be stored
+/// for potential constant field optimization.
+const MAX_CONSTANT_STRING_SIZE: u64 = 128;
+
 /// A struct to collect statistics for string types.
 pub struct StringStatsCollector {
     min_size: u64,
@@ -16,6 +21,10 @@ pub struct StringStatsCollector {
     raw_data_size: u64,
     // Bloom filter support
     bloom_filter_collector: Option<BloomFilterCollector>,
+    // Min/max value tracking for constant detection
+    min_value: Option<Vec<u8>>,
+    max_value: Option<Vec<u8>>,
+    value_tracking_enabled: bool,
 }
 
 impl StringStatsCollector {
@@ -53,6 +62,9 @@ impl StringStatsCollector {
             null_count: 0,
             raw_data_size: 0,
             bloom_filter_collector,
+            min_value: None,
+            max_value: None,
+            value_tracking_enabled: true,
         }
     }
 
@@ -187,6 +199,8 @@ impl StringStatsCollector {
             null_count: self.null_count,
             raw_data_size,
             bloom_filter,
+            min_value: self.min_value,
+            max_value: self.max_value,
         })
     }
 
@@ -242,6 +256,36 @@ impl StringStatsCollector {
         // Update raw_data_size (sum of UTF-8 byte lengths of all non-null strings)
         self.raw_data_size += byte_len * count;
 
+        // Update min/max values for constant detection (optimized tracking)
+        if self.value_tracking_enabled {
+            let string_bytes = string_val.as_bytes();
+
+            // First calculate if this value would change the current bounds
+            let would_be_new_min = self.min_value.is_none()
+                || string_bytes < self.min_value.as_ref().unwrap().as_slice();
+            let would_be_new_max = self.max_value.is_none()
+                || string_bytes > self.max_value.as_ref().unwrap().as_slice();
+
+            if byte_len <= MAX_CONSTANT_STRING_SIZE {
+                // Small value - always track and update bounds
+                if would_be_new_min {
+                    self.min_value = Some(string_bytes.to_vec());
+                }
+                if would_be_new_max {
+                    self.max_value = Some(string_bytes.to_vec());
+                }
+            } else {
+                // Large value (>128 bytes) - only disable tracking if it would change bounds
+                if would_be_new_min || would_be_new_max {
+                    // Large value would become new min or max - disable tracking
+                    self.value_tracking_enabled = false;
+                    self.min_value = None;
+                    self.max_value = None;
+                }
+                // If large value is between current min/max, we can ignore it and keep tracking
+            }
+        }
+
         // Update bloom filter if enabled
         if let Some(ref mut collector) = self.bloom_filter_collector {
             collector.process_value(string_val.as_bytes());
@@ -274,6 +318,12 @@ pub struct StringStats {
     pub raw_data_size: u64,
     /// Optional bloom filter protobuf if one was successfully constructed during statistics collection.
     pub bloom_filter: Option<amudai_format::defs::shard::SplitBlockBloomFilter>,
+    /// Minimum string value (lexicographically, byte-wise comparison).
+    /// Only tracked if value size <= MAX_CONSTANT_STRING_SIZE.
+    pub min_value: Option<Vec<u8>>,
+    /// Maximum string value (lexicographically, byte-wise comparison).
+    /// Only tracked if value size <= MAX_CONSTANT_STRING_SIZE.
+    pub max_value: Option<Vec<u8>>,
 }
 
 impl StringStats {
@@ -291,6 +341,8 @@ impl StringStats {
             null_count: 0,
             raw_data_size: 0,
             bloom_filter: None,
+            min_value: None,
+            max_value: None,
         }
     }
 
@@ -302,6 +354,43 @@ impl StringStats {
             max_size: self.max_size,
             ascii_count: Some(self.ascii_count),
         }
+    }
+
+    /// Detects if this field has a constant value based on the statistics.
+    /// Returns Some(AnyValue) if all values are the same (all null or all the same non-null value).
+    /// Returns None if the field has varying values or a mix of null and non-null values.
+    pub fn try_get_constant(&self) -> Option<amudai_format::defs::common::AnyValue> {
+        use amudai_format::defs::common::{AnyValue, UnitValue, any_value::Kind};
+
+        if self.count == 0 {
+            return None;
+        }
+
+        // Check if all values are null
+        if self.null_count == self.count {
+            return Some(AnyValue {
+                annotation: None,
+                kind: Some(Kind::NullValue(UnitValue {})),
+            });
+        }
+
+        // Only check for constant non-null values if there are no nulls
+        if self.null_count == 0 {
+            // Check if min_value == max_value (constant non-null value)
+            if let (Some(min_val), Some(max_val)) = (&self.min_value, &self.max_value) {
+                if min_val == max_val {
+                    // Convert back to string for the AnyValue
+                    if let Ok(string_value) = String::from_utf8(min_val.clone()) {
+                        return Some(AnyValue {
+                            annotation: None,
+                            kind: Some(Kind::StringValue(string_value)),
+                        });
+                    }
+                }
+            }
+        }
+
+        None
     }
 }
 
@@ -471,6 +560,8 @@ mod tests {
             null_count: 1,
             raw_data_size: 42,
             bloom_filter: None,
+            min_value: None,
+            max_value: None,
         };
 
         let proto_stats = stats.to_proto();
@@ -785,5 +876,151 @@ mod tests {
         assert_eq!(stats.min_size, 0); // Empty string
         assert_eq!(stats.max_size, 15); // "こんにちは"
         assert_eq!(stats.ascii_count, 3); // "hello", "world", and ""
+    }
+
+    #[test]
+    fn test_string_value_tracking_optimized_for_large_values_between_bounds() {
+        // Test that large values between current min/max don't disable tracking
+        let mut collector = StringStatsCollector::default();
+
+        // First establish small min/max bounds
+        let small_data = vec!["A", "Z"]; // min="A", max="Z"
+        let small_array = StringArray::from(small_data);
+        collector.process_array(&small_array).unwrap();
+
+        // Then process a large value that falls between the bounds
+        let large_middle_value = "M".repeat(200); // 200 bytes, but "M" is between "A" and "Z"
+        let large_array = StringArray::from(vec![large_middle_value.as_str()]);
+        collector.process_array(&large_array).unwrap();
+
+        let stats = collector.finalize().unwrap();
+        assert_eq!(stats.count, 3);
+        assert_eq!(stats.null_count, 0);
+        // Value tracking should still be enabled since large value was between bounds
+        assert_eq!(stats.min_value, Some("A".as_bytes().to_vec()));
+        assert_eq!(stats.max_value, Some("Z".as_bytes().to_vec()));
+    }
+
+    #[test]
+    fn test_string_value_tracking_disabled_when_large_value_becomes_new_min() {
+        // Test that large values that would become new min disable tracking
+        let mut collector = StringStatsCollector::default();
+
+        // First establish small bounds
+        let small_data = vec!["M", "Z"]; // min="M", max="Z"
+        let small_array = StringArray::from(small_data);
+        collector.process_array(&small_array).unwrap();
+
+        // Then process a large value that would become new min
+        let large_min_value = "A".repeat(200); // 200 bytes, and "AAA..." < "M"
+        let large_array = StringArray::from(vec![large_min_value.as_str()]);
+        collector.process_array(&large_array).unwrap();
+
+        let stats = collector.finalize().unwrap();
+        assert_eq!(stats.count, 3);
+        assert_eq!(stats.null_count, 0);
+        // Value tracking should be disabled since large value would be new min
+        assert_eq!(stats.min_value, None);
+        assert_eq!(stats.max_value, None);
+    }
+
+    #[test]
+    fn test_string_value_tracking_disabled_when_large_value_becomes_new_max() {
+        // Test that large values that would become new max disable tracking
+        let mut collector = StringStatsCollector::default();
+
+        // First establish small bounds
+        let small_data = vec!["A", "M"]; // min="A", max="M"
+        let small_array = StringArray::from(small_data);
+        collector.process_array(&small_array).unwrap();
+
+        // Then process a large value that would become new max
+        let large_max_value = "Z".repeat(200); // 200 bytes, and "ZZZ..." > "M"
+        let large_array = StringArray::from(vec![large_max_value.as_str()]);
+        collector.process_array(&large_array).unwrap();
+
+        let stats = collector.finalize().unwrap();
+        assert_eq!(stats.count, 3);
+        assert_eq!(stats.null_count, 0);
+        // Value tracking should be disabled since large value would be new max
+        assert_eq!(stats.min_value, None);
+        assert_eq!(stats.max_value, None);
+    }
+
+    #[test]
+    fn test_optimized_value_tracking_comprehensive_scenario() {
+        // Comprehensive test showing the optimization benefits
+        let mut collector = StringStatsCollector::default();
+
+        // Start with small values establishing bounds: min="A", max="Z"
+        let small_array = StringArray::from(vec!["A", "Z"]);
+        collector.process_array(&small_array).unwrap();
+
+        // Process many large values that fall between the bounds
+        let large_middle_values = vec![
+            "B".repeat(300),  // 300 bytes, but between "A" and "Z"
+            "M".repeat(500),  // 500 bytes, but between "A" and "Z"
+            "Y".repeat(1000), // 1000 bytes, but between "A" and "Z"
+        ];
+
+        for value in &large_middle_values {
+            let array = StringArray::from(vec![value.as_str()]);
+            collector.process_array(&array).unwrap();
+        }
+
+        let stats = collector.finalize().unwrap();
+        assert_eq!(stats.count, 5); // 2 small + 3 large
+        assert_eq!(stats.null_count, 0);
+        // Optimization: tracking should still be enabled since large values were between bounds
+        assert_eq!(stats.min_value, Some("A".as_bytes().to_vec()));
+        assert_eq!(stats.max_value, Some("Z".as_bytes().to_vec()));
+
+        // This demonstrates that we can still detect constant-like patterns
+        // even when most values are large, as long as the actual min/max are small
+    }
+
+    #[test]
+    fn test_string_constant_value_detection() {
+        use amudai_format::defs::common::any_value::Kind;
+
+        // Test 1: All null values should return null constant
+        let mut collector = StringStatsCollector::default();
+        let array = StringArray::from(vec![None::<&str>; 3]);
+        collector.process_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+        let constant = stats.try_get_constant();
+        assert!(constant.is_some());
+        let constant = constant.unwrap();
+        assert!(matches!(constant.kind, Some(Kind::NullValue(_))));
+
+        // Test 2: All same non-null values should return that constant
+        let mut collector = StringStatsCollector::default();
+        let array = StringArray::from(vec!["hello", "hello", "hello"]);
+        collector.process_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+        let constant = stats.try_get_constant();
+        assert!(constant.is_some());
+        let constant = constant.unwrap();
+        if let Some(Kind::StringValue(value)) = constant.kind {
+            assert_eq!(value, "hello");
+        } else {
+            panic!("Expected StringValue, got {:?}", constant.kind);
+        }
+
+        // Test 3: Mixed null and non-null values should NOT return constant
+        let mut collector = StringStatsCollector::default();
+        let array = StringArray::from(vec![Some("hello"), None, Some("hello")]);
+        collector.process_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+        let constant = stats.try_get_constant();
+        assert!(constant.is_none());
+
+        // Test 4: Different non-null values should NOT return constant
+        let mut collector = StringStatsCollector::default();
+        let array = StringArray::from(vec!["hello", "world", "rust"]);
+        collector.process_array(&array).unwrap();
+        let stats = collector.finalize().unwrap();
+        let constant = stats.try_get_constant();
+        assert!(constant.is_none());
     }
 }

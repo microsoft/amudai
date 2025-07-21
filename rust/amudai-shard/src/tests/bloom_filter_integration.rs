@@ -217,7 +217,7 @@ impl BloomFilterTestSetup {
     /// Get multiple known values for comprehensive testing
     pub fn known_values(&self) -> Vec<String> {
         (0..std::cmp::min(10, self.config.distinct_values))
-            .map(|i| format!("value_{:06}", i))
+            .map(|i| format!("value_{i:06}"))
             .collect()
     }
 
@@ -259,8 +259,7 @@ impl BloomFilterTestSetup {
         for value in &self.test_data {
             assert!(
                 value.starts_with("value_"),
-                "Test data value '{}' doesn't match expected pattern",
-                value
+                "Test data value '{value}' doesn't match expected pattern"
             );
         }
 
@@ -307,10 +306,7 @@ impl BloomFilterTestSetup {
         println!("  Number of stripes: {}", stripe_cardinalities.len());
 
         for (stripe_idx, cardinality) in stripe_cardinalities.iter().enumerate() {
-            println!(
-                "  Stripe {} distinct values: {} (threshold: 1024)",
-                stripe_idx, cardinality
-            );
+            println!("  Stripe {stripe_idx} distinct values: {cardinality} (threshold: 1024)");
             if *cardinality > 1024 {
                 println!("    ⚠️  Exceeds 1024 threshold - should NOT have bloom filter");
             } else {
@@ -340,13 +336,9 @@ fn log_bloom_filter_size_info(
         let ssbf_size_kb = ssbf_size_bytes as f64 / 1024.0;
 
         println!(
-            "  📊 Split-Block Bloom Filter size analysis for stripe {} of {}:",
-            stripe_idx, config_name
+            "  📊 Split-Block Bloom Filter size analysis for stripe {stripe_idx} of {config_name}:"
         );
-        println!(
-            "     Size: {} bytes ({:.2} KB)",
-            ssbf_size_bytes, ssbf_size_kb
-        );
+        println!("     Size: {ssbf_size_bytes} bytes ({ssbf_size_kb:.2} KB)");
 
         // Try to get more detailed information from the SSBF decoder
         match SbbfDecoder::from_aligned_data(ssbf_bytes) {
@@ -369,7 +361,7 @@ fn log_bloom_filter_size_info(
                 }
             }
             Err(e) => {
-                println!("     ❌ Failed to decode SSBF: {}", e);
+                println!("     ❌ Failed to decode SSBF: {e}");
             }
         }
 
@@ -382,10 +374,7 @@ fn log_bloom_filter_size_info(
             _ => println!("     Category: Very Large (>16 KB)"),
         }
     } else {
-        println!(
-            "  ❌ No SSBF bytes found for stripe {} of {}",
-            stripe_idx, config_name
-        );
+        println!("  ❌ No SSBF bytes found for stripe {stripe_idx} of {config_name}");
     }
 
     Ok(())
@@ -762,7 +751,7 @@ fn test_bloom_filter_presence_and_probing(
                 );
 
                 // Log bloom filter size information for debugging
-                log_bloom_filter_size_info(stripe, field_data_type, stripe_idx, &setup.config.name)?;
+                log_bloom_filter_size_info(stripe, field_data_type, stripe_idx, setup.config.name)?;
             }
         } else {
             // We expect NO bloom filter to be present (high cardinality case)
@@ -806,8 +795,7 @@ fn test_bloom_filter_single_stripe() -> Result<(), Box<dyn std::error::Error>> {
 
         assert!(
             bloom_filter.is_some(),
-            "Single stripe should have bloom filter in stripe {}",
-            stripe_idx
+            "Single stripe should have bloom filter in stripe {stripe_idx}"
         );
 
         // Test with actual known values from test data
@@ -816,8 +804,7 @@ fn test_bloom_filter_single_stripe() -> Result<(), Box<dyn std::error::Error>> {
             let probe_result = filter.probe(actual_value.as_bytes());
             assert!(
                 probe_result,
-                "Single stripe bloom filter should return true for actual test value '{}'",
-                actual_value
+                "Single stripe bloom filter should return true for actual test value '{actual_value}'"
             );
         }
 
@@ -854,8 +841,7 @@ fn test_bloom_filter_exact_stripe_boundaries() -> Result<(), Box<dyn std::error:
 
         assert!(
             bloom_filter.is_some(),
-            "Stripe {} should have bloom filter",
-            stripe_idx
+            "Stripe {stripe_idx} should have bloom filter"
         );
 
         // Each stripe should contain some of our actual test values
@@ -883,8 +869,7 @@ fn test_bloom_filter_exact_stripe_boundaries() -> Result<(), Box<dyn std::error:
         // (since we cycle through values when creating data)
         assert!(
             found_actual_value || found_known_value,
-            "Stripe {} should contain at least one known value (actual or synthetic)",
-            stripe_idx
+            "Stripe {stripe_idx} should contain at least one known value (actual or synthetic)"
         );
 
         Ok(())
@@ -911,8 +896,7 @@ fn test_bloom_filter_field_extensions() -> Result<(), Box<dyn std::error::Error>
         let ssbf_bytes = field_descriptor.try_get_sbbf_bytes();
         assert!(
             ssbf_bytes.is_some(),
-            "Field should have SSBF bytes in stripe {}",
-            stripe_idx
+            "Field should have SSBF bytes in stripe {stripe_idx}"
         );
 
         // Test SSBF decoder functionality
@@ -923,13 +907,12 @@ fn test_bloom_filter_field_extensions() -> Result<(), Box<dyn std::error::Error>
         let probe_result = ssbf_decoder.probe(known_value.as_bytes());
         assert!(
             probe_result,
-            "SSBF decoder should return true for known value in stripe {}",
-            stripe_idx
+            "SSBF decoder should return true for known value in stripe {stripe_idx}"
         );
 
         // Test with unknown value (may be false positive, but shouldn't crash)
         let unknown_value = setup.unknown_value();
-        let _unknown_result = ssbf_decoder.probe(&unknown_value.as_bytes());
+        let _unknown_result = ssbf_decoder.probe(unknown_value.as_bytes());
         // Don't assert false since bloom filters can have false positives
 
         Ok(())
@@ -967,8 +950,7 @@ fn test_bloom_filter_edge_case_data() -> Result<(), Box<dyn std::error::Error>> 
 
         assert!(
             bloom_filter.is_some(),
-            "Edge case data should have bloom filter in stripe {}",
-            stripe_idx
+            "Edge case data should have bloom filter in stripe {stripe_idx}"
         );
 
         let filter = bloom_filter.unwrap();
@@ -1002,7 +984,7 @@ fn test_bloom_filter_performance_characteristics() -> Result<(), Box<dyn std::er
         if let Some(filter) = bloom_filter {
             // Perform multiple probes to test performance
             for i in 0..100 {
-                let test_value = format!("perf_test_value_{}", i);
+                let test_value = format!("perf_test_value_{i}");
                 let _result = filter.probe(test_value.as_bytes());
                 total_probes += 1;
             }
@@ -1044,7 +1026,7 @@ fn test_bloom_filter_false_positive_rate() -> Result<(), Box<dyn std::error::Err
         if let Some(filter) = bloom_filter {
             // Test with more values to get a statistically significant sample
             let test_values: Vec<String> = (0..200)
-                .map(|i| format!("definitely_nonexistent_value_{}_stripe_{}", i, stripe_idx))
+                .map(|i| format!("definitely_nonexistent_value_{i}_stripe_{stripe_idx}"))
                 .collect();
 
             let mut false_positives = 0;
@@ -1160,14 +1142,13 @@ fn test_bloom_filter_miss_rate_accuracy() -> Result<(), Box<dyn std::error::Erro
             for actual_value in &actual_values {
                 if !filter.probe(actual_value.as_bytes()) {
                     false_negatives += 1;
-                    println!("FALSE NEGATIVE: '{}' not found in stripe {}", actual_value, stripe_idx);
+                    println!("FALSE NEGATIVE: '{actual_value}' not found in stripe {stripe_idx}");
                 }
             }
 
             assert_eq!(
                 false_negatives, 0,
-                "Bloom filter has {} false negatives in stripe {} - this should never happen!",
-                false_negatives, stripe_idx
+                "Bloom filter has {false_negatives} false negatives in stripe {stripe_idx} - this should never happen!"
             );
 
             // Test 2: Count true negatives (misses) for unknown values
@@ -1306,10 +1287,7 @@ mod integration_tests {
         setup.for_each_stripe(|stripe_idx, stripe, field_data_type| {
             let field_ctx = stripe.open_field(field_data_type.clone())?;
             if let Some(filter) = field_ctx.get_bloom_filter() {
-                println!(
-                    "Testing stripe {} with both actual and synthetic values",
-                    stripe_idx
-                );
+                println!("Testing stripe {stripe_idx} with both actual and synthetic values");
 
                 // Test with actual values - these MUST be in the bloom filter
                 let mut actual_matches = 0;
@@ -1340,8 +1318,7 @@ mod integration_tests {
                 // Both should have at least some matches since the data follows the same pattern
                 assert!(
                     actual_matches > 0 || synthetic_matches > 0,
-                    "Stripe {} should match at least some actual or synthetic values",
-                    stripe_idx
+                    "Stripe {stripe_idx} should match at least some actual or synthetic values"
                 );
             }
 
@@ -1576,8 +1553,7 @@ mod integration_tests {
 
             assert!(
                 bloom_filter.is_some(),
-                "GUID column should have bloom filter in stripe {}",
-                stripe_idx
+                "GUID column should have bloom filter in stripe {stripe_idx}"
             );
 
             let filter = bloom_filter.unwrap();
@@ -1587,8 +1563,7 @@ mod integration_tests {
             let probe_result = filter.probe(test_guid);
             assert!(
                 probe_result,
-                "Bloom filter should return true for actual GUID value in stripe {}",
-                stripe_idx
+                "Bloom filter should return true for actual GUID value in stripe {stripe_idx}"
             );
 
             // Test with unknown GUID and measure false positive rate
@@ -1674,8 +1649,7 @@ mod integration_tests {
 
             assert!(
                 bloom_filter.is_some(),
-                "GUID column should have bloom filter in stripe {}",
-                stripe_idx
+                "GUID column should have bloom filter in stripe {stripe_idx}"
             );
 
             let filter = bloom_filter.unwrap();
@@ -1685,8 +1659,7 @@ mod integration_tests {
                 let found = filter.probe(test_guid);
                 assert!(
                     found,
-                    "GUID bloom filter should find inserted GUID {} in stripe {}",
-                    guid_idx, stripe_idx
+                    "GUID bloom filter should find inserted GUID {guid_idx} in stripe {stripe_idx}"
                 );
             }
 
@@ -1736,13 +1709,11 @@ mod integration_tests {
             // Non-GUID binary types with Plain encoding profile should NOT have bloom filters
             assert!(
                 bloom_filter.is_none(),
-                "Non-GUID binary column should NOT have bloom filter in stripe {} with Plain encoding profile",
-                stripe_idx
+                "Non-GUID binary column should NOT have bloom filter in stripe {stripe_idx} with Plain encoding profile"
             );
 
             println!(
-                "✓ Stripe {} correctly has no bloom filter for non-GUID binary data",
-                stripe_idx
+                "✓ Stripe {stripe_idx} correctly has no bloom filter for non-GUID binary data"
             );
         }
 
@@ -1809,13 +1780,11 @@ mod integration_tests {
             // 8-byte fixed-size binary should NOT have bloom filter (only 16-byte GUIDs should)
             assert!(
                 bloom_filter.is_none(),
-                "8-byte fixed-size binary column should NOT have bloom filter in stripe {} (only GUIDs should)",
-                stripe_idx
+                "8-byte fixed-size binary column should NOT have bloom filter in stripe {stripe_idx} (only GUIDs should)"
             );
 
             println!(
-                "✓ Stripe {} correctly has no bloom filter for 8-byte fixed-size binary data",
-                stripe_idx
+                "✓ Stripe {stripe_idx} correctly has no bloom filter for 8-byte fixed-size binary data"
             );
         }
 

@@ -15,8 +15,9 @@ mod tests {
     fn test_create_with_stats_no_statistics() {
         let encoded_field = EncodedField {
             buffers: vec![],
-            statistics: None,
+            statistics: EncodedFieldStatistics::Missing,
             dictionary_size: None,
+            constant_value: None,
         };
         let descriptor = create_with_stats(100, &encoded_field);
 
@@ -53,8 +54,9 @@ mod tests {
 
         let encoded_field = EncodedField {
             buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::Primitive(primitive_stats)),
+            statistics: EncodedFieldStatistics::Primitive(primitive_stats),
             dictionary_size: Some(10),
+            constant_value: None,
         };
 
         let descriptor = create_with_stats(50, &encoded_field);
@@ -91,8 +93,9 @@ mod tests {
 
         let encoded_field = EncodedField {
             buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::Primitive(primitive_stats)),
+            statistics: EncodedFieldStatistics::Primitive(primitive_stats),
             dictionary_size: None,
+            constant_value: None,
         };
 
         let mut descriptor = shard::FieldDescriptor {
@@ -115,6 +118,7 @@ mod tests {
             position_count: 0,
             null_count: None,
             range_stats: None,
+
             ..Default::default()
         };
 
@@ -133,6 +137,7 @@ mod tests {
                 }),
                 max_inclusive: true,
             }),
+
             ..Default::default()
         };
 
@@ -209,12 +214,15 @@ mod tests {
             null_count: 2,
             raw_data_size: 75, // Variable length string data + null bitmap overhead
             bloom_filter: None,
+            min_value: None,
+            max_value: None,
         };
 
         let encoded_field = EncodedField {
             buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::String(string_stats)),
+            statistics: EncodedFieldStatistics::String(string_stats),
             dictionary_size: None,
+            constant_value: None,
         };
 
         let descriptor = create_with_stats(10, &encoded_field);
@@ -246,12 +254,15 @@ mod tests {
             null_count: 0,
             raw_data_size: 2500, // Variable length string data, no null bitmap since no nulls
             bloom_filter: None,
+            min_value: None,
+            max_value: None,
         };
 
         let encoded_field = EncodedField {
             buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::String(string_stats)),
+            statistics: EncodedFieldStatistics::String(string_stats),
             dictionary_size: None,
+            constant_value: None,
         };
 
         let mut descriptor = shard::FieldDescriptor {
@@ -347,8 +358,9 @@ mod tests {
         let mut descriptor = shard::FieldDescriptor::default();
         let encoded_field = EncodedField {
             buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::Floating(floating_stats.clone())),
+            statistics: EncodedFieldStatistics::Floating(floating_stats.clone()),
             dictionary_size: None,
+            constant_value: None,
         };
         populate_statistics(&mut descriptor, &encoded_field);
 
@@ -385,8 +397,9 @@ mod tests {
         let mut descriptor = shard::FieldDescriptor::default();
         let encoded_field = EncodedField {
             buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::Primitive(int32_stats)),
+            statistics: EncodedFieldStatistics::Primitive(int32_stats),
             dictionary_size: None,
+            constant_value: None,
         };
         populate_statistics(&mut descriptor, &encoded_field);
 
@@ -443,10 +456,9 @@ mod tests {
         let mut descriptor = shard::FieldDescriptor::default();
         let encoded_field = EncodedField {
             buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::Primitive(
-                primitive_stats_empty_range,
-            )),
+            statistics: EncodedFieldStatistics::Primitive(primitive_stats_empty_range),
             dictionary_size: None,
+            constant_value: None,
         };
         populate_statistics(&mut descriptor, &encoded_field);
 
@@ -459,10 +471,9 @@ mod tests {
         let mut descriptor = shard::FieldDescriptor::default();
         let encoded_field = EncodedField {
             buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::Primitive(
-                primitive_stats_with_range,
-            )),
+            statistics: EncodedFieldStatistics::Primitive(primitive_stats_with_range),
             dictionary_size: None,
+            constant_value: None,
         };
         populate_statistics(&mut descriptor, &encoded_field);
 
@@ -1534,8 +1545,9 @@ mod tests {
 
         let encoded_field = EncodedField {
             buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::Boolean(boolean_stats)),
+            statistics: EncodedFieldStatistics::Boolean(boolean_stats),
             dictionary_size: None,
+            constant_value: None,
         };
 
         let descriptor = create_with_stats(10, &encoded_field);
@@ -1565,8 +1577,9 @@ mod tests {
 
         let encoded_field = EncodedField {
             buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::Boolean(boolean_stats)),
+            statistics: EncodedFieldStatistics::Boolean(boolean_stats),
             dictionary_size: None,
+            constant_value: None,
         };
 
         let mut descriptor = shard::FieldDescriptor {
@@ -1670,8 +1683,9 @@ mod tests {
         // Create an encoded field with decimal statistics
         let encoded_field = EncodedField {
             buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::Decimal(decimal_stats)),
+            statistics: EncodedFieldStatistics::Decimal(decimal_stats),
             dictionary_size: None,
+            constant_value: None,
         };
 
         // Create a field descriptor and populate it
@@ -1880,8 +1894,9 @@ mod tests {
 
         let encoded_field = EncodedField {
             buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::Primitive(primitive_stats)),
+            statistics: EncodedFieldStatistics::Primitive(primitive_stats),
             dictionary_size: None,
+            constant_value: None,
         };
 
         let descriptor = create_with_stats(100, &encoded_field);
@@ -1897,12 +1912,15 @@ mod tests {
             null_count: 20,
             raw_data_size: 1213, // Variable length string data + null bitmap overhead
             bloom_filter: None,
+            min_value: None,
+            max_value: None,
         };
 
         let encoded_field2 = EncodedField {
             buffers: vec![],
-            statistics: Some(EncodedFieldStatistics::String(string_stats)),
+            statistics: EncodedFieldStatistics::String(string_stats),
             dictionary_size: None,
+            constant_value: None,
         };
 
         let descriptor2 = create_with_stats(100, &encoded_field2);
@@ -1914,5 +1932,244 @@ mod tests {
 
         assert_eq!(accumulated.position_count, 200); // 100 + 100
         assert_eq!(accumulated.raw_data_size, Some(1578)); // 365 + 1213
+    }
+
+    #[test]
+    fn test_merge_constant_value_same_values() {
+        use amudai_format::defs::common::{AnyValue, any_value::Kind};
+
+        // Create two field descriptors with the same constant value
+        let constant_value = AnyValue {
+            kind: Some(Kind::I64Value(42)),
+            annotation: None,
+        };
+
+        let mut accumulated = shard::FieldDescriptor {
+            position_count: 100,
+            constant_value: Some(constant_value.clone()),
+            ..Default::default()
+        };
+
+        let current = shard::FieldDescriptor {
+            position_count: 50,
+            constant_value: Some(constant_value.clone()),
+            ..Default::default()
+        };
+
+        merge(&mut accumulated, &current).unwrap();
+
+        // Should keep the constant value since both stripes have the same value
+        assert_eq!(accumulated.constant_value, Some(constant_value));
+        assert_eq!(accumulated.position_count, 150);
+    }
+
+    #[test]
+    fn test_merge_constant_value_different_values() {
+        use amudai_format::defs::common::{AnyValue, any_value::Kind};
+
+        // Create two field descriptors with different constant values
+        let constant_value1 = AnyValue {
+            kind: Some(Kind::I64Value(42)),
+            annotation: None,
+        };
+
+        let constant_value2 = AnyValue {
+            kind: Some(Kind::I64Value(84)),
+            annotation: None,
+        };
+
+        let mut accumulated = shard::FieldDescriptor {
+            position_count: 100,
+            constant_value: Some(constant_value1),
+            ..Default::default()
+        };
+
+        let current = shard::FieldDescriptor {
+            position_count: 50,
+            constant_value: Some(constant_value2),
+            ..Default::default()
+        };
+
+        merge(&mut accumulated, &current).unwrap();
+
+        // Should clear the constant value since stripes have different values
+        assert_eq!(accumulated.constant_value, None);
+        assert_eq!(accumulated.position_count, 150);
+    }
+
+    #[test]
+    fn test_merge_constant_value_one_none() {
+        use amudai_format::defs::common::{AnyValue, any_value::Kind};
+
+        // Create one field descriptor with constant value and one without
+        let constant_value = AnyValue {
+            kind: Some(Kind::StringValue("hello".to_string())),
+            annotation: None,
+        };
+
+        let mut accumulated = shard::FieldDescriptor {
+            position_count: 100,
+            constant_value: Some(constant_value),
+            ..Default::default()
+        };
+
+        let current = shard::FieldDescriptor {
+            position_count: 50,
+            constant_value: None,
+            ..Default::default()
+        };
+
+        merge(&mut accumulated, &current).unwrap();
+
+        // Should clear the constant value since one stripe doesn't have constant value
+        assert_eq!(accumulated.constant_value, None);
+        assert_eq!(accumulated.position_count, 150);
+    }
+
+    #[test]
+    fn test_merge_constant_value_first_stripe_initialization() {
+        use amudai_format::defs::common::{AnyValue, any_value::Kind};
+
+        // Test merging when accumulated is empty (first stripe case)
+        let constant_value = AnyValue {
+            kind: Some(Kind::BoolValue(true)),
+            annotation: None,
+        };
+
+        let mut accumulated = shard::FieldDescriptor {
+            position_count: 0,
+            ..Default::default()
+        };
+
+        let current = shard::FieldDescriptor {
+            position_count: 100,
+            constant_value: Some(constant_value.clone()),
+            ..Default::default()
+        };
+
+        merge(&mut accumulated, &current).unwrap();
+
+        // Should copy the constant value from the first stripe
+        assert_eq!(accumulated.constant_value, Some(constant_value));
+        assert_eq!(accumulated.position_count, 100);
+    }
+
+    #[test]
+    fn test_merge_constant_value_multiple_types() {
+        use amudai_format::defs::common::{AnyValue, any_value::Kind};
+
+        // Test merging of different data types with constant values
+        struct TestCase {
+            name: &'static str,
+            value1: AnyValue,
+            value2: AnyValue,
+            should_be_equal: bool,
+        }
+
+        let test_cases = vec![
+            TestCase {
+                name: "same integers",
+                value1: AnyValue {
+                    kind: Some(Kind::I64Value(123)),
+                    annotation: None,
+                },
+                value2: AnyValue {
+                    kind: Some(Kind::I64Value(123)),
+                    annotation: None,
+                },
+                should_be_equal: true,
+            },
+            TestCase {
+                name: "different integers",
+                value1: AnyValue {
+                    kind: Some(Kind::I64Value(123)),
+                    annotation: None,
+                },
+                value2: AnyValue {
+                    kind: Some(Kind::I64Value(456)),
+                    annotation: None,
+                },
+                should_be_equal: false,
+            },
+            TestCase {
+                name: "same strings",
+                value1: AnyValue {
+                    kind: Some(Kind::StringValue("test".to_string())),
+                    annotation: None,
+                },
+                value2: AnyValue {
+                    kind: Some(Kind::StringValue("test".to_string())),
+                    annotation: None,
+                },
+                should_be_equal: true,
+            },
+            TestCase {
+                name: "different strings",
+                value1: AnyValue {
+                    kind: Some(Kind::StringValue("test1".to_string())),
+                    annotation: None,
+                },
+                value2: AnyValue {
+                    kind: Some(Kind::StringValue("test2".to_string())),
+                    annotation: None,
+                },
+                should_be_equal: false,
+            },
+            TestCase {
+                name: "same booleans",
+                value1: AnyValue {
+                    kind: Some(Kind::BoolValue(false)),
+                    annotation: None,
+                },
+                value2: AnyValue {
+                    kind: Some(Kind::BoolValue(false)),
+                    annotation: None,
+                },
+                should_be_equal: true,
+            },
+            TestCase {
+                name: "different booleans",
+                value1: AnyValue {
+                    kind: Some(Kind::BoolValue(true)),
+                    annotation: None,
+                },
+                value2: AnyValue {
+                    kind: Some(Kind::BoolValue(false)),
+                    annotation: None,
+                },
+                should_be_equal: false,
+            },
+        ];
+
+        for test_case in test_cases {
+            let mut accumulated = shard::FieldDescriptor {
+                position_count: 100,
+                constant_value: Some(test_case.value1.clone()),
+                ..Default::default()
+            };
+
+            let current = shard::FieldDescriptor {
+                position_count: 50,
+                constant_value: Some(test_case.value2.clone()),
+                ..Default::default()
+            };
+
+            merge(&mut accumulated, &current).unwrap();
+
+            if test_case.should_be_equal {
+                assert_eq!(
+                    accumulated.constant_value,
+                    Some(test_case.value1),
+                    "Test case '{}' should maintain constant value",
+                    test_case.name
+                );
+            } else {
+                assert_eq!(
+                    accumulated.constant_value, None,
+                    "Test case '{}' should clear constant value",
+                    test_case.name
+                );
+            }
+        }
     }
 }

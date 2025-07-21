@@ -1091,7 +1091,7 @@ mod tests {
         // Add various sized byte arrays
         let mut expected_data = Vec::new();
         for i in 0..50 {
-            let data = format!("data_item_{:03}", i).into_bytes();
+            let data = format!("data_item_{i:03}").into_bytes();
             expected_data.push(data.clone());
             segmented.push(&data);
         }
@@ -1204,8 +1204,7 @@ mod tests {
             assert_eq!(
                 segmented.map_index(index),
                 expected,
-                "Failed for index {}",
-                index
+                "Failed for index {index}"
             );
         }
     }
@@ -1261,7 +1260,7 @@ mod tests {
         let mut expected_data = Vec::new();
 
         for i in 0..total_elements {
-            let data = format!("item_{:06}", i).into_bytes();
+            let data = format!("item_{i:06}").into_bytes();
             expected_data.push(data.clone());
             segmented.push(&data);
         }
@@ -1434,7 +1433,7 @@ mod tests {
         // Create test data with predictable pattern
         let mut test_data = Vec::new();
         for i in 0..25 {
-            let data = format!("data_{:02}", i);
+            let data = format!("data_{i:02}");
             test_data.push(data.clone());
             segmented.push(data.as_bytes());
         }
@@ -1857,7 +1856,7 @@ mod tests {
             segmented.push(&value);
         }
 
-        let expected_segments = (num_elements + segment_size - 1) / segment_size; // ceil division
+        let expected_segments = num_elements.div_ceil(segment_size); // ceil division
         assert_eq!(segmented.len(), num_elements);
         assert_eq!(segmented.segments().len(), expected_segments);
 
@@ -1873,7 +1872,7 @@ mod tests {
 
         // Check all values
         for (i, &expected) in test_data.iter().enumerate() {
-            assert_eq!(loaded_segmented[i], expected, "Mismatch at index {}", i);
+            assert_eq!(loaded_segmented[i], expected, "Mismatch at index {i}");
         }
 
         // Verify segment sizes (all should be segment_size except possibly the last)
@@ -1972,7 +1971,7 @@ mod tests {
 
         // Verify each edge case
         for (i, &expected) in edge_cases.iter().enumerate() {
-            assert_eq!(&loaded_segmented[i], expected, "Edge case {} failed", i);
+            assert_eq!(&loaded_segmented[i], expected, "Edge case {i} failed");
         }
     }
 
@@ -2040,15 +2039,10 @@ mod tests {
                 if expected.is_nan() {
                     assert!(
                         loaded_segmented[i].is_nan(),
-                        "NaN not preserved at index {}",
-                        i
+                        "NaN not preserved at index {i}"
                     );
                 } else {
-                    assert_eq!(
-                        loaded_segmented[i], expected,
-                        "Float mismatch at index {}",
-                        i
-                    );
+                    assert_eq!(loaded_segmented[i], expected, "Float mismatch at index {i}");
                 }
             }
         }
@@ -2091,8 +2085,7 @@ mod tests {
         for (i, &expected) in patterns.iter().enumerate() {
             assert_eq!(
                 &loaded_segmented[i], expected,
-                "Pattern mismatch at index {}",
-                i
+                "Pattern mismatch at index {i}"
             );
         }
     }
@@ -2157,7 +2150,7 @@ mod tests {
         }
 
         assert_eq!(segmented.len(), 10000);
-        let expected_segments = (10000 + segment_size - 1) / segment_size; // 1250 segments
+        let expected_segments = 10000_usize.div_ceil(segment_size); // 1250 segments
         assert_eq!(segmented.segments().len(), expected_segments);
 
         // Dump and seal
@@ -2174,7 +2167,7 @@ mod tests {
 
         // Verify data integrity for all elements
         for (i, &expected) in test_data.iter().enumerate() {
-            assert_eq!(loaded_segmented[i], expected, "Mismatch at index {}", i);
+            assert_eq!(loaded_segmented[i], expected, "Mismatch at index {i}");
         }
 
         // Verify first and last segments have correct sizes
@@ -2219,7 +2212,7 @@ mod tests {
 
         // Add entries with various patterns
         for i in 0..20 {
-            let entry = format!("entry_{:04}_with_content", i);
+            let entry = format!("entry_{i:04}_with_content");
             segmented.push(entry.as_bytes());
         }
 
@@ -2244,7 +2237,7 @@ mod tests {
 
         // Verify generated entries
         for i in 0..20 {
-            let expected = format!("entry_{:04}_with_content", i);
+            let expected = format!("entry_{i:04}_with_content");
             assert_eq!(&loaded_segmented[i], expected.as_bytes());
         }
 
@@ -2453,7 +2446,7 @@ mod tests {
 
         // Add some regular entries
         for i in 0..10 {
-            test_data.push(format!("entry_{:03}", i).into_bytes());
+            test_data.push(format!("entry_{i:03}").into_bytes());
         }
 
         // Add some large entries

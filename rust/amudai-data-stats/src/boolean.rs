@@ -256,6 +256,49 @@ impl BooleanStats {
             Some(self.null_count as f64 / self.count as f64)
         }
     }
+
+    /// Detects if this field has a constant value based on the statistics.
+    /// Returns Some(AnyValue) if all values are the same (all null or all the same non-null value).
+    /// Returns None if the field has varying values or a mix of null and non-null values.
+    pub fn try_get_constant(&self) -> Option<amudai_format::defs::common::AnyValue> {
+        use amudai_format::defs::common::{AnyValue, UnitValue, any_value::Kind};
+
+        // For empty boolean fields, treat as constant null to match bit buffer encoder behavior
+        // The bit buffer encoder treats empty fields as constant, so statistics should too
+        if self.count == 0 {
+            return Some(AnyValue {
+                annotation: None,
+                kind: Some(Kind::NullValue(UnitValue {})),
+            });
+        }
+
+        // Check if all values are null
+        if self.null_count == self.count {
+            return Some(AnyValue {
+                annotation: None,
+                kind: Some(Kind::NullValue(UnitValue {})),
+            });
+        }
+
+        // Check if all values are non-null and the same
+        if self.null_count == 0 {
+            if self.true_count == self.count {
+                // All non-null values are true
+                return Some(AnyValue {
+                    annotation: None,
+                    kind: Some(Kind::BoolValue(true)),
+                });
+            } else if self.false_count == self.count {
+                // All non-null values are false
+                return Some(AnyValue {
+                    annotation: None,
+                    kind: Some(Kind::BoolValue(false)),
+                });
+            }
+        }
+
+        None
+    }
 }
 
 /// Processes multiple boolean arrays and collects comprehensive statistics.
@@ -553,6 +596,84 @@ mod tests {
         assert!(stats.is_all_nulls());
         // When all values are null, no storage is needed at all
         assert_eq!(stats.raw_data_size, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_boolean_constant_value_detection_all_nulls() -> Result<()> {
+        let mut collector = BooleanStatsCollector::new();
+        let array = BooleanArray::from(vec![None::<bool>; 3]);
+        collector.process_array(&array)?;
+        let stats = collector.finish()?;
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_some());
+        let any_value = constant_value.unwrap();
+        assert!(matches!(
+            any_value.kind,
+            Some(amudai_format::defs::common::any_value::Kind::NullValue(_))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn test_boolean_constant_value_detection_all_true() -> Result<()> {
+        let mut collector = BooleanStatsCollector::new();
+        let array = BooleanArray::from(vec![true, true, true]);
+        collector.process_array(&array)?;
+        let stats = collector.finish()?;
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_some());
+        let any_value = constant_value.unwrap();
+        if let Some(amudai_format::defs::common::any_value::Kind::BoolValue(val)) = any_value.kind {
+            assert!(val);
+        } else {
+            panic!("Expected BoolValue(true) but got {:?}", any_value.kind);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_boolean_constant_value_detection_all_false() -> Result<()> {
+        let mut collector = BooleanStatsCollector::new();
+        let array = BooleanArray::from(vec![false, false, false]);
+        collector.process_array(&array)?;
+        let stats = collector.finish()?;
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_some());
+        let any_value = constant_value.unwrap();
+        if let Some(amudai_format::defs::common::any_value::Kind::BoolValue(val)) = any_value.kind {
+            assert!(!val);
+        } else {
+            panic!("Expected BoolValue(false) but got {:?}", any_value.kind);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_boolean_constant_value_detection_mixed_null_and_constant() -> Result<()> {
+        let mut collector = BooleanStatsCollector::new();
+        let array = BooleanArray::from(vec![Some(true), None, Some(true), Some(true)]);
+        collector.process_array(&array)?;
+        let stats = collector.finish()?;
+
+        // Should NOT detect as constant because there are both null and non-null values
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_boolean_constant_value_detection_mixed_values() -> Result<()> {
+        let mut collector = BooleanStatsCollector::new();
+        let array = BooleanArray::from(vec![true, false, true]);
+        collector.process_array(&array)?;
+        let stats = collector.finish()?;
+
+        let constant_value = stats.try_get_constant();
+        assert!(constant_value.is_none());
         Ok(())
     }
 }

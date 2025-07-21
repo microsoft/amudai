@@ -209,8 +209,9 @@ impl FieldEncoderOps for ListContainerFieldEncoder {
 
         Ok(EncodedField {
             buffers,
-            statistics: None, // Container fields don't collect primitive statistics
+            statistics: super::EncodedFieldStatistics::Missing, // Container fields don't collect primitive statistics
             dictionary_size: None,
+            constant_value: None,
         })
     }
 }

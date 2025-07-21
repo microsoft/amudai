@@ -1963,3 +1963,244 @@ fn test_decimal_statistics_aggregation() -> Result<()> {
     println!("✓ Decimal statistics aggregation test passed!");
     Ok(())
 }
+
+// Unit tests for EncodedFieldStatistics constant detection logic
+// These tests verify the direct constant detection functionality without going through the full encoding pipeline
+
+#[test]
+fn test_encoded_field_statistics_constant_detection() -> Result<()> {
+    use crate::write::field_encoder::EncodedFieldStatistics;
+    use amudai_data_stats::{
+        boolean::BooleanStats, floating::FloatingStats, primitive::PrimitiveStats,
+    };
+    use amudai_format::defs::common::any_value::Kind;
+    use amudai_format::defs::schema_ext::BasicTypeDescriptor;
+    use amudai_format::defs::shard::RangeStats;
+    use amudai_format::schema::BasicType;
+
+    // Test 1: Primitive constant detection (all null)
+    let primitive_stats_all_null = PrimitiveStats {
+        basic_type: BasicTypeDescriptor {
+            basic_type: BasicType::Int32,
+            signed: true,
+            fixed_size: 0,
+            extended_type: Default::default(),
+        },
+        count: 10,
+        null_count: 10, // All nulls
+        raw_data_size: 0,
+        range_stats: RangeStats {
+            min_value: None,
+            min_inclusive: false,
+            max_value: None,
+            max_inclusive: false,
+        },
+    };
+
+    let stats = EncodedFieldStatistics::Primitive(primitive_stats_all_null);
+    let constant = stats.try_get_constant();
+    assert!(constant.is_some());
+    if let Some(val) = constant {
+        assert!(matches!(val.kind, Some(Kind::NullValue(_))));
+    }
+
+    // Test 2: Boolean constant detection (all true)
+    let boolean_stats_all_true = BooleanStats {
+        count: 5,
+        null_count: 0,
+        true_count: 5,
+        false_count: 0,
+        raw_data_size: 10,
+    };
+
+    let stats = EncodedFieldStatistics::Boolean(boolean_stats_all_true);
+    let constant = stats.try_get_constant();
+    assert!(constant.is_some());
+    if let Some(val) = constant {
+        assert_eq!(val.kind, Some(Kind::BoolValue(true)));
+    }
+
+    // Test 3: Floating constant detection (same value)
+    let floating_stats_constant = FloatingStats {
+        total_count: 8,
+        null_count: 0,
+        zero_count: 0,
+        positive_count: 8,
+        negative_count: 0,
+        nan_count: 0,
+        positive_infinity_count: 0,
+        negative_infinity_count: 0,
+        min_value: Some(3.14159),
+        max_value: Some(3.14159), // Same as min - constant
+        raw_data_size: 64,
+    };
+
+    let stats = EncodedFieldStatistics::Floating(floating_stats_constant);
+    let constant = stats.try_get_constant();
+    assert!(constant.is_some());
+    if let Some(val) = constant {
+        if let Some(Kind::DoubleValue(value)) = val.kind {
+            assert!((value - 3.14159).abs() < f64::EPSILON);
+        } else {
+            panic!("Expected DoubleValue");
+        }
+    }
+
+    // Test 4: Non-constant detection (mixed values)
+    let boolean_stats_mixed = BooleanStats {
+        count: 10,
+        null_count: 2,
+        true_count: 4,
+        false_count: 4,
+        raw_data_size: 20,
+    };
+
+    let stats = EncodedFieldStatistics::Boolean(boolean_stats_mixed);
+    let constant = stats.try_get_constant();
+    assert!(constant.is_none());
+
+    Ok(())
+}
+
+#[test]
+fn test_string_constant_detection() -> Result<()> {
+    use crate::write::field_encoder::EncodedFieldStatistics;
+    use amudai_data_stats::string::StringStats;
+    use amudai_format::defs::common::any_value::Kind;
+
+    // Test 1: String constant detection (all same value)
+    let string_stats_constant = StringStats {
+        min_size: 5,
+        min_non_empty_size: Some(5),
+        max_size: 5,
+        ascii_count: 3,
+        count: 3,
+        null_count: 0,
+        raw_data_size: 15,
+        bloom_filter: None,
+        min_value: Some("hello".as_bytes().to_vec()),
+        max_value: Some("hello".as_bytes().to_vec()), // Same as min - constant
+    };
+
+    let stats = EncodedFieldStatistics::String(string_stats_constant);
+    let constant = stats.try_get_constant();
+    assert!(constant.is_some());
+    if let Some(val) = constant {
+        if let Some(Kind::StringValue(value)) = val.kind {
+            assert_eq!(value, "hello");
+        } else {
+            panic!("Expected StringValue");
+        }
+    }
+
+    // Test 2: String all null detection
+    let string_stats_all_null = StringStats {
+        min_size: 0,
+        min_non_empty_size: None,
+        max_size: 0,
+        ascii_count: 0,
+        count: 3,
+        null_count: 3, // All nulls
+        raw_data_size: 0,
+        bloom_filter: None,
+        min_value: None,
+        max_value: None,
+    };
+
+    let stats = EncodedFieldStatistics::String(string_stats_all_null);
+    let constant = stats.try_get_constant();
+    assert!(constant.is_some());
+    if let Some(val) = constant {
+        assert!(matches!(val.kind, Some(Kind::NullValue(_))));
+    }
+
+    // Test 3: Non-constant detection (different values)
+    let string_stats_mixed = StringStats {
+        min_size: 3,
+        min_non_empty_size: Some(3),
+        max_size: 5,
+        ascii_count: 2,
+        count: 2,
+        null_count: 0,
+        raw_data_size: 8,
+        bloom_filter: None,
+        min_value: Some("cat".as_bytes().to_vec()),
+        max_value: Some("hello".as_bytes().to_vec()), // Different from min
+    };
+
+    let stats = EncodedFieldStatistics::String(string_stats_mixed);
+    let constant = stats.try_get_constant();
+    assert!(constant.is_none());
+
+    Ok(())
+}
+
+#[test]
+fn test_binary_constant_detection() -> Result<()> {
+    use crate::write::field_encoder::EncodedFieldStatistics;
+    use amudai_data_stats::binary::BinaryStats;
+    use amudai_format::defs::common::any_value::Kind;
+
+    // Test 1: Binary constant detection (all same value)
+    let binary_stats_constant = BinaryStats {
+        min_length: 4,
+        max_length: 4,
+        min_non_empty_length: Some(4),
+        null_count: 0,
+        total_count: 3,
+        raw_data_size: 12,
+        bloom_filter: None,
+        min_value: Some(vec![0x01, 0x02, 0x03, 0x04]),
+        max_value: Some(vec![0x01, 0x02, 0x03, 0x04]), // Same as min - constant
+    };
+
+    let stats = EncodedFieldStatistics::Binary(binary_stats_constant);
+    let constant = stats.try_get_constant();
+    assert!(constant.is_some());
+    if let Some(val) = constant {
+        if let Some(Kind::BytesValue(value)) = val.kind {
+            assert_eq!(value, vec![0x01, 0x02, 0x03, 0x04]);
+        } else {
+            panic!("Expected BytesValue");
+        }
+    }
+
+    // Test 2: Binary all null detection
+    let binary_stats_all_null = BinaryStats {
+        min_length: 0,
+        max_length: 0,
+        min_non_empty_length: None,
+        null_count: 3,
+        total_count: 3, // All nulls
+        raw_data_size: 0,
+        bloom_filter: None,
+        min_value: None,
+        max_value: None,
+    };
+
+    let stats = EncodedFieldStatistics::Binary(binary_stats_all_null);
+    let constant = stats.try_get_constant();
+    assert!(constant.is_some());
+    if let Some(val) = constant {
+        assert!(matches!(val.kind, Some(Kind::NullValue(_))));
+    }
+
+    // Test 3: Non-constant detection (different values)
+    let binary_stats_mixed = BinaryStats {
+        min_length: 2,
+        max_length: 4,
+        min_non_empty_length: Some(2),
+        null_count: 0,
+        total_count: 2,
+        raw_data_size: 6,
+        bloom_filter: None,
+        min_value: Some(vec![0x01, 0x02]),
+        max_value: Some(vec![0x03, 0x04, 0x05, 0x06]), // Different from min
+    };
+
+    let stats = EncodedFieldStatistics::Binary(binary_stats_mixed);
+    let constant = stats.try_get_constant();
+    assert!(constant.is_none());
+
+    Ok(())
+}

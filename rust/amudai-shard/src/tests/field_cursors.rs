@@ -71,7 +71,7 @@ fn test_field_cursors_multiple_types_and_patterns() {
         let position_count = field.position_count();
         if field.null_count().unwrap_or(position_count) != position_count {
             let decoder = field.create_decoder().unwrap();
-            consume_field_with_cursor(&decoder, &data_type, position_count);
+            consume_field_with_cursor(&decoder, data_type, position_count);
         }
         schema_id = schema_id.next();
     }

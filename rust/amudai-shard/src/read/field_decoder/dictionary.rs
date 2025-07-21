@@ -414,7 +414,7 @@ impl DictionaryDecoder {
 /// Values are stored as two buffers: `values` and `offsets`.
 /// - `values`: Contains all the value bytes concatenated together.
 /// - `offsets`: Contains offsets into the `values` buffer, indicating where each value
-///     starts and ends.
+///   starts and ends.
 pub enum DictionaryValues {
     /// Fixed-size values storage for primitive and fixed-length types.
     ///
@@ -431,7 +431,7 @@ pub enum DictionaryValues {
     /// Contains:
     /// - `Bytes`: The buffer containing all the values written contiguously.
     /// - `Bytes`: The buffer containing offsets for each value. The buffer can be
-    ///     safely casted to a slice of `u64` to access offsets.
+    ///   safely casted to a slice of `u64` to access offsets.
     VarSize(Bytes, Bytes),
 }
 
@@ -450,6 +450,22 @@ impl DictionaryValues {
         match self {
             DictionaryValues::FixedSize(values, value_size) => values.len() / value_size,
             DictionaryValues::VarSize(_, offsets) => offsets.typed_data::<u64>().len() - 1,
+        }
+    }
+
+    /// Returns `true` if the dictionary contains no values.
+    ///
+    /// This is equivalent to `len() == 0` but may be more efficient
+    /// and is the idiomatic way to check for emptiness in Rust.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the dictionary is empty, `false` otherwise.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        match self {
+            DictionaryValues::FixedSize(values, _) => values.is_empty(),
+            DictionaryValues::VarSize(_, offsets) => offsets.typed_data::<u64>().len() <= 1,
         }
     }
 

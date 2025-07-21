@@ -1188,7 +1188,8 @@ fn test_edge_cases() -> Result<()> {
 
         assert_eq!(prepared_stripe.record_count, 1);
         assert_eq!(prepared_stripe.fields[0].descriptor.null_count, Some(0));
-        assert!(validate_numeric_index_buffer_exists(&prepared_stripe, 0));
+        // Single value should be optimized as constant - no index buffer should exist
+        assert!(!validate_numeric_index_buffer_exists(&prepared_stripe, 0));
 
         shard_builder.add_stripe(prepared_stripe).unwrap();
         let _prepared_shard = shard_builder.finish().unwrap();
@@ -1819,5 +1820,542 @@ fn test_decimal_index_mixed_normal_and_nan() -> Result<()> {
         "Should have 4 invalid values (4 NaN)"
     );
 
+    Ok(())
+}
+
+// ============================================================================
+// CONSTANT VALUE INTEGRATION TESTS
+// ============================================================================
+
+#[test]
+fn test_constant_integer_stripe_integration() -> Result<()> {
+    use crate::tests::shard_store::ShardStore;
+
+    let shard_store = ShardStore::new();
+
+    // Create a schema with integer field
+    let schema = Arc::new(arrow_schema::Schema::new(vec![
+        arrow_schema::Field::new("id", arrow_schema::DataType::Int32, false),
+        arrow_schema::Field::new("value", arrow_schema::DataType::Int64, false),
+        arrow_schema::Field::new("description", arrow_schema::DataType::Utf8, true),
+    ]));
+
+    // Create a constant i64 value
+    let constant_i64_value = 42_i64;
+
+    // Generate batches with constant i64 values
+    let record_count = 1000;
+    let batches =
+        generate_constant_i64_batches(schema.clone(), 50..100, record_count, constant_i64_value);
+    let batch_iter = arrow_array::RecordBatchIterator::new(batches.map(Ok), schema.clone());
+
+    // Write to shard
+    let data_ref = shard_store.ingest_shard_from_record_batches(batch_iter);
+
+    // Verify shard was created successfully
+    let shard = shard_store.open_shard(&data_ref.url);
+    assert_eq!(shard.directory().total_record_count, 1000);
+    assert_eq!(shard.directory().stripe_count, 1);
+
+    // Open the stripe and verify schema
+    let stripe = shard.open_stripe(0)?;
+    let stripe_schema = stripe.fetch_schema()?;
+
+    // Find the i64 field
+    let value_field_info = stripe_schema.find_field("value")?.unwrap();
+
+    // Open the i64 field
+    let value_field = stripe.open_field(value_field_info.1.data_type().unwrap())?;
+
+    // Verify field type
+    assert_eq!(value_field.data_type().basic_type()?, BasicType::Int64);
+
+    // Create decoder and reader for the value field
+    let value_decoder = value_field.create_decoder()?;
+    let mut value_reader = value_decoder.create_reader_with_ranges(std::iter::empty())?;
+
+    // Read a range of values and verify they're all the same constant
+    let seq = value_reader.read_range(0..10)?;
+    assert_eq!(seq.len(), 10);
+
+    // For primitive types, there should be no offsets
+    assert!(
+        seq.offsets.is_none(),
+        "Primitive i64 should not have offsets"
+    );
+
+    // Verify all values are the same constant i64
+    let values_bytes = seq.values.as_bytes();
+    assert_eq!(values_bytes.len(), 10 * 8); // 10 i64 values * 8 bytes each
+
+    // Convert bytes back to i64 and verify
+    let i64_values = seq.values.as_slice::<i64>();
+    for &value in i64_values {
+        assert_eq!(value, constant_i64_value);
+    }
+
+    // Test reading different ranges
+    let seq2 = value_reader.read_range(100..150)?;
+    assert_eq!(seq2.len(), 50);
+
+    let i64_values2 = seq2.values.as_slice::<i64>();
+    for &value in i64_values2 {
+        assert_eq!(value, constant_i64_value);
+    }
+
+    println!("✓ Constant i64 stripe integration test passed!");
+    println!("  Successfully created and read constant i64 values from stripe");
+    println!("  Verified {record_count} records with constant i64 value: {constant_i64_value}");
+
+    Ok(())
+}
+
+#[test]
+fn test_constant_datetime_stripe_integration() -> Result<()> {
+    use crate::tests::shard_store::ShardStore;
+
+    let shard_store = ShardStore::new();
+
+    // Create a schema with datetime field
+    let schema = Arc::new(arrow_schema::Schema::new(vec![
+        arrow_schema::Field::new("id", arrow_schema::DataType::Int32, false),
+        arrow_schema::Field::new(
+            "timestamp",
+            arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Millisecond, None),
+            false,
+        ),
+        arrow_schema::Field::new("description", arrow_schema::DataType::Utf8, true),
+    ]));
+
+    // Create a constant datetime value (milliseconds since epoch)
+    let constant_datetime_value = 1640995200000_i64; // 2022-01-01 00:00:00 UTC
+    let expected_datetime_ticks = 637765920000000000_i64; // Converted to .NET datetime ticks
+
+    // Generate batches with constant datetime values
+    let record_count = 1000;
+    let batches = generate_constant_datetime_batches(
+        schema.clone(),
+        50..100,
+        record_count,
+        constant_datetime_value,
+    );
+    let batch_iter = arrow_array::RecordBatchIterator::new(batches.map(Ok), schema.clone());
+
+    // Write to shard
+    let data_ref = shard_store.ingest_shard_from_record_batches(batch_iter);
+
+    // Verify shard was created successfully
+    let shard = shard_store.open_shard(&data_ref.url);
+    assert_eq!(shard.directory().total_record_count, 1000);
+    assert_eq!(shard.directory().stripe_count, 1);
+
+    // Open the stripe and verify schema
+    let stripe = shard.open_stripe(0)?;
+    let stripe_schema = stripe.fetch_schema()?;
+
+    // Find the datetime field
+    let timestamp_field_info = stripe_schema.find_field("timestamp")?.unwrap();
+
+    // Open the datetime field
+    let timestamp_field = stripe.open_field(timestamp_field_info.1.data_type().unwrap())?;
+
+    // Verify field type
+    assert_eq!(
+        timestamp_field.data_type().basic_type()?,
+        BasicType::DateTime
+    );
+
+    // Create decoder and reader for the timestamp field
+    let timestamp_decoder = timestamp_field.create_decoder()?;
+    let mut timestamp_reader = timestamp_decoder.create_reader_with_ranges(std::iter::empty())?;
+
+    // Read a range of values and verify they're all the same constant
+    let seq = timestamp_reader.read_range(0..10)?;
+    assert_eq!(seq.len(), 10);
+
+    // For primitive types, there should be no offsets
+    assert!(
+        seq.offsets.is_none(),
+        "Primitive datetime should not have offsets"
+    );
+
+    // Verify all values are the same constant datetime
+    let values_bytes = seq.values.as_bytes();
+    assert_eq!(values_bytes.len(), 10 * 8); // 10 datetime values * 8 bytes each
+
+    // Convert bytes back to i64 and verify
+    let datetime_values = seq.values.as_slice::<i64>();
+    for &value in datetime_values {
+        assert_eq!(value, expected_datetime_ticks);
+    }
+
+    // Test reading different ranges
+    let seq2 = timestamp_reader.read_range(100..150)?;
+    assert_eq!(seq2.len(), 50);
+
+    let datetime_values2 = seq2.values.as_slice::<i64>();
+    for &value in datetime_values2 {
+        assert_eq!(value, expected_datetime_ticks);
+    }
+
+    println!("✓ Constant datetime stripe integration test passed!");
+    println!("  Successfully created and read constant datetime values from stripe");
+    println!(
+        "  Input milliseconds: {constant_datetime_value}, Output ticks: {expected_datetime_ticks}"
+    );
+    println!(
+        "  Verified {record_count} records with constant datetime tick value: {expected_datetime_ticks}"
+    );
+
+    Ok(())
+}
+
+/// Generate batches with constant i64 values for testing
+fn generate_constant_i64_batches(
+    schema: Arc<arrow_schema::Schema>,
+    batch_size: std::ops::Range<usize>,
+    record_count: usize,
+    constant_i64_value: i64,
+) -> Box<dyn Iterator<Item = RecordBatch>> {
+    let batch_sizes = amudai_arrow_processing::array_sequence::random_split(
+        record_count,
+        batch_size.start,
+        batch_size.end,
+    );
+    Box::new(batch_sizes.into_iter().map(move |batch_size| {
+        generate_constant_i64_batch(schema.clone(), batch_size, constant_i64_value)
+    }))
+}
+
+/// Generate a single batch with constant i64 values
+fn generate_constant_i64_batch(
+    schema: Arc<arrow_schema::Schema>,
+    batch_size: usize,
+    constant_i64_value: i64,
+) -> RecordBatch {
+    let mut columns = Vec::<arrow_array::ArrayRef>::new();
+
+    for field in schema.fields() {
+        let array: arrow_array::ArrayRef = match field.name().as_str() {
+            "value" => {
+                // Generate constant i64 values
+                let values: Vec<i64> = (0..batch_size).map(|_| constant_i64_value).collect();
+                Arc::new(Int64Array::from(values))
+            }
+            _ => {
+                // Generate other fields using a simple pattern
+                match field.data_type() {
+                    arrow_schema::DataType::Int32 => {
+                        let values: Vec<i32> = (0..batch_size).map(|i| i as i32).collect();
+                        Arc::new(Int32Array::from(values))
+                    }
+                    arrow_schema::DataType::Utf8 => {
+                        let values: Vec<Option<String>> =
+                            (0..batch_size).map(|i| Some(format!("item_{i}"))).collect();
+                        Arc::new(arrow_array::StringArray::from(values))
+                    }
+                    _ => panic!("Unsupported field type for test: {:?}", field.data_type()),
+                }
+            }
+        };
+        columns.push(array);
+    }
+
+    RecordBatch::try_new(schema, columns).expect("Failed to create constant i64 batch")
+}
+
+/// Generate batches with constant datetime values for testing
+fn generate_constant_datetime_batches(
+    schema: Arc<arrow_schema::Schema>,
+    batch_size: std::ops::Range<usize>,
+    record_count: usize,
+    constant_datetime_value: i64,
+) -> Box<dyn Iterator<Item = RecordBatch>> {
+    let batch_sizes = amudai_arrow_processing::array_sequence::random_split(
+        record_count,
+        batch_size.start,
+        batch_size.end,
+    );
+    Box::new(batch_sizes.into_iter().map(move |batch_size| {
+        generate_constant_datetime_batch(schema.clone(), batch_size, constant_datetime_value)
+    }))
+}
+
+/// Generate a single batch with constant datetime values
+fn generate_constant_datetime_batch(
+    schema: Arc<arrow_schema::Schema>,
+    batch_size: usize,
+    constant_datetime_value: i64,
+) -> RecordBatch {
+    let mut columns = Vec::<arrow_array::ArrayRef>::new();
+
+    for field in schema.fields() {
+        let array: arrow_array::ArrayRef = match field.name().as_str() {
+            "timestamp" => {
+                // Generate constant datetime values
+                let values: Vec<i64> = (0..batch_size).map(|_| constant_datetime_value).collect();
+                Arc::new(TimestampMillisecondArray::from(values))
+            }
+            _ => {
+                // Generate other fields using a simple pattern
+                match field.data_type() {
+                    arrow_schema::DataType::Int32 => {
+                        let values: Vec<i32> = (0..batch_size).map(|i| i as i32).collect();
+                        Arc::new(Int32Array::from(values))
+                    }
+                    arrow_schema::DataType::Utf8 => {
+                        let values: Vec<Option<String>> =
+                            (0..batch_size).map(|i| Some(format!("item_{i}"))).collect();
+                        Arc::new(arrow_array::StringArray::from(values))
+                    }
+                    _ => panic!("Unsupported field type for test: {:?}", field.data_type()),
+                }
+            }
+        };
+        columns.push(array);
+    }
+
+    RecordBatch::try_new(schema, columns).expect("Failed to create constant datetime batch")
+}
+
+#[test]
+fn test_primitive_constant_value_optimization() -> Result<()> {
+    println!("=== Testing Primitive Constant Value Optimization ===");
+
+    use crate::write::shard_builder::{ShardBuilder, ShardBuilderParams, ShardFileOrganization};
+    use amudai_format::schema::BasicType;
+    use amudai_format::schema_builder::{FieldBuilder, SchemaBuilder};
+    use arrow_array::{Float64Array, Int32Array, Int64Array, RecordBatch};
+    use arrow_schema::{DataType as ArrowDataType, Field as ArrowField, Schema as ArrowSchema};
+    use std::sync::Arc;
+
+    let temp_dir = TempDir::new().unwrap();
+    let object_store =
+        Arc::new(LocalFsObjectStore::new(temp_dir.path(), LocalFsMode::VirtualRoot).unwrap());
+    let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+    // Test case 1: Constant Int32 field
+    {
+        println!("  Testing constant Int32 field optimization...");
+
+        let field = FieldBuilder::new("constant_int32", BasicType::Int32, Some(true), None);
+        let schema_builder = SchemaBuilder::new(vec![field]);
+        let shard_schema = schema_builder.finish_and_seal();
+
+        let params = ShardBuilderParams {
+            schema: shard_schema,
+            object_store: object_store.clone(),
+            temp_store: temp_store.clone(),
+            file_organization: ShardFileOrganization::SingleFile,
+            encoding_profile: BlockEncodingProfile::default(),
+        };
+
+        let shard_builder = ShardBuilder::new(params).unwrap();
+        let mut stripe_builder = shard_builder.build_stripe().unwrap();
+
+        // Create Arrow schema for the batch
+        let arrow_schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
+            "constant_int32",
+            ArrowDataType::Int32,
+            false,
+        )]));
+
+        // Add multiple batches with the same constant value
+        for _ in 0..3 {
+            let batch = RecordBatch::try_new(
+                arrow_schema.clone(),
+                vec![Arc::new(Int32Array::from(vec![42, 42, 42, 42, 42]))],
+            )
+            .unwrap();
+            stripe_builder.push_batch(&batch).unwrap();
+        }
+
+        let prepared_stripe = stripe_builder.finish().unwrap();
+
+        // Verify that the field has constant value optimization
+        assert_eq!(prepared_stripe.record_count, 15); // 3 batches * 5 values each
+
+        let field_info = &prepared_stripe.fields[0];
+        assert_eq!(field_info.descriptor.null_count, Some(0));
+
+        // With constant value optimization, there should be no buffers at all
+        assert!(
+            field_info.encodings.is_empty()
+                || field_info
+                    .encodings
+                    .iter()
+                    .all(|encoding| encoding.buffers.is_empty()),
+            "Constant field should have no buffers or empty encodings"
+        );
+
+        println!("    ✓ Constant Int32 field correctly optimized");
+    }
+
+    // Test case 2: Constant Int64 field
+    {
+        println!("  Testing constant Int64 field optimization...");
+
+        let field = FieldBuilder::new("constant_int64", BasicType::Int64, Some(true), None);
+        let schema_builder = SchemaBuilder::new(vec![field]);
+        let shard_schema = schema_builder.finish_and_seal();
+
+        let params = ShardBuilderParams {
+            schema: shard_schema,
+            object_store: object_store.clone(),
+            temp_store: temp_store.clone(),
+            file_organization: ShardFileOrganization::SingleFile,
+            encoding_profile: BlockEncodingProfile::default(),
+        };
+
+        let shard_builder = ShardBuilder::new(params).unwrap();
+        let mut stripe_builder = shard_builder.build_stripe().unwrap();
+
+        let arrow_schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
+            "constant_int64",
+            ArrowDataType::Int64,
+            false,
+        )]));
+
+        // Add batch with constant Int64 value
+        let batch = RecordBatch::try_new(
+            arrow_schema.clone(),
+            vec![Arc::new(Int64Array::from(vec![
+                9223372036854775807_i64;
+                10
+            ]))], // Max i64
+        )
+        .unwrap();
+        stripe_builder.push_batch(&batch).unwrap();
+
+        let prepared_stripe = stripe_builder.finish().unwrap();
+
+        // Verify optimization
+        assert_eq!(prepared_stripe.record_count, 10);
+
+        let field_info = &prepared_stripe.fields[0];
+        assert_eq!(field_info.descriptor.null_count, Some(0));
+
+        // Should have no buffers for constant field
+        assert!(
+            field_info.encodings.is_empty()
+                || field_info
+                    .encodings
+                    .iter()
+                    .all(|encoding| encoding.buffers.is_empty()),
+            "Constant Int64 field should have no buffers"
+        );
+
+        println!("    ✓ Constant Int64 field correctly optimized");
+    }
+
+    // Test case 3: Constant Float64 field
+    {
+        println!("  Testing constant Float64 field optimization...");
+
+        let field = FieldBuilder::new("constant_float64", BasicType::Float64, Some(true), None);
+        let schema_builder = SchemaBuilder::new(vec![field]);
+        let shard_schema = schema_builder.finish_and_seal();
+
+        let params = ShardBuilderParams {
+            schema: shard_schema,
+            object_store: object_store.clone(),
+            temp_store: temp_store.clone(),
+            file_organization: ShardFileOrganization::SingleFile,
+            encoding_profile: BlockEncodingProfile::default(),
+        };
+
+        let shard_builder = ShardBuilder::new(params).unwrap();
+        let mut stripe_builder = shard_builder.build_stripe().unwrap();
+
+        let arrow_schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
+            "constant_float64",
+            ArrowDataType::Float64,
+            false,
+        )]));
+
+        // Add batch with constant Float64 value
+        let batch = RecordBatch::try_new(
+            arrow_schema.clone(),
+            vec![Arc::new(Float64Array::from(vec![3.14159265359; 8]))], // Constant pi
+        )
+        .unwrap();
+        stripe_builder.push_batch(&batch).unwrap();
+
+        let prepared_stripe = stripe_builder.finish().unwrap();
+
+        // Verify optimization
+        assert_eq!(prepared_stripe.record_count, 8);
+
+        let field_info = &prepared_stripe.fields[0];
+        assert_eq!(field_info.descriptor.null_count, Some(0));
+
+        // Should have no buffers for constant field
+        assert!(
+            field_info.encodings.is_empty()
+                || field_info
+                    .encodings
+                    .iter()
+                    .all(|encoding| encoding.buffers.is_empty()),
+            "Constant Float64 field should have no buffers"
+        );
+
+        println!("    ✓ Constant Float64 field correctly optimized");
+    }
+
+    // Test case 4: Non-constant field should still have buffers
+    {
+        println!("  Testing non-constant field behavior...");
+
+        let field = FieldBuilder::new("varying_int32", BasicType::Int32, Some(true), None);
+        let schema_builder = SchemaBuilder::new(vec![field]);
+        let shard_schema = schema_builder.finish_and_seal();
+
+        let params = ShardBuilderParams {
+            schema: shard_schema,
+            object_store: object_store.clone(),
+            temp_store: temp_store.clone(),
+            file_organization: ShardFileOrganization::SingleFile,
+            encoding_profile: BlockEncodingProfile::default(),
+        };
+
+        let shard_builder = ShardBuilder::new(params).unwrap();
+        let mut stripe_builder = shard_builder.build_stripe().unwrap();
+
+        let arrow_schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
+            "varying_int32",
+            ArrowDataType::Int32,
+            false,
+        )]));
+
+        // Add batch with varying values
+        let batch = RecordBatch::try_new(
+            arrow_schema.clone(),
+            vec![Arc::new(Int32Array::from(vec![1, 2, 3, 4, 5]))],
+        )
+        .unwrap();
+        stripe_builder.push_batch(&batch).unwrap();
+
+        let prepared_stripe = stripe_builder.finish().unwrap();
+
+        // Verify no optimization (should have buffers)
+        assert_eq!(prepared_stripe.record_count, 5);
+
+        let field_info = &prepared_stripe.fields[0];
+        assert_eq!(field_info.descriptor.null_count, Some(0));
+
+        // Should have buffers for non-constant field
+        assert!(
+            !field_info.encodings.is_empty()
+                && field_info
+                    .encodings
+                    .iter()
+                    .any(|encoding| !encoding.buffers.is_empty()),
+            "Non-constant field should have buffers"
+        );
+
+        println!("    ✓ Non-constant field correctly has buffers");
+    }
+
+    println!("✓ All primitive constant value optimization tests passed!");
     Ok(())
 }

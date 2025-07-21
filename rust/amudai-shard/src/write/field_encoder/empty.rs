@@ -23,8 +23,9 @@ impl FieldEncoderOps for EmptyFieldEncoder {
     fn finish(self: Box<Self>) -> amudai_common::Result<super::EncodedField> {
         Ok(super::EncodedField {
             buffers: vec![],
-            statistics: None,
+            statistics: super::EncodedFieldStatistics::Missing,
             dictionary_size: None,
+            constant_value: None,
         })
     }
 }

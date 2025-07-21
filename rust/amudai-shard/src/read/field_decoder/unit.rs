@@ -176,7 +176,7 @@ impl StructFieldDecoder {
         let presence_buffer = field.get_encoded_buffer(shard::BufferKind::Presence).ok();
 
         let presence = presence_buffer
-            .map(|buf| BitBufferDecoder::from_prepared_buffer(buf))
+            .map(BitBufferDecoder::from_prepared_buffer)
             .unwrap_or_else(|| Ok(BitBufferDecoder::from_constant(true)))?;
 
         Ok(StructFieldDecoder::new(basic_type, presence, positions))

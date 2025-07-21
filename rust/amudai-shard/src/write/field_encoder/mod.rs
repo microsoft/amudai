@@ -24,7 +24,19 @@ use amudai_io::temp_file_store::TemporaryFileStore;
 
 use super::artifact_writer::ArtifactWriter;
 
-pub use dictionary::{DictionaryEntry, PreparedDictionary, ValueDictionaryHeader};
+pub(crate) use dictionary::ValueDictionaryHeader;
+
+// Re-export field encoders for testing
+#[cfg(test)]
+pub(crate) use boolean::BooleanFieldEncoder;
+#[cfg(test)]
+pub(crate) use bytes::{BytesFieldEncoder, BytesStatsCollector};
+#[cfg(test)]
+pub(crate) use decimal::DecimalFieldEncoder;
+#[cfg(test)]
+pub(crate) use dictionary::PreparedDictionary;
+#[cfg(test)]
+pub(crate) use primitive::PrimitiveFieldEncoder;
 
 /// A `FieldEncoder` is tasked with encoding a sequence of values for a specific
 /// field within a stripe, independently of any child fields.
@@ -180,10 +192,13 @@ impl FieldEncoder {
 #[derive(Debug)]
 pub struct EncodedField {
     pub buffers: Vec<PreparedEncodedBuffer>,
-    /// Optional statistics collected during encoding for primitive types
-    pub statistics: Option<EncodedFieldStatistics>,
+    /// Statistics collected during encoding
+    pub statistics: EncodedFieldStatistics,
     /// The size of the dictionary, if dictionary encoding was used.
     pub dictionary_size: Option<u64>,
+    /// If present, indicates that all values in the field are constant.
+    /// This allows optimizing storage by avoiding buffers for constant fields.
+    pub constant_value: Option<amudai_format::defs::common::AnyValue>,
 }
 
 impl EncodedField {
@@ -307,6 +322,24 @@ impl EncodedField {
         self.get_encoded_buffer(shard::BufferKind::ValueDictionary)
             .is_ok()
     }
+
+    /// Creates a new EncodedField with automatic constant value optimization.
+    /// If the statistics indicate all values are constant, buffers are omitted for optimization.
+    pub fn new(
+        buffers: Vec<PreparedEncodedBuffer>,
+        statistics: EncodedFieldStatistics,
+        dictionary_size: Option<u64>,
+    ) -> Self {
+        // Check for constant values and optimize storage
+        let constant_value = statistics.try_get_constant();
+
+        EncodedField {
+            buffers,
+            statistics,
+            dictionary_size,
+            constant_value,
+        }
+    }
 }
 
 /// Statistics collected during field encoding
@@ -324,6 +357,35 @@ pub enum EncodedFieldStatistics {
     Decimal(amudai_data_stats::decimal::DecimalStats),
     /// Statistics for floating-point types
     Floating(amudai_data_stats::floating::FloatingStats),
+    /// No statistics available for this field
+    Missing,
+}
+
+impl EncodedFieldStatistics {
+    /// Returns true if statistics are present (not Missing)
+    pub fn is_present(&self) -> bool {
+        !matches!(self, EncodedFieldStatistics::Missing)
+    }
+
+    /// Returns true if no statistics are available
+    pub fn is_missing(&self) -> bool {
+        matches!(self, EncodedFieldStatistics::Missing)
+    }
+
+    /// Detects if this field has a constant value based on the statistics.
+    /// Returns Some(AnyValue) if all non-null values are the same, or if all values are null.
+    /// Returns None if the field has varying values.
+    pub fn try_get_constant(&self) -> Option<amudai_format::defs::common::AnyValue> {
+        match self {
+            EncodedFieldStatistics::Primitive(stats) => stats.try_get_constant(),
+            EncodedFieldStatistics::Boolean(stats) => stats.try_get_constant(),
+            EncodedFieldStatistics::Floating(stats) => stats.try_get_constant(),
+            EncodedFieldStatistics::Decimal(stats) => stats.try_get_constant(),
+            EncodedFieldStatistics::String(stats) => stats.try_get_constant(),
+            EncodedFieldStatistics::Binary(stats) => stats.try_get_constant(),
+            EncodedFieldStatistics::Missing => None,
+        }
+    }
 }
 
 impl EncodedField {

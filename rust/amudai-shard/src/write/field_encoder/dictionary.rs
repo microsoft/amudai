@@ -596,11 +596,11 @@ impl FieldEncoderOps for DictionaryFieldEncoder<Vec<u8>> {
 
         buffers.push(dictionary.encode_buffer(self.params.temp_store.as_ref())?);
 
-        Ok(EncodedField {
+        Ok(EncodedField::new(
             buffers,
             statistics,
-            dictionary_size: Some(dictionary_size),
-        })
+            Some(dictionary_size),
+        ))
     }
 }
 
@@ -611,10 +611,10 @@ fn collect_dictionary_statistics(
     encoding_profile: BlockEncodingProfile,
     entries: &[(Vec<u8>, DictionaryEntry)],
     null_entry: &Option<DictionaryEntry>,
-) -> Result<Option<EncodedFieldStatistics>> {
+) -> Result<EncodedFieldStatistics> {
     let mut stats_collector = BytesStatsCollector::new(basic_type, encoding_profile);
     if let Some(null_entry) = null_entry {
-        stats_collector.process_nulls(null_entry.count as usize)?;
+        stats_collector.process_nulls(null_entry.count)?;
     }
     for (value, entry) in entries {
         if let Some(null_entry) = null_entry {
@@ -623,7 +623,7 @@ fn collect_dictionary_statistics(
                 continue;
             }
         }
-        stats_collector.process_value(value, entry.count as usize)?;
+        stats_collector.process_value(value, entry.count)?;
     }
     stats_collector.finish()
 }
@@ -770,6 +770,7 @@ impl PreparedDictionary {
     /// Constructs an empty `PreparedDictionary`.
     ///
     /// Useful mostly in test scenarios.
+    #[cfg(test)]
     pub fn new(basic_type: BasicTypeDescriptor) -> PreparedDictionary {
         PreparedDictionary {
             basic_type,
@@ -782,6 +783,7 @@ impl PreparedDictionary {
     /// Manually adds an entry to the dictionary.
     ///
     /// Useful mostly in test scenarios.
+    #[cfg(test)]
     pub fn push(&mut self, value: &[u8], count: usize) {
         let id = self.entries.len() as u32;
         self.entries
@@ -792,6 +794,7 @@ impl PreparedDictionary {
     /// Manually adds a null entry to the dictionary.
     ///
     /// Useful mostly in test scenarios.
+    #[cfg(test)]
     pub fn push_null(&mut self, count: usize) {
         self.push(&vec![0u8; self.basic_type.fixed_size as usize], count);
         self.null_entry = Some(self.entries.last().unwrap().1.clone());
@@ -941,7 +944,7 @@ impl PreparedDictionary {
         offsets_data.add_payload(&0u64.to_le_bytes()); // First offset is always 0
         for (value, _) in self.entries.iter() {
             offset += value.len() as u64;
-            offsets_data.add_payload(&(offset as u64).to_le_bytes());
+            offsets_data.add_payload(&offset.to_le_bytes());
         }
         Some(offsets_data.build())
     }
@@ -1004,7 +1007,7 @@ impl PreparedDictionary {
         sorted_ids_section_range: std::ops::Range<u64>,
     ) -> Vec<u8> {
         let header = ValueDictionaryHeader {
-            value_type: self.basic_type.basic_type.clone(),
+            value_type: self.basic_type.basic_type,
             value_count: self.entries.len() as u32,
             fixed_value_size: self.basic_type.fixed_size,
             null_entry_present: self.null_entry.is_some(),

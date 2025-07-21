@@ -4,7 +4,10 @@ use std::ops::Range;
 
 use amudai_blockstream::read::block_stream::DecodedBlock;
 use amudai_common::{Result, error::Error};
-use amudai_format::schema::{BasicType, BasicTypeDescriptor};
+use amudai_format::{
+    defs::common::AnyValue,
+    schema::{BasicType, BasicTypeDescriptor},
+};
 use amudai_sequence::sequence::ValueSequence;
 use boolean::BooleanFieldDecoder;
 use bytes::BytesFieldDecoder;
@@ -675,4 +678,51 @@ pub trait FieldReader: Send + Sync + 'static {
     /// For contiguous range access, prefer `read_range` which handles block boundary
     /// crossing and range extraction automatically.
     fn read_containing_block(&mut self, position: u64) -> Result<DecodedBlock>;
+}
+
+/// A constant field reader that can handle both primitive and binary types.
+///
+/// This reader provides access to constant values using the centralized
+/// conversion logic in ValueSequence::from_any_value. It works with all types
+/// supported by ValueSequence including numeric types, strings, and binary data.
+pub struct ConstantFieldReader {
+    constant_value: AnyValue,
+    basic_type: BasicTypeDescriptor,
+}
+
+impl ConstantFieldReader {
+    /// Creates a new constant field reader.
+    ///
+    /// # Arguments
+    ///
+    /// * `constant_value` - The constant value for all positions in this field
+    /// * `basic_type` - The basic type descriptor for the values
+    pub fn new(constant_value: AnyValue, basic_type: BasicTypeDescriptor) -> ConstantFieldReader {
+        ConstantFieldReader {
+            constant_value,
+            basic_type,
+        }
+    }
+}
+
+impl FieldReader for ConstantFieldReader {
+    fn read_range(&mut self, pos_range: Range<u64>) -> Result<ValueSequence> {
+        let len = (pos_range.end - pos_range.start) as usize;
+        ValueSequence::from_any_value(len, &self.constant_value, self.basic_type).map_err(|err| {
+            Error::invalid_operation(format!(
+                "Failed to create ValueSequence from constant: {err}"
+            ))
+        })
+    }
+
+    fn read_containing_block(&mut self, position: u64) -> Result<DecodedBlock> {
+        use amudai_blockstream::read::{get_ephemeral_block_descriptor, get_ephemeral_block_range};
+
+        // For constant readers, create an ephemeral block centered around the requested position
+        let range = get_ephemeral_block_range(position);
+        let values = self.read_range(range.clone())?;
+        let descriptor = get_ephemeral_block_descriptor(position);
+
+        Ok(DecodedBlock { values, descriptor })
+    }
 }

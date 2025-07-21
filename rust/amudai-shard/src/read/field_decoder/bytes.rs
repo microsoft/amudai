@@ -8,14 +8,14 @@ use amudai_blockstream::read::{
 };
 use amudai_common::{Result, error::Error};
 use amudai_format::{
-    defs::shard,
+    defs::{common::AnyValue, shard},
     schema::{BasicType, BasicTypeDescriptor},
 };
 use amudai_sequence::sequence::ValueSequence;
 
-use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
+use super::{ConstantFieldReader, FieldReader};
 
-use super::FieldReader;
+use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
 
 /// A decoder for binary and string field types.
 ///
@@ -26,7 +26,11 @@ use super::FieldReader;
 pub struct BytesFieldDecoder {
     /// The underlying bytes buffer decoder that provides access
     /// to the encoded binary data
-    bytes_buffer: BytesBufferDecoder,
+    bytes_buffer: Option<BytesBufferDecoder>,
+    /// If the field contains only constant values, this stores the constant
+    constant_value: Option<AnyValue>,
+    /// The basic type descriptor for this field
+    basic_type: BasicTypeDescriptor,
     // TODO: add optional presence buffer decoder
     // (when nulls are not embedded in the value buffer)
     // TODO: add optional offsets buffer decoder
@@ -40,7 +44,29 @@ impl BytesFieldDecoder {
     ///
     /// * `bytes_buffer` - The underlying bytes buffer decoder
     pub fn new(bytes_buffer: BytesBufferDecoder) -> BytesFieldDecoder {
-        BytesFieldDecoder { bytes_buffer }
+        let basic_type = bytes_buffer.basic_type();
+        BytesFieldDecoder {
+            bytes_buffer: Some(bytes_buffer),
+            constant_value: None,
+            basic_type,
+        }
+    }
+
+    /// Creates a new bytes field decoder for a constant value.
+    ///
+    /// # Arguments
+    ///
+    /// * `constant_value` - The constant value for all positions in this field
+    /// * `basic_type` - The basic type descriptor for the values in this field
+    pub fn new_constant(
+        constant_value: AnyValue,
+        basic_type: BasicTypeDescriptor,
+    ) -> BytesFieldDecoder {
+        BytesFieldDecoder {
+            bytes_buffer: None,
+            constant_value: Some(constant_value),
+            basic_type,
+        }
     }
 
     /// Constructs a `BytesFieldDecoder` from a field context.
@@ -61,6 +87,11 @@ impl BytesFieldDecoder {
     /// Returns an error if the field has an invalid or unsupported encoding format
     pub(crate) fn from_field(field: &FieldContext) -> Result<BytesFieldDecoder> {
         let basic_type = field.data_type().describe()?;
+
+        // Check if this is a constant field first
+        if let Some(constant_value) = field.try_get_constant() {
+            return Ok(BytesFieldDecoder::new_constant(constant_value, basic_type));
+        }
 
         let data_buffer = field.get_encoded_buffer(shard::BufferKind::Data)?;
         let reader = field.open_data_ref(
@@ -90,6 +121,14 @@ impl BytesFieldDecoder {
         field: &EncodedField,
         basic_type: BasicTypeDescriptor,
     ) -> Result<BytesFieldDecoder> {
+        // Check if this is a constant field first
+        if let Some(constant_value) = &field.constant_value {
+            return Ok(BytesFieldDecoder::new_constant(
+                constant_value.clone(),
+                basic_type,
+            ));
+        }
+
         let prepared_buffer = field.get_encoded_buffer(shard::BufferKind::Data)?;
         let bytes_buffer = BytesBufferDecoder::from_prepared_buffer(prepared_buffer, basic_type)?;
         Ok(BytesFieldDecoder::new(bytes_buffer))
@@ -97,7 +136,7 @@ impl BytesFieldDecoder {
 
     /// Returns the basic type descriptor for the values in this field.
     pub fn basic_type(&self) -> BasicTypeDescriptor {
-        self.bytes_buffer.basic_type()
+        self.basic_type
     }
 
     /// Creates a reader for efficiently accessing ranges of values in this field.
@@ -118,8 +157,17 @@ impl BytesFieldDecoder {
         &self,
         pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
     ) -> Result<Box<dyn FieldReader>> {
+        if let Some(constant_value) = &self.constant_value {
+            return Ok(Box::new(ConstantFieldReader::new(
+                constant_value.clone(),
+                self.basic_type,
+            )));
+        }
+
         let buffer_reader = self
             .bytes_buffer
+            .as_ref()
+            .expect("bytes_buffer")
             .create_reader_with_ranges(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
         Ok(Box::new(BytesFieldReader::new(buffer_reader)))
     }
@@ -140,8 +188,17 @@ impl BytesFieldDecoder {
         &self,
         positions_hint: impl Iterator<Item = u64> + Clone,
     ) -> Result<Box<dyn FieldReader>> {
+        if let Some(constant_value) = &self.constant_value {
+            return Ok(Box::new(ConstantFieldReader::new(
+                constant_value.clone(),
+                self.basic_type,
+            )));
+        }
+
         let buffer_reader = self
             .bytes_buffer
+            .as_ref()
+            .expect("bytes_buffer")
             .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
         Ok(Box::new(BytesFieldReader::new(buffer_reader)))
     }
@@ -460,11 +517,17 @@ impl FieldReader for BytesFieldReader {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use amudai_format::{
+        defs::common::{AnyValue, UnitValue, any_value::Kind},
+        schema::{BasicType, BasicTypeDescriptor},
+    };
     use amudai_objectstore::url::ObjectUrl;
 
     use crate::{
         read::shard::ShardOptions,
         tests::{data_generator::create_bytes_flat_test_schema, shard_store::ShardStore},
+        write::field_encoder::{EncodedField, EncodedFieldStatistics},
     };
 
     #[test]
@@ -518,5 +581,225 @@ mod tests {
             len += seq.string_at(i).len();
         }
         assert!(len > 200);
+    }
+
+    #[test]
+    fn test_constant_string_field() {
+        let constant_value = AnyValue {
+            kind: Some(Kind::StringValue("Hello, World!".to_string())),
+            annotation: None,
+        };
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::String,
+            signed: false,
+            fixed_size: 0,
+            extended_type: Default::default(),
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Missing,
+            dictionary_size: None,
+            constant_value: Some(constant_value),
+        };
+
+        let decoder = BytesFieldDecoder::from_encoded_field(&encoded_field, basic_type).unwrap();
+        let mut reader = decoder
+            .create_reader_with_ranges(std::iter::empty())
+            .unwrap();
+
+        // Test reading a range of constant values
+        let seq = reader.read_range(0..5).unwrap();
+        assert_eq!(seq.len(), 5);
+
+        // All values should be the same constant string
+        for i in 0..5 {
+            assert_eq!(seq.string_at(i), "Hello, World!");
+        }
+    }
+
+    #[test]
+    fn test_constant_binary_field() {
+        let test_bytes = vec![0x01, 0x02, 0x03, 0x04];
+        let constant_value = AnyValue {
+            kind: Some(Kind::BytesValue(test_bytes.clone())),
+            annotation: None,
+        };
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Binary,
+            signed: false,
+            fixed_size: 0,
+            extended_type: Default::default(),
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Missing,
+            dictionary_size: None,
+            constant_value: Some(constant_value),
+        };
+
+        let decoder = BytesFieldDecoder::from_encoded_field(&encoded_field, basic_type).unwrap();
+        let mut reader = decoder
+            .create_reader_with_ranges(std::iter::empty())
+            .unwrap();
+
+        // Test reading a range of constant values
+        let seq = reader.read_range(0..3).unwrap();
+        assert_eq!(seq.len(), 3);
+
+        // All values should be the same constant binary data
+        if let Some(binary_iter) = seq.binary_values() {
+            for (i, binary_value) in binary_iter.enumerate() {
+                assert_eq!(binary_value, test_bytes.as_slice());
+                if i >= 2 {
+                    break;
+                } // Only check first 3 values
+            }
+        } else {
+            panic!("Expected binary values iterator");
+        }
+    }
+
+    #[test]
+    fn test_constant_null_field() {
+        let constant_value = AnyValue {
+            kind: Some(Kind::NullValue(UnitValue {})),
+            annotation: None,
+        };
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::String,
+            signed: false,
+            fixed_size: 0,
+            extended_type: Default::default(),
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Missing,
+            dictionary_size: None,
+            constant_value: Some(constant_value),
+        };
+
+        let decoder = BytesFieldDecoder::from_encoded_field(&encoded_field, basic_type).unwrap();
+        let mut reader = decoder
+            .create_reader_with_ranges(std::iter::empty())
+            .unwrap();
+
+        // Test reading a range of null constant values
+        let seq = reader.read_range(0..4).unwrap();
+        assert_eq!(seq.len(), 4);
+        assert_eq!(seq.presence.count_nulls(), 4); // All should be null
+    }
+
+    #[test]
+    fn test_constant_guid_field() {
+        // Create a test GUID as 16 bytes
+        let test_guid_bytes = vec![
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54,
+            0x32, 0x10,
+        ];
+
+        let constant_value = AnyValue {
+            kind: Some(Kind::BytesValue(test_guid_bytes.clone())),
+            annotation: None,
+        };
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Guid,
+            signed: false,
+            fixed_size: 16, // GUIDs are always 16 bytes
+            extended_type: Default::default(),
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Missing,
+            dictionary_size: None,
+            constant_value: Some(constant_value),
+        };
+
+        let decoder = BytesFieldDecoder::from_encoded_field(&encoded_field, basic_type).unwrap();
+        let mut reader = decoder
+            .create_reader_with_ranges(std::iter::empty())
+            .unwrap();
+
+        // Test reading a range of constant GUID values
+        let seq = reader.read_range(0..3).unwrap();
+        assert_eq!(seq.len(), 3);
+
+        // For fixed-size GUIDs, we should have no offsets
+        assert!(
+            seq.offsets.is_none(),
+            "GUIDs should not have offsets as they are fixed-size"
+        );
+
+        // All values should be the same constant GUID
+        let values_bytes = seq.values.as_bytes();
+        assert_eq!(values_bytes.len(), 3 * 16); // 3 GUIDs * 16 bytes each
+
+        for i in 0..3 {
+            let start = i * 16;
+            let end = start + 16;
+            let guid_bytes = &values_bytes[start..end];
+            assert_eq!(guid_bytes, test_guid_bytes.as_slice());
+        }
+    }
+
+    #[test]
+    fn test_constant_decimal_field() {
+        // Create a test decimal as 16 bytes (following the decimal_integration.rs pattern)
+        let test_decimal_bytes = vec![
+            0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB,
+            0xCD, 0xEF,
+        ];
+
+        let constant_value = AnyValue {
+            kind: Some(Kind::BytesValue(test_decimal_bytes.clone())),
+            annotation: None,
+        };
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::FixedSizeBinary,
+            signed: false,
+            fixed_size: 16,                    // Decimals are 16 bytes
+            extended_type: Default::default(), // For KustoDecimal
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Missing,
+            dictionary_size: None,
+            constant_value: Some(constant_value),
+        };
+
+        let decoder = BytesFieldDecoder::from_encoded_field(&encoded_field, basic_type).unwrap();
+        let mut reader = decoder
+            .create_reader_with_ranges(std::iter::empty())
+            .unwrap();
+
+        // Test reading a range of constant decimal values
+        let seq = reader.read_range(0..4).unwrap();
+        assert_eq!(seq.len(), 4);
+
+        // For fixed-size decimals, we should have no offsets
+        assert!(
+            seq.offsets.is_none(),
+            "Decimals should not have offsets as they are fixed-size"
+        );
+
+        // All values should be the same constant decimal
+        let values_bytes = seq.values.as_bytes();
+        assert_eq!(values_bytes.len(), 4 * 16); // 4 decimals * 16 bytes each
+
+        for i in 0..4 {
+            let start = i * 16;
+            let end = start + 16;
+            let decimal_bytes = &values_bytes[start..end];
+            assert_eq!(decimal_bytes, test_decimal_bytes.as_slice());
+        }
     }
 }

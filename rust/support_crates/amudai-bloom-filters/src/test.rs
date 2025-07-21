@@ -57,7 +57,7 @@ fn build_filter_with_string_values(
         builder.distinct_count()
     );
     let success = builder.finish();
-    println!("Filter build success: {}", success);
+    println!("Filter build success: {success}");
     if success {
         println!(
             "Filter size: {} bytes",
@@ -659,9 +659,7 @@ mod false_positive_rate_tests {
             for value in &inserted_values {
                 assert!(
                     decoder.probe(value.as_bytes()),
-                    "False negative: '{}' should be found with {} items",
-                    value,
-                    item_count
+                    "False negative: '{value}' should be found with {item_count} items"
                 );
             }
 
@@ -670,12 +668,10 @@ mod false_positive_rate_tests {
             let fpp =
                 measure_false_positive_rate(&decoder, &inserted_values, &negative_test_values);
 
-            println!("FPP with {} items: {:.4} (target: 0.01)", item_count, fpp);
+            println!("FPP with {item_count} items: {fpp:.4} (target: 0.01)");
             assert!(
                 fpp <= 0.05, // Allow some tolerance due to small sample size
-                "False positive rate {:.4} too high for {} items (target: 0.01)",
-                fpp,
-                item_count
+                "False positive rate {fpp:.4} too high for {item_count} items (target: 0.01)"
             );
         }
     }
@@ -697,9 +693,7 @@ mod false_positive_rate_tests {
             for value in &inserted_values {
                 assert!(
                     decoder.probe(value.as_bytes()),
-                    "False negative: '{}' should be found with {} items",
-                    value,
-                    item_count
+                    "False negative: '{value}' should be found with {item_count} items"
                 );
             }
 
@@ -708,12 +702,10 @@ mod false_positive_rate_tests {
             let fpp =
                 measure_false_positive_rate(&decoder, &inserted_values, &negative_test_values);
 
-            println!("FPP with {} items: {:.4} (target: 0.01)", item_count, fpp);
+            println!("FPP with {item_count} items: {fpp:.4} (target: 0.01)");
             assert!(
                 fpp <= 0.02, // Allow reasonable tolerance
-                "False positive rate {:.4} too high for {} items (target: 0.01)",
-                fpp,
-                item_count
+                "False positive rate {fpp:.4} too high for {item_count} items (target: 0.01)"
             );
         }
     }
@@ -740,8 +732,8 @@ mod false_positive_rate_tests {
         println!("Filter statistics for 1000 items:");
         println!("  - Target FPP: 0.01 (1%)");
         println!("  - Max allowed size: 1,048,576 bytes (1MB)");
-        println!("  - Actual filter size: {} bytes", actual_filter_size);
-        println!("  - Number of blocks: {}", num_blocks);
+        println!("  - Actual filter size: {actual_filter_size} bytes");
+        println!("  - Number of blocks: {num_blocks}");
         println!(
             "  - Bytes per item: {:.2}",
             actual_filter_size as f64 / item_count as f64
@@ -755,8 +747,7 @@ mod false_positive_rate_tests {
         for value in &inserted_values {
             assert!(
                 decoder.probe(value.as_bytes()),
-                "False negative: '{}' should be found with 1000 items",
-                value
+                "False negative: '{value}' should be found with 1000 items"
             );
         }
 
@@ -764,11 +755,10 @@ mod false_positive_rate_tests {
         let negative_test_values = generate_non_overlapping_test_data(10000, "thousand_items");
         let fpp = measure_false_positive_rate(&decoder, &inserted_values, &negative_test_values);
 
-        println!("FPP with 1000 items: {:.4} (target: 0.01)", fpp);
+        println!("FPP with 1000 items: {fpp:.4} (target: 0.01)");
         assert!(
             fpp <= 0.1, // Very relaxed tolerance to understand what's happening
-            "False positive rate {:.4} too high for 1000 items (target: 0.01)",
-            fpp
+            "False positive rate {fpp:.4} too high for 1000 items (target: 0.01)"
         );
     }
 
@@ -796,9 +786,7 @@ mod false_positive_rate_tests {
             for value in &inserted_values {
                 assert!(
                     decoder.probe(value.as_bytes()),
-                    "False negative with target FPP {}: '{}'",
-                    target_fpp,
-                    value
+                    "False negative with target FPP {target_fpp}: '{value}'"
                 );
             }
 
@@ -807,16 +795,10 @@ mod false_positive_rate_tests {
             let actual_fpp =
                 measure_false_positive_rate(&decoder, &inserted_values, &negative_test_values);
 
-            println!(
-                "Target FPP: {:.3}, Actual FPP: {:.4}",
-                target_fpp, actual_fpp
-            );
+            println!("Target FPP: {target_fpp:.3}, Actual FPP: {actual_fpp:.4}");
             assert!(
                 actual_fpp <= max_allowed_fpp,
-                "Actual FPP {:.4} exceeds max allowed {:.4} for target {:.3}",
-                actual_fpp,
-                max_allowed_fpp,
-                target_fpp
+                "Actual FPP {actual_fpp:.4} exceeds max allowed {max_allowed_fpp:.4} for target {target_fpp:.3}"
             );
         }
     }
@@ -840,8 +822,7 @@ mod false_positive_rate_tests {
         for value in &inserted_values {
             assert!(
                 collector.process_value(value.as_bytes()),
-                "Failed to add value to collector: {}",
-                value
+                "Failed to add value to collector: {value}"
             );
         }
 
@@ -856,8 +837,7 @@ mod false_positive_rate_tests {
         for value in &inserted_values {
             assert!(
                 decoder.probe(value.as_bytes()),
-                "False negative with collector: '{}'",
-                value
+                "False negative with collector: '{value}'"
             );
         }
 
@@ -865,15 +845,10 @@ mod false_positive_rate_tests {
         let negative_test_values = generate_non_overlapping_test_data(5000, "collector_fpp");
         let fpp = measure_false_positive_rate(&decoder, &inserted_values, &negative_test_values);
 
-        println!(
-            "Collector FPP with {} items: {:.4} (target: 0.01)",
-            item_count, fpp
-        );
+        println!("Collector FPP with {item_count} items: {fpp:.4} (target: 0.01)");
         assert!(
             fpp <= 0.02,
-            "Collector FPP {:.4} too high for {} items (target: 0.01)",
-            fpp,
-            item_count
+            "Collector FPP {fpp:.4} too high for {item_count} items (target: 0.01)"
         );
     }
 
@@ -891,20 +866,18 @@ mod false_positive_rate_tests {
 
         for trial in 0..5 {
             let negative_test_values =
-                generate_non_overlapping_test_data(2000, &format!("stats_test_trial_{}", trial));
+                generate_non_overlapping_test_data(2000, &format!("stats_test_trial_{trial}"));
             let fpp =
                 measure_false_positive_rate(&decoder, &inserted_values, &negative_test_values);
             fpp_measurements.push(fpp);
-            println!("Trial {}: FPP = {:.4}", trial, fpp);
+            println!("Trial {trial}: FPP = {fpp:.4}");
         }
 
         // Check that all measurements are reasonable
         for (i, &fpp) in fpp_measurements.iter().enumerate() {
             assert!(
                 fpp <= 0.03,
-                "Trial {} FPP {:.4} too high (target: 0.01)",
-                i,
-                fpp
+                "Trial {i} FPP {fpp:.4} too high (target: 0.01)"
             );
         }
 
@@ -918,8 +891,7 @@ mod false_positive_rate_tests {
 
         assert!(
             avg_fpp <= 0.02,
-            "Average FPP {:.4} too high across multiple trials (target: 0.01)",
-            avg_fpp
+            "Average FPP {avg_fpp:.4} too high across multiple trials (target: 0.01)"
         );
     }
 }
