@@ -136,3 +136,81 @@ fn test_dictionary_buffer_decoding_fixed() {
         }
     }
 }
+
+#[test]
+fn test_dictionary_codes_reader() {
+    use crate::read::field_decoder::FieldDecoder;
+    use crate::tests::{data_generator::*, shard_store::ShardStore};
+    use arrow_schema::{DataType, Schema};
+    use std::sync::Arc;
+
+    let shard_store = ShardStore::new();
+
+    let schema = Arc::new(Schema::new(vec![
+        make_field(
+            "id",
+            DataType::Int64,
+            FieldProperties {
+                kind: FieldKind::Unique,
+                nulls_fraction: 0.0,
+                min_value: 1,
+                max_value: 20000,
+                ..Default::default()
+            },
+        ),
+        make_field(
+            "name",
+            DataType::Utf8,
+            FieldProperties {
+                kind: FieldKind::Word,
+                nulls_fraction: 0.05,
+                word_dictionary: 200, // Fixed set of 200 names
+                ..Default::default()
+            },
+        ),
+    ]));
+
+    let shard_ref = shard_store.ingest_shard_with_schema(&schema, 20000);
+
+    let shard = shard_store.open_shard(&shard_ref.url);
+
+    assert_eq!(shard.directory().total_record_count, 20000);
+    assert_eq!(shard.directory().stripe_count, 1);
+
+    let stripe = shard.open_stripe(0).unwrap();
+
+    let name_field = stripe.open_named_field("name").unwrap();
+    assert_eq!(name_field.position_count(), 20000);
+
+    let field_decoder = name_field.create_decoder().unwrap();
+    let dictionary_field = match field_decoder {
+        FieldDecoder::Dictionary(decoder) => decoder,
+        _ => panic!("name should be dictionary encoded"),
+    };
+
+    let dictionary = dictionary_field.dictionary();
+    let value_count = dictionary.value_count().unwrap();
+    assert_eq!(value_count, 201);
+    assert!(dictionary.null_id().unwrap().is_some());
+    assert!(dictionary.null_id().unwrap().unwrap() < value_count as u32);
+
+    let mut reader = dictionary_field
+        .create_codes_reader_with_ranges(std::iter::empty())
+        .unwrap();
+    let codes = reader.read_range(10000..20000).unwrap();
+    assert!(
+        codes
+            .as_slice::<u32>()
+            .iter()
+            .all(|&code| code < value_count as u32)
+    );
+
+    let mut cursor = dictionary_field
+        .create_codes_cursor(std::iter::empty())
+        .unwrap();
+    let values = dictionary.values().unwrap();
+    for pos in 0u64..20000 {
+        let code = cursor.fetch(pos).unwrap();
+        assert!(values.get(code).len() < 20);
+    }
+}

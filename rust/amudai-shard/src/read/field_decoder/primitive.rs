@@ -356,12 +356,14 @@ where
     }
 }
 
-struct PrimitiveFieldReader {
+pub(in crate::read::field_decoder) struct PrimitiveFieldReader {
     buffer_reader: PrimitiveBufferReader,
 }
 
 impl PrimitiveFieldReader {
-    fn new(buffer_reader: PrimitiveBufferReader) -> PrimitiveFieldReader {
+    pub(in crate::read::field_decoder) fn new(
+        buffer_reader: PrimitiveBufferReader,
+    ) -> PrimitiveFieldReader {
         PrimitiveFieldReader { buffer_reader }
     }
 }

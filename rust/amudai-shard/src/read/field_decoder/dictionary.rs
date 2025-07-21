@@ -24,8 +24,11 @@ use amudai_sequence::{
 };
 
 use super::FieldReader;
-use crate::write::field_encoder::ValueDictionaryHeader;
 use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
+use crate::{
+    read::field_decoder::primitive::PrimitiveFieldReader,
+    write::field_encoder::ValueDictionaryHeader,
+};
 
 /// Decoder for 'VALUE_DICTIONARY' buffer containing value mappings and metadata.
 ///
@@ -210,6 +213,49 @@ impl DictionaryDecoder {
     /// Returns an error if the sorted IDs section exists but cannot be loaded or decoded.
     pub fn sorted_ids(&self) -> Result<Option<&SortedIds>> {
         self.establish_sorted_ids()
+    }
+
+    /// Returns the total number of entries in the dictionary.
+    ///
+    /// This count includes all dictionary entries, including the null entry if present.
+    /// Dictionary codes (IDs) are assigned sequentially from 0 to `value_count - 1`, making
+    /// the last valid dictionary code equal to `value_count - 1`.
+    ///
+    /// # Returns
+    ///
+    /// The total number of dictionary entries as a `usize`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the dictionary header cannot be loaded or accessed.
+    pub fn value_count(&self) -> Result<usize> {
+        Ok(self.header()?.value_count as usize)
+    }
+
+    /// Returns the dictionary ID (code) reserved for null values, if any.
+    ///
+    /// In dictionary encoding, null values can be represented by reserving a specific
+    /// dictionary ID to represent the absence of a value. This method retrieves that
+    /// reserved ID from the dictionary header.
+    ///
+    /// # Null Value Handling
+    ///
+    /// When dictionary encoding is used with nullable fields:
+    /// - If `null_id()` returns `Some(id)`, then dictionary codes matching `id` represent null values
+    /// - If `null_id()` returns `None`, then the dictionary does not support nulls and all codes
+    ///   represent actual values
+    /// - The null ID is determined during dictionary creation and stored in the dictionary header
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(id))` - The dictionary ID reserved for null values
+    /// - `Ok(None)` - No null ID is defined (dictionary does not have nulls)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the dictionary header cannot be loaded or decoded.
+    pub fn null_id(&self) -> Result<Option<u32>> {
+        Ok(self.header()?.null_id)
     }
 
     /// Decodes a sequence of dictionary codes into a complete `ValueSequence`.
@@ -922,6 +968,25 @@ impl DictionaryFieldDecoder {
         self.basic_type
     }
 
+    /// Returns the dictionary ([`DictionaryDecoder`]) associated with this field.
+    ///
+    /// The dictionary decoder provides access to the VALUE_DICTIONARY buffer that contains
+    /// the actual values that dictionary codes map to.tances across multiple readers
+    ///
+    /// # Usage
+    ///
+    /// The dictionary is typically used internally by field readers, but can also be
+    /// accessed directly for advanced operations like grouping or performing value-based
+    /// filtering at the dictionary level.
+    ///
+    /// # Returns
+    ///
+    /// A shared reference to the [`DictionaryDecoder`] that manages the VALUE_DICTIONARY
+    /// buffer for this field.
+    pub fn dictionary(&self) -> &Arc<DictionaryDecoder> {
+        &self.dictionary
+    }
+
     /// Creates a reader for accessing value ranges in this field.
     ///
     /// The reader fetches specific ranges of dictionary-decoded values.
@@ -972,6 +1037,112 @@ impl DictionaryFieldDecoder {
             dictionary: self.dictionary.clone(),
             basic_type: self.basic_type,
         }))
+    }
+
+    /// Creates a reader for accessing dictionary codes (keys) for value ranges in this field.
+    ///
+    /// This method creates a reader that returns the raw dictionary codes instead of the
+    /// decoded values. This is useful when you need to work with the codes directly, such as
+    /// for grouping operations, building indexes, or when the actual values are not needed.
+    ///
+    /// # Arguments
+    ///
+    /// * `pos_ranges_hint` - Iterator of logical position ranges for prefetching optimization.
+    ///   These hints are used to optimize I/O patterns when reading from storage.
+    ///
+    /// # Returns
+    ///
+    /// A boxed field reader that returns dictionary codes as `u32` values instead of
+    /// the decoded original values.
+    ///
+    /// # Performance Notes
+    ///
+    /// This method is more efficient than `create_reader_with_ranges` when you only need
+    /// the codes, as it avoids the dictionary lookup and value reconstruction overhead.
+    pub fn create_codes_reader_with_ranges(
+        &self,
+        pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
+    ) -> Result<Box<dyn FieldReader>> {
+        let codes_reader = self
+            .codes_buffer
+            .create_reader_with_ranges(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
+
+        Ok(Box::new(PrimitiveFieldReader::new(codes_reader)))
+    }
+
+    /// Creates a reader for accessing dictionary codes (keys) at specific positions in this field.
+    ///
+    /// This method creates a reader that returns the raw dictionary codes instead of the
+    /// decoded values. This is useful when you need to work with the codes directly, such as
+    /// for grouping operations, building indexes, or when the actual values are not needed.
+    ///
+    /// # Arguments
+    ///
+    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
+    ///   to be accessed. These hints are used to optimize prefetching strategies for better
+    ///   performance when reading from storage. The positions must be in non-descending
+    ///   order but don't need to be unique or contiguous.
+    ///
+    /// # Returns
+    ///
+    /// A boxed field reader that returns dictionary codes as `u32` values instead of
+    /// the decoded original values.
+    ///
+    /// # Performance Notes
+    ///
+    /// This method is more efficient than `create_reader_with_positions` when you only need
+    /// the codes, as it avoids the dictionary lookup and value reconstruction overhead.
+    pub fn create_codes_reader_with_positions(
+        &self,
+        positions_hint: impl Iterator<Item = u64> + Clone,
+    ) -> Result<Box<dyn FieldReader>> {
+        let codes_reader = self
+            .codes_buffer
+            .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
+
+        Ok(Box::new(PrimitiveFieldReader::new(codes_reader)))
+    }
+
+    /// Creates a specialized cursor for iterator-style access to dictionary codes (keys).
+    ///
+    /// This method returns the raw dictionary codes instead of the decoded values.
+    /// This is useful when you need to work with the codes directly, such as for
+    /// grouping operations, building indexes, or when the actual values are not needed.
+    ///
+    /// # Dictionary Codes
+    ///
+    /// Dictionary codes are `u32` values that serve as keys into the dictionary's value
+    /// section. Each code maps to a specific value stored in the dictionary.
+    ///
+    /// # Arguments
+    ///
+    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
+    ///   to be accessed. These hints are used to optimize prefetching strategies for better
+    ///   performance when reading from storage. The positions must be in non-descending order
+    ///   but don't need to be unique or contiguous.
+    ///
+    /// # Returns
+    ///
+    /// A specialized `PrimitiveFieldCursor<u32>` configured for accessing dictionary codes
+    /// at the specified positions.
+    ///
+    /// # Performance Notes
+    ///
+    /// This method is more efficient than creating a cursor for decoded values when you only
+    /// need the codes, as it avoids the dictionary lookup and value reconstruction overhead.
+    pub fn create_codes_cursor(
+        &self,
+        positions_hint: impl Iterator<Item = u64> + Clone,
+    ) -> Result<super::primitive::PrimitiveFieldCursor<u32>> {
+        let reader = self.create_codes_reader_with_positions(positions_hint)?;
+        Ok(super::primitive::PrimitiveFieldCursor::new(
+            reader,
+            BasicTypeDescriptor {
+                basic_type: BasicType::Int32,
+                signed: false,
+                ..Default::default()
+            },
+        ))
     }
 }
 
