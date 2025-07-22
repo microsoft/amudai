@@ -268,7 +268,7 @@ fn test_multiple_stripes_with_decimals() -> Result<()> {
 
     // Open the shard and verify we can access all stripes
     let shard = ShardOptions::new(shard_store.object_store.clone())
-        .open(sealed_shard.directory_blob.url.as_str())?;
+        .open(sealed_shard.directory_ref.url.as_str())?;
 
     assert_eq!(shard.stripe_count(), 3);
 

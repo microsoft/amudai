@@ -1,4 +1,7 @@
-use std::sync::{Arc, OnceLock};
+use std::{
+    ops::Range,
+    sync::{Arc, OnceLock},
+};
 
 use amudai_common::{Result, error::Error, verify_arg, verify_data};
 use amudai_format::{
@@ -50,8 +53,33 @@ impl ShardContext {
     ) -> Result<Arc<ShardContext>> {
         let opened_artifacts =
             OpenedArtifactCache::new(shard_url.clone(), object_store, reference_resolver);
-        let (reader, size) = open_directory(shard_url.clone(), &opened_artifacts)?;
-        let directory = read_directory(&reader, size)?;
+        let reader = open_directory(shard_url.clone(), &opened_artifacts)?;
+        let directory = read_directory(&reader)?;
+        verify_directory(&directory)?;
+        Ok(Arc::new(ShardContext {
+            directory,
+            url: shard_url,
+            schema: Default::default(),
+            url_list: Default::default(),
+            stripe_list: Default::default(),
+            field_refs: Default::default(),
+            properties: Default::default(),
+            indexes: Default::default(),
+            field_descriptors: Memo::new(),
+            opened_artifacts,
+        }))
+    }
+
+    pub fn open_at(
+        shard_url: Arc<ObjectUrl>,
+        directory_range: Range<u64>,
+        object_store: Arc<dyn ObjectStore>,
+        reference_resolver: Option<Arc<dyn ReferenceResolver>>,
+    ) -> Result<Arc<ShardContext>> {
+        let opened_artifacts =
+            OpenedArtifactCache::new(shard_url.clone(), object_store, reference_resolver);
+        let reader = open_directory(shard_url.clone(), &opened_artifacts)?;
+        let directory = read_directory_at(&reader, directory_range.end)?;
         verify_directory(&directory)?;
         Ok(Arc::new(ShardContext {
             directory,
@@ -134,6 +162,16 @@ impl ShardContext {
 
     pub fn url(&self) -> &Arc<ObjectUrl> {
         &self.url
+    }
+
+    /// Returns the object store used by this shard.
+    pub fn object_store(&self) -> &Arc<dyn ObjectStore> {
+        self.opened_artifacts.object_store()
+    }
+
+    /// Returns the reference resolver used by this shard when accessing its data refs.
+    pub fn reference_resolver(&self) -> &Arc<dyn ReferenceResolver> {
+        self.opened_artifacts.reference_resolver()
     }
 
     pub fn fetch_schema(&self) -> Result<&Schema> {
@@ -455,6 +493,10 @@ impl<'a> std::ops::Deref for ShardPropertyBag<'a> {
     }
 }
 
+/// Shard directory size sanity check. In reality, the directory is a "fixed"
+/// Protobuf message (no repeated fields) that is way smaller than this limit.
+const MAX_SHARD_DIRECTORY_SIZE: u64 = 16 * 1024 * 1024;
+
 /// Verifies that the shard directory has all required fields.
 fn verify_directory(directory: &shard::ShardDirectory) -> Result<()> {
     verify_data!(schema_ref, directory.schema_ref.is_some());
@@ -469,33 +511,39 @@ fn verify_directory(directory: &shard::ShardDirectory) -> Result<()> {
 fn open_directory(
     shard_url: Arc<ObjectUrl>,
     opened_artifacts: &OpenedArtifactCache,
-) -> Result<(ArtifactReader, u64)> {
+) -> Result<ArtifactReader> {
     let reader = opened_artifacts.object_store().open(&shard_url)?;
     let reader = PrecachedReadAt::from_suffix(reader, ShardOptions::PRECACHED_SUFFIX_SIZE)?;
     let size = reader.object_size();
     verify_data!(
         "shard directory minimal size",
-        size >= amudai_format::defs::SHARD_DIRECTORY_MIN_SIZE as u64
+        size >= amudai_format::defs::SHARD_DIRECTORY_FILE_MIN_SIZE as u64
     );
     let reader = ArtifactReader::new(Arc::new(reader), shard_url.clone());
     opened_artifacts.put(shard_url.as_str(), reader.clone());
-    Ok((reader, size))
+    Ok(reader)
 }
 
-/// Reads the shard directory from the given reader. `size` is the size of the
-/// shard directory blob.
-fn read_directory(reader: &ArtifactReader, size: u64) -> Result<shard::ShardDirectory> {
-    reader.verify_footer()?;
+/// Reads the shard directory from the given reader.
+fn read_directory(reader: &ArtifactReader) -> Result<shard::ShardDirectory> {
+    let size = reader.size()?;
+    verify_data!(size, size >= AMUDAI_FOOTER_SIZE as u64);
     // Directory size is `u32` that immediately precedes the 8-byte footer.
-    let directory_size =
-        reader.read_u32(size - AMUDAI_FOOTER_SIZE as u64 - MESSAGE_LEN_SIZE as u64)? as u64;
-    let directory_backoff = MESSAGE_LEN_SIZE as u64
-        + directory_size
-        + CHECKSUM_SIZE as u64
-        + MESSAGE_LEN_SIZE as u64
-        + AMUDAI_FOOTER_SIZE as u64;
-    verify_data!("directory start", directory_backoff < size);
-    let msg_start = size - directory_backoff;
+    let directory_end_pos = size - AMUDAI_FOOTER_SIZE as u64;
+    let directory = read_directory_at(reader, directory_end_pos)?;
+    Ok(directory)
+}
+
+/// Reads the shard directory that ends on the specified `end_pos` from the given reader.
+fn read_directory_at(reader: &ArtifactReader, end_pos: u64) -> Result<shard::ShardDirectory> {
+    reader.verify_footer()?;
+    verify_arg!(end_pos, end_pos >= MESSAGE_LEN_SIZE as u64);
+    let directory_size = reader.read_u32(end_pos - MESSAGE_LEN_SIZE as u64)? as u64;
+    verify_data!(directory_size, directory_size < MAX_SHARD_DIRECTORY_SIZE);
+    let directory_backoff =
+        MESSAGE_LEN_SIZE as u64 + directory_size + CHECKSUM_SIZE as u64 + MESSAGE_LEN_SIZE as u64;
+    verify_data!("directory start", directory_backoff < end_pos);
+    let msg_start = end_pos - directory_backoff;
     let msg_end = msg_start + MESSAGE_LEN_SIZE as u64 + directory_size + CHECKSUM_SIZE as u64;
     let directory = reader.read_message::<shard::ShardDirectory>(msg_start..msg_end)?;
     Ok(directory)

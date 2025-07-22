@@ -14,6 +14,7 @@ decimal = { workspace = true }
 planus = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 xxhash-rust = { workspace = true }
 
 amudai-bloom-filters = { workspace = true }

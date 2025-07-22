@@ -401,7 +401,7 @@ mod tests {
             .get::<i64>()
             .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
-        for (a, b) in data.iter().zip(decoded.typed_data()) {
+        for (a, b) in data.iter().zip(decoded.typed_data::<i64>()) {
             assert_eq!(a, b);
         }
     }

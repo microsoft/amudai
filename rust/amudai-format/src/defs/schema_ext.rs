@@ -264,6 +264,36 @@ impl BasicType {
     pub fn is_float(&self) -> bool {
         matches!(self, BasicType::Float32 | BasicType::Float64)
     }
+
+    /// Returns the display name of this `BasicType`.`
+    pub fn name(&self) -> &'static str {
+        match self {
+            BasicType::Unit => "unit",
+            BasicType::Boolean => "bool",
+            BasicType::Int8 => "n8",
+            BasicType::Int16 => "n16",
+            BasicType::Int32 => "n32",
+            BasicType::Int64 => "n64",
+            BasicType::Float32 => "f32",
+            BasicType::Float64 => "f64",
+            BasicType::Binary => "binary",
+            BasicType::FixedSizeBinary => "fixed_binary",
+            BasicType::String => "string",
+            BasicType::Guid => "guid",
+            BasicType::DateTime => "datetime",
+            BasicType::List => "list",
+            BasicType::FixedSizeList => "fixed_list",
+            BasicType::Struct => "struct",
+            BasicType::Map => "map",
+            BasicType::Union => "union",
+        }
+    }
+}
+
+impl std::fmt::Display for BasicType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
 }
 
 /// Describes a basic data type with its essential characteristics for storage and encoding.
@@ -419,6 +449,50 @@ impl Default for BasicTypeDescriptor {
             signed: false,
             extended_type: KnownExtendedType::None,
         }
+    }
+}
+
+impl std::fmt::Display for BasicTypeDescriptor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self.basic_type {
+            BasicType::Int8 => {
+                if self.signed {
+                    "i8"
+                } else {
+                    "u8"
+                }
+            }
+            BasicType::Int16 => {
+                if self.signed {
+                    "i16"
+                } else {
+                    "u16"
+                }
+            }
+            BasicType::Int32 => {
+                if self.signed {
+                    "i32"
+                } else {
+                    "u32"
+                }
+            }
+            BasicType::Int64 => {
+                if self.signed {
+                    "i64"
+                } else {
+                    "u64"
+                }
+            }
+            _ => self.basic_type.name(),
+        };
+        f.write_str(name)?;
+        if self.fixed_size != 0 {
+            write!(f, "<{}>", self.fixed_size)?
+        }
+        if self.extended_type != KnownExtendedType::None {
+            write!(f, " as {}", self.extended_type.as_str().unwrap_or("?"))?
+        }
+        Ok(())
     }
 }
 

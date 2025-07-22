@@ -301,7 +301,7 @@ mod tests {
                 .get::<u32>()
                 .decode(&encoded, data.len(), None, &mut decoded, &context)
                 .unwrap();
-            for (a, b) in data.iter().zip(decoded.typed_data()) {
+            for (a, b) in data.iter().zip(decoded.typed_data::<u32>()) {
                 assert_eq!(a, b);
             }
         }

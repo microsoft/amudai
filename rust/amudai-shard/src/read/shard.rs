@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
 use amudai_common::Result;
 use amudai_format::{
-    defs::shard,
+    defs::{common::DataRef, shard},
     schema::{Schema, SchemaId},
 };
 use amudai_objectstore::{ObjectStore, ReferenceResolver, url::ObjectUrl};
@@ -37,6 +37,16 @@ impl Shard {
     /// Returns the URL of this shard.
     pub fn url(&self) -> &ObjectUrl {
         self.0.url()
+    }
+
+    /// Returns the object store used by this shard.
+    pub fn object_store(&self) -> &Arc<dyn ObjectStore> {
+        self.0.object_store()
+    }
+
+    /// Returns the reference resolver used by this shard when accessing its data refs.
+    pub fn reference_resolver(&self) -> &Arc<dyn ReferenceResolver> {
+        self.0.reference_resolver()
     }
 
     /// Returns the schema for this shard.
@@ -159,15 +169,40 @@ impl ShardOptions {
 
     /// Opens a shard from the given URL.
     ///
+    /// This method opens a shard by reading its directory from the specified URL.
+    /// The shard directory is assumed to follow the standard Amudai format: it is
+    /// either located at the very end of the blob, or it is the only element in
+    /// the blob.
+    ///
+    /// # Shard Directory Format
+    ///
+    /// The expected format is:
+    /// ```text
+    /// amudai_header (8 bytes)
+    /// ...(optional data)...
+    /// directory_length: u32
+    /// directory_protobuf_message
+    /// directory_checksum: u32
+    /// directory_length: u32
+    /// amudai_footer (8 bytes)
+    /// ```
+    ///
     /// # Arguments
     ///
-    /// * `shard_url`: The URL of the shard to open.  This can be any type
-    ///   that can be converted into an `ObjectUrl`, such as `&str`.
+    /// * `shard_url`: The URL of the shard to open. This can be any type that can be
+    ///   converted into an `ObjectUrl`, such as `&str`.
+    ///
+    /// # Returns
+    ///
+    /// A `Shard` instance that provides access to the shard's data and metadata.
     ///
     /// # Errors
     ///
-    /// Returns an error if the shard cannot be opened or if the shard
-    /// directory is invalid.
+    /// Returns an error if:
+    /// * The URL cannot be converted to an `ObjectUrl`
+    /// * The shard cannot be accessed at the given URL
+    /// * The shard directory format is invalid or corrupted
+    /// * Required shard metadata is missing or malformed
     pub fn open(
         self,
         shard_url: impl TryInto<ObjectUrl, Error: Into<amudai_common::error::Error>>,
@@ -175,6 +210,64 @@ impl ShardOptions {
         let shard_url = shard_url.try_into().map_err(|e| e.into())?;
         let ctx = ShardContext::open(
             Arc::new(shard_url),
+            self.object_store,
+            self.reference_resolver,
+        )?;
+        Ok(Shard(ctx))
+    }
+
+    /// Opens a shard from a shard directory `DataRef`.
+    ///
+    /// This is a convenience method that extracts the URL and byte range from a `DataRef`
+    /// and opens the shard directory at that specific location within the blob. This is
+    /// useful when you have a reference to a shard directory embedded within a larger
+    /// data blob.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_ref`: A reference to the shard directory data, containing both the URL
+    ///   of the blob and the byte range where the shard directory is located.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * The URL in the `DataRef` cannot be converted to an `ObjectUrl`
+    /// * The shard cannot be opened at the specified location
+    /// * The shard directory at the specified range is invalid
+    pub fn open_data_ref(self, data_ref: &DataRef) -> Result<Shard> {
+        self.open_at(data_ref.url.as_str(), Range::from(data_ref))
+    }
+
+    /// Opens a shard from a URL with the shard directory located at a specific byte range.
+    ///
+    /// This method allows opening a shard when the shard directory is embedded within
+    /// a larger blob at a known byte offset and size, rather than being the last element
+    /// in the blob. This is useful for scenarios where multiple shard directories or other
+    /// data structures are packed together in a single file.
+    ///
+    /// # Arguments
+    ///
+    /// * `shard_url`: The URL of the blob containing the shard directory. This can be
+    ///   any type that can be converted into an `ObjectUrl`, such as `&str`.
+    /// * `directory_range`: The byte range within the blob where the shard directory
+    ///   is located. The range uses standard Rust semantics (start inclusive, end exclusive).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * The URL cannot be converted to an `ObjectUrl`
+    /// * The blob cannot be accessed at the given URL
+    /// * The specified byte range is invalid or extends beyond the blob
+    /// * The shard directory data at the specified range is corrupted or invalid
+    pub fn open_at(
+        self,
+        shard_url: impl TryInto<ObjectUrl, Error: Into<amudai_common::error::Error>>,
+        directory_range: Range<u64>,
+    ) -> Result<Shard> {
+        let shard_url = shard_url.try_into().map_err(|e| e.into())?;
+        let ctx = ShardContext::open_at(
+            Arc::new(shard_url),
+            directory_range,
             self.object_store,
             self.reference_resolver,
         )?;

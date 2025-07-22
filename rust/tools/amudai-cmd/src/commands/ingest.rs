@@ -108,7 +108,7 @@ pub fn run(
 
     println!(
         "Shard successfully sealed at: {}",
-        sealed_shard.directory_blob.url
+        sealed_shard.directory_ref.url
     );
     Ok(())
 }

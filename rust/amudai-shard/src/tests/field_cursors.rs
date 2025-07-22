@@ -10,7 +10,7 @@ fn test_field_cursor_read_list() {
     let shard_ref =
         store.ingest_shard_from_record_batches(generate_amudatum_record_batches(5000, 512));
 
-    let shard = store.open_shard(&shard_ref.url);
+    let shard = store.open_shard_ref(&shard_ref);
     assert_eq!(shard.stripe_count(), 1);
     let stripe = shard.open_stripe(0).unwrap();
 

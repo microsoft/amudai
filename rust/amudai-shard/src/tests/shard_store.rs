@@ -56,6 +56,12 @@ impl ShardStore {
             .unwrap()
     }
 
+    pub fn open_shard_ref(&self, shard_ref: &DataRef) -> crate::read::shard::Shard {
+        crate::read::shard::ShardOptions::new(self.object_store.clone())
+            .open_data_ref(shard_ref)
+            .unwrap()
+    }
+
     pub fn ingest_shard_with_nested_schema(&self, record_count: usize) -> DataRef {
         self.ingest_shard_with_schema(&create_nested_test_schema(), record_count)
     }
@@ -103,7 +109,7 @@ impl ShardStore {
             .unwrap()
             .seal(&self.generate_shard_url())
             .unwrap();
-        shard.directory_blob
+        shard.directory_ref
     }
 
     /// Generates a unique test shard URL.

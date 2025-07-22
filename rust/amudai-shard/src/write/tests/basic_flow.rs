@@ -34,9 +34,14 @@ fn test_basic_shard_builder_flow() {
     let arrow_schema = create_id_name_test_schema();
 
     let shard_schema = SchemaBuilder::from_arrow_schema(&arrow_schema).unwrap();
+    let schema_msg = shard_schema.finish_and_seal();
+    assert_eq!(
+        schema_msg.schema().unwrap().to_string(),
+        "(Id: string, Text: string)"
+    );
 
     let mut shard_builder = ShardBuilder::new(ShardBuilderParams {
-        schema: shard_schema.into(),
+        schema: schema_msg,
         object_store: Arc::new(NullObjectStore),
         temp_store: temp_file_store::create_in_memory(32 * 1024 * 1024).unwrap(),
         encoding_profile: Default::default(),
@@ -74,6 +79,8 @@ fn test_nested_schema_shard_builder_flow() {
     })
     .unwrap();
 
+    assert!(shard_builder.schema().to_string().contains("list<string>"));
+
     let mut stripe_builder = shard_builder.build_stripe().unwrap();
 
     let batches = data_generator::generate_batches(arrow_schema, 100..200, 1000);
@@ -94,7 +101,7 @@ fn test_nested_schema_shard_builder_flow() {
     assert!(shard.directory.url_list_ref.is_some());
     assert!(shard.directory.field_list_ref.is_some());
     assert!(shard.directory.stripe_list_ref.is_some());
-    assert!(shard.directory_blob.len() > 100);
+    assert!(shard.directory_ref.len() > 100);
 }
 
 #[test]
@@ -109,7 +116,7 @@ fn test_list_encoding() {
         schema,
     ));
 
-    let shard = shard_store.open_shard(&shard_ref.url);
+    let shard = shard_store.open_shard_ref(&shard_ref);
     let stripe = shard.open_stripe(0).unwrap();
     let schema = stripe.fetch_schema().unwrap();
     let field = schema.find_field("numbers").unwrap().unwrap().1;

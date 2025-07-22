@@ -40,7 +40,7 @@ pub const AMUDAI_FOOTER: [u8; 8] = AMUDAI_HEADER;
 /// * directory_checksum:`u32`
 /// * directory_len:`u32`
 /// * footer:`u64`
-pub const SHARD_DIRECTORY_MIN_SIZE: usize =
+pub const SHARD_DIRECTORY_FILE_MIN_SIZE: usize =
     AMUDAI_HEADER.len() * 2 + std::mem::size_of::<u32>() * 3;
 
 /// File format header size.

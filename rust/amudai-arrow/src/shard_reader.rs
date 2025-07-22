@@ -413,6 +413,14 @@ mod tests {
 
         let shard_ref: DataRef = shard_store.ingest_shard_with_schema(&schema, 10000);
 
+        let shard = shard_store.open_shard_ref(&shard_ref);
+        let shard_schema = shard.fetch_schema().unwrap();
+        assert!(
+            shard_schema
+                .to_string()
+                .contains("Props: map<string, string>")
+        );
+
         let reader_builder = ArrowReaderBuilder::try_new(&shard_ref.url)
             .expect("Failed to create ArrowReaderBuilder")
             .with_object_store(shard_store.object_store.clone());

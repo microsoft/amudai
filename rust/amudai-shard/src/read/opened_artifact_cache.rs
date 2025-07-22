@@ -67,6 +67,11 @@ impl OpenedArtifactCache {
         &self.object_store
     }
 
+    /// Returns the reference resolver implementation.
+    pub fn reference_resolver(&self) -> &Arc<dyn ReferenceResolver> {
+        &self.reference_resolver
+    }
+
     /// Retrieves an artifact from the cache, or opens and caches it if not already present.
     ///
     /// # Arguments

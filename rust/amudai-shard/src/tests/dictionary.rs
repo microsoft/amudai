@@ -172,7 +172,7 @@ fn test_dictionary_codes_reader() {
 
     let shard_ref = shard_store.ingest_shard_with_schema(&schema, 20000);
 
-    let shard = shard_store.open_shard(&shard_ref.url);
+    let shard = shard_store.open_shard_ref(&shard_ref);
 
     assert_eq!(shard.directory().total_record_count, 20000);
     assert_eq!(shard.directory().stripe_count, 1);

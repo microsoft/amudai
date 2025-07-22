@@ -105,6 +105,51 @@ impl<R: ReadAt> PrecachedReadAt<R> {
         })
     }
 
+    /// Creates a new `PrecachedReadAt` that caches a specific range of bytes from the reader.
+    ///
+    /// This method allows caching an arbitrary range of the underlying reader, which is useful
+    /// when you know in advance which portion of the data will be accessed frequently.
+    ///
+    /// If the specified range is empty or invalid (start >= end after alignment), an empty
+    /// cache will be created, and all reads will be forwarded to the underlying reader.
+    ///
+    /// # Arguments
+    ///
+    /// * `inner` - The underlying reader
+    /// * `range` - The byte range to cache from the reader (start..end)
+    ///
+    /// # Returns
+    ///
+    /// A new `PrecachedReadAt` instance with the specified range cached
+    ///
+    /// # Behavior
+    ///
+    /// * The start position is aligned down to the default alignment boundary
+    /// * The end position is aligned up to the default alignment boundary
+    /// * The range is clamped to the reader's size if it extends beyond
+    /// * If the aligned range is empty, creates an instance with no cached data
+    pub fn from_range(inner: R, range: Range<u64>) -> std::io::Result<Self> {
+        let size = inner.size()?;
+        let start = align_down_u64(range.start, AlignedByteVec::DEFAULT_ALIGNMENT as u64);
+        let end = align_up_u64(range.end, AlignedByteVec::DEFAULT_ALIGNMENT as u64).min(size);
+        if start >= end {
+            return Ok(Self {
+                inner,
+                size,
+                cached_buffer: Bytes::new(),
+                cached_offset: 0,
+            });
+        }
+
+        let cached_buffer = inner.read_at(start..end)?;
+        Ok(Self {
+            inner,
+            size,
+            cached_buffer,
+            cached_offset: start,
+        })
+    }
+
     /// Returns the size of the underlying object.
     pub fn object_size(&self) -> u64 {
         self.size

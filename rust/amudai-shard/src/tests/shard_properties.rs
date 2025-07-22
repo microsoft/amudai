@@ -64,7 +64,7 @@ fn test_shard_with_properties() {
         .unwrap()
         .seal(&shard_store.generate_shard_url())
         .unwrap()
-        .directory_blob;
+        .directory_ref;
 
     let shard = shard_store.open_shard(&shard_ref);
     let props = shard.fetch_properties().unwrap();

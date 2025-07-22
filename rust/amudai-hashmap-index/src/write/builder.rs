@@ -577,7 +577,7 @@ impl SealedHashmapIndex {
         let artifacts = self
             .partitions
             .iter()
-            .map(|partition| partition.shard.directory_blob.clone())
+            .map(|partition| partition.shard.directory_ref.clone())
             .collect::<Vec<_>>();
         IndexDescriptor {
             index_type: HASHMAP_INDEX_TYPE.to_owned(),

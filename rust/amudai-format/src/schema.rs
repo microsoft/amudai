@@ -218,6 +218,65 @@ impl Schema {
 
         Ok(None)
     }
+
+    /// Returns a complete and detailed representation of the schema as a JSON value.
+    ///
+    /// This method converts the entire schema structure into a serializable JSON representation
+    /// that includes all fields, data types, and nested structures. The resulting JSON value
+    /// can be used for schema inspection, debugging, or serialization to external systems.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(serde_json::Value)` containing the complete schema representation.
+    /// The JSON structure includes:
+    /// - All top-level fields with their names and types
+    /// - Nested data types and their properties
+    /// - Schema metadata and configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The underlying schema data is corrupted or cannot be accessed
+    /// - The schema structure cannot be converted to the intermediate representation
+    /// - JSON serialization fails due to invalid data structures
+    pub fn to_json(&self) -> Result<serde_json::Value> {
+        let schema = crate::defs::schema::Schema::try_from(self.inner.get())?;
+        serde_json::to_value(&schema).map_err(|e| Error::invalid_arg("schema", e.to_string()))
+    }
+
+    /// Returns a complete and detailed representation of the schema as a JSON string.
+    ///
+    /// This method provides a string representation of the schema in JSON format,
+    /// with optional formatting for readability. It internally uses [`to_json`](Self::to_json)
+    /// to obtain the JSON structure and then serializes it to a string.
+    ///
+    /// # Arguments
+    ///
+    /// * `indent` - Controls the formatting of the output JSON string:
+    ///   - `0`: Produces compact JSON without whitespace or indentation
+    ///   - `> 0`: Produces pretty-printed JSON with indentation and line breaks
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(String)` containing the JSON representation of the schema.
+    /// The format depends on the `indent` parameter:
+    /// - Compact format for `indent = 0`
+    /// - Human-readable format with proper indentation for `indent > 0`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The underlying schema cannot be converted to JSON (see [`to_json`](Self::to_json))
+    /// - String serialization fails due to encoding issues
+    pub fn to_json_string(&self, indent: usize) -> Result<String> {
+        let value = self.to_json()?;
+        let res = if indent == 0 {
+            serde_json::to_string(&value)
+        } else {
+            serde_json::to_string_pretty(&value)
+        };
+        res.map_err(|e| Error::invalid_arg("schema", e.to_string()))
+    }
 }
 
 impl Schema {
@@ -267,6 +326,13 @@ impl Schema {
     }
 }
 
+impl std::fmt::Display for Schema {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let fields = self.field_list().unwrap_or_default();
+        write!(f, "({})", fields)
+    }
+}
+
 /// Represents a single field within a schema.
 ///
 /// This struct encapsulates a Field sub-buffer from the Schema without requiring
@@ -294,6 +360,90 @@ impl Field {
             .0
             .map::<crate::defs::schema::DataType, _>(|field, ()| Ok(field.data_type()?))?;
         Ok(DataType(data_type))
+    }
+
+    /// Retrieves an optional internal annotation of the field.
+    pub fn annotation(&self) -> Result<Option<&str>> {
+        let res = self
+            .0
+            .get()
+            .internal_field_annotation()?
+            .map(|a| a.kind())
+            .transpose()?;
+        Ok(res)
+    }
+
+    /// Converts the field into a JSON representation.
+    ///
+    /// This method transforms the field's structure into a serializable JSON value
+    /// that includes the field's name, data type, and all associated metadata.
+    /// The resulting JSON can be used for debugging, logging, or external serialization.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(serde_json::Value)` containing the field's JSON representation.
+    /// The JSON structure includes:
+    /// - Field name and data type information
+    /// - Nested data type properties if applicable
+    /// - Field-specific metadata and annotations
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The underlying field data cannot be accessed or is corrupted
+    /// - The field structure cannot be converted to the intermediate representation
+    /// - JSON serialization fails due to invalid data structures
+    pub fn to_json(&self) -> Result<serde_json::Value> {
+        let field = crate::defs::schema::Field::try_from(self.0.get())?;
+        serde_json::to_value(&field).map_err(|e| Error::invalid_arg("field", e.to_string()))
+    }
+
+    /// Converts the field into a JSON string representation.
+    ///
+    /// This method provides a string representation of the field in JSON format,
+    /// with optional formatting for readability. It internally uses [`to_json`](Self::to_json)
+    /// to obtain the JSON structure and then serializes it to a string.
+    ///
+    /// # Arguments
+    ///
+    /// * `indent` - Controls the formatting of the output JSON string:
+    ///   - `0`: Produces compact JSON without whitespace or indentation
+    ///   - `> 0`: Produces pretty-printed JSON with indentation and line breaks
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(String)` containing the JSON representation of the field.
+    /// The format depends on the `indent` parameter:
+    /// - Compact format for `indent = 0`
+    /// - Human-readable format with proper indentation for `indent > 0`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The underlying field cannot be converted to JSON (see [`to_json`](Self::to_json))
+    /// - String serialization fails due to encoding issues
+    pub fn to_json_string(&self, indent: usize) -> Result<String> {
+        let value = self.to_json()?;
+        let res = if indent == 0 {
+            serde_json::to_string(&value)
+        } else {
+            serde_json::to_string_pretty(&value)
+        };
+        res.map_err(|e| Error::invalid_arg("field", e.to_string()))
+    }
+}
+
+impl std::fmt::Display for Field {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = self.name().unwrap_or("?");
+        f.write_str(name)?;
+        f.write_str(": ")?;
+        if let Ok(data_type) = self.data_type() {
+            data_type.fmt(f)?;
+        } else {
+            f.write_str("?")?;
+        }
+        Ok(())
     }
 }
 
@@ -466,6 +616,63 @@ impl DataType {
         let label = ext_type.label()?;
         Ok(Some(label))
     }
+
+    /// Converts the data type into a JSON representation.
+    ///
+    /// This method transforms the data type's complete structure into a serializable JSON value
+    /// that includes the type's name, basic type information, children, and all associated metadata.
+    /// The resulting JSON provides a comprehensive view of the data type and can be used for
+    /// debugging, schema analysis, or external serialization.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(serde_json::Value)` containing the data type's JSON representation.
+    /// The JSON structure includes:
+    /// - Data type name and basic type information (e.g., integer, string, struct)
+    /// - Schema ID and parent relationships
+    /// - Child data types for composite structures
+    /// - Extension type labels and metadata
+    /// - Size information and other type-specific properties
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The underlying data type data cannot be accessed or is corrupted
+    /// - The data type structure cannot be converted to the intermediate representation
+    /// - JSON serialization fails due to invalid data structures
+    /// - Child data types cannot be processed recursively
+    pub fn to_json(&self) -> Result<serde_json::Value> {
+        let data_type = crate::defs::schema::DataType::try_from(self.0.get())?;
+        serde_json::to_value(&data_type).map_err(|e| Error::invalid_arg("data_type", e.to_string()))
+    }
+
+    /// Converts the data type into a JSON string representation.
+    ///
+    /// This method provides a string representation of the data type in JSON format,
+    /// with optional formatting for readability. It internally uses [`to_json`](Self::to_json)
+    /// to obtain the JSON structure and then serializes it to a string.
+    ///
+    /// # Arguments
+    ///
+    /// * `indent` - Controls the formatting of the output JSON string:
+    ///   - `0`: Produces compact JSON without whitespace or indentation
+    ///   - `> 0`: Produces pretty-printed JSON with indentation and line breaks
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(String)` containing the JSON representation of the data type.
+    /// The format depends on the `indent` parameter:
+    /// - Compact format for `indent = 0`
+    /// - Human-readable format with proper indentation for `indent > 0`
+    pub fn to_json_string(&self, indent: usize) -> Result<String> {
+        let value = self.to_json()?;
+        let res = if indent == 0 {
+            serde_json::to_string(&value)
+        } else {
+            serde_json::to_string_pretty(&value)
+        };
+        res.map_err(|e| Error::invalid_arg("data_type", e.to_string()))
+    }
 }
 
 impl std::fmt::Debug for DataType {
@@ -479,6 +686,22 @@ impl std::fmt::Debug for DataType {
             .field("basic_type", &self.describe().unwrap_or_default())
             .field("child_count", &self.child_count().unwrap_or_default())
             .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Display for DataType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let basic_type = self.describe().unwrap_or_default();
+        if basic_type.basic_type.is_composite() {
+            write!(
+                f,
+                "{}<{}>",
+                basic_type,
+                self.field_list().unwrap_or_default()
+            )
+        } else {
+            basic_type.fmt(f)
+        }
     }
 }
 
@@ -540,6 +763,18 @@ impl From<usize> for SchemaId {
 impl From<SchemaId> for usize {
     fn from(value: SchemaId) -> Self {
         value.as_usize()
+    }
+}
+
+impl Default for FieldList {
+    fn default() -> Self {
+        FieldList::Empty
+    }
+}
+
+impl std::fmt::Display for SchemaId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -642,6 +877,31 @@ impl FieldList {
             }
             FieldList::Node(data_type) => data_type.find_child(name),
         }
+    }
+}
+
+impl std::fmt::Display for FieldList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let len = self.len().unwrap_or_default();
+        if len == 0 {
+            return Ok(());
+        }
+        for i in 0..len {
+            if i != 0 {
+                f.write_str(", ")?;
+            }
+            if let Ok(child) = self.get_at(i) {
+                let name = child.name().unwrap_or_default();
+                if name.is_empty() {
+                    child.fmt(f)?;
+                } else {
+                    write!(f, "{}: {}", name, child)?;
+                }
+            } else {
+                f.write_str("?")?;
+            }
+        }
+        Ok(())
     }
 }
 

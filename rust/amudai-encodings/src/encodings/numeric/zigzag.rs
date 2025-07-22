@@ -298,7 +298,7 @@ mod tests {
             .get::<i32>()
             .decode(&encoded, data.len(), None, &mut decoded, &context)
             .unwrap();
-        for (a, b) in data.iter().zip(decoded.typed_data()) {
+        for (a, b) in data.iter().zip(decoded.typed_data::<i32>()) {
             assert_eq!(a, b);
         }
     }
