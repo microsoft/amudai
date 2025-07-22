@@ -94,6 +94,7 @@ tempfile = "3"
 thiserror = "2"
 tinyvec = "1.8"
 tokio = "1"
+unicode-segmentation = "1"
 url = "2"
 uuid = "1"
 windows-sys = { version = "0.60", features = [

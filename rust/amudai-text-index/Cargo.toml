@@ -8,4 +8,6 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-amudai-index-core = { workspace = true }
+unicode-segmentation = { workspace = true }
+
+amudai-common = { workspace = true }
