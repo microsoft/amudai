@@ -307,6 +307,127 @@ The index is most effective when:
 - The indexed column has good selectivity.
 - Values within blocks have relatively narrow ranges.
 
+## Hashmap Index
+
+**index_type**: `"hashmap-index"`.
+
+The hashmap index provides efficient O(1) lookup operations for hash-to-positions mappings within an Amudai shard. This index is particularly useful for exact key lookups, equality searches, and implementing JOIN operations where fast key-based retrieval is critical.
+
+### Index Structure
+
+The hashmap index is organized as a distributed hash table across multiple partitions to enable parallel construction and balanced load distribution:
+
+#### Hierarchical Organization
+
+- **Partitions**: Top-level divisions that distribute entries across separate Amudai shards based on the most significant bits of hash values
+- **Buckets**: Hash-based groupings within each partition shard for efficient range queries
+- **Entries**: Individual hash-to-positions mappings stored within buckets
+
+The formal data structure schema is:
+
+```
+type ShardRecord = Bucket;
+type Bucket = List<Entry>;
+type Entry = Struct<Hash, PositionsList>;
+type Hash = UInt64;
+type PositionsList = List<UInt64>;
+```
+
+#### Partitioning Strategy
+
+The index uses a two-level hashing scheme:
+
+1. **Partition Selection**: Uses the most significant bits of the hash to determine which shard contains the entry:
+   ```
+   partition_index = hash >> (64 - partition_bits)
+   ```
+
+2. **Bucket Selection**: Uses the least significant bits to determine the bucket within the partition:
+   ```
+   bucket_index = hash & (buckets_count - 1)
+   ```
+
+### Construction Process
+
+The hashmap index builder creates the index through these phases:
+
+1. **Entry Distribution**: Hash-position pairs are distributed across partitions based on their hash values
+2. **Parallel Aggregation**: Within each partition, entries with identical hashes are aggregated using disk-based sorting to handle large datasets
+3. **Bucket Organization**: Aggregated entries are sorted by bucket index for efficient access patterns
+4. **Shard Creation**: Each partition is written as a separate Amudai shard with a single stripe containing all buckets
+
+#### Memory Management
+
+The builder supports configurable memory limits and uses temporary files for aggregation when dealing with large datasets. The number of parallel aggregation workers is automatically determined based on available memory and system parallelism.
+
+### Lookup Process
+
+To retrieve positions for a given hash value:
+
+1. **Determine Partition**: Calculate which shard contains the target hash using the most significant bits
+2. **Calculate Bucket Index**: Use the least significant bits to identify the target bucket within the partition
+3. **Read Bucket**: Retrieve the specific bucket record from the shard using Amudai's columnar access
+4. **Scan Entries**: Search through the bucket's entries for the exact hash match (O(1) expected due to load balancing)
+
+### Storage Format
+
+The index is stored as multiple Amudai shards (one per partition) with the following characteristics:
+
+- **Schema**: Each shard uses a single-stripe layout with the bucket schema defined above
+- **File Naming**: Partition shards are stored as `part{N}.shard` (e.g., `part0.shard`, `part1.shard`)
+- **Bucket Size**: The number of buckets per partition is calculated as `(unique_entries_count / 2).next_power_of_two().max(2)`
+
+### Index Properties
+
+For the hashmap index, the `IndexDescriptor` includes the following structure:
+
+```json
+{
+    "index_type": "hashmap-index",
+    "indexed_fields": [...],
+    "properties": {
+        // No required properties for basic hashmap index
+    },
+    "artifacts": [
+        {
+            "url": "indexes/part0.shard",
+            "range": ...
+        },
+        {
+            "url": "indexes/part1.shard", 
+            "range": ...
+        }
+        // ... additional partitions
+    ]
+}
+```
+
+### Performance Characteristics
+
+The hashmap index offers:
+
+- **O(1) Expected Lookup Time**: Constant-time retrieval for exact hash matches
+- **Parallel Construction**: Scales with available CPU cores and memory
+- **Memory Efficiency**: Uses disk-based aggregation for large datasets during construction
+- **Load Balancing**: Distributes entries evenly across partitions using hash-based partitioning
+
+### Use Cases
+
+The hashmap index is particularly effective for:
+
+- **Exact Key Lookups**: Finding all records with a specific key value
+- **Equality Filters**: Supporting `field == value` queries efficiently  
+- **JOIN Operations**: Implementing hash joins between datasets
+- **Deduplication**: Identifying duplicate records based on computed hash values
+- **Reference Resolution**: Mapping identifiers to their corresponding record positions
+
+### Limitations and Considerations
+
+- **Exact Match Only**: Does not support range queries or prefix searches
+- **Hash Collisions**: Multiple different keys may hash to the same value (though positions lists handle this correctly)
+- **Storage Overhead**: Requires additional storage for the index structure
+- **Immutable**: Like all Amudai indexes, updates require complete rebuilding
+
 ## Vector Similarity Index
 
 ```admonish todo title="TODO"
