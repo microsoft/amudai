@@ -69,10 +69,8 @@ fn test_field_cursors_multiple_types_and_patterns() {
         let data_type = schema.resolve_schema_id(schema_id).unwrap().unwrap();
         let field = stripe.open_field(data_type.clone()).unwrap();
         let position_count = field.position_count();
-        if field.null_count().unwrap_or(position_count) != position_count {
-            let decoder = field.create_decoder().unwrap();
-            consume_field_with_cursor(&decoder, data_type, position_count);
-        }
+        let decoder = field.create_decoder().unwrap();
+        consume_field_with_cursor(&decoder, data_type, position_count);
         schema_id = schema_id.next();
     }
 }
@@ -218,7 +216,7 @@ fn consume_list_field_cursor(
     }
 
     let mut cursor = decoder.create_list_cursor(std::iter::empty()).unwrap();
-    let mut last_offset = 0u64;
+    let mut last_offset = cursor.fetch(position_count - 1).unwrap().end;
     for pos in (0..position_count).rev() {
         let range = cursor.fetch(pos).unwrap();
         assert_eq!(range.end, last_offset);
