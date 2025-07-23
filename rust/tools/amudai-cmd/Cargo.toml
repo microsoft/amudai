@@ -30,6 +30,7 @@ amudai-format = { workspace = true }
 amudai-io = { workspace = true }
 amudai-io-impl = { workspace = true }
 amudai-objectstore = { workspace = true }
+amudai-ranges = { workspace = true }
 amudai-shard = { workspace = true }
 amudai-text-index = { workspace = true }
 

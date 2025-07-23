@@ -3,6 +3,8 @@ use std::{
     sync::Arc,
 };
 
+use amudai_common_traits::memory_owner::{MemoryAllocation, MemoryOwner};
+
 /// A byte vector that maintains memory alignment guarantees for its underlying storage.
 ///
 /// This vector ensures its data is aligned to 128-byte boundaries and operates in 64-byte blocks.
@@ -498,7 +500,7 @@ impl Buffer {
     /// - The memory is not 64-byte aligned
     /// - The capacity is less than the length
     /// - The capacity is not a multiple of 64
-    pub fn from_owner(owner: Arc<dyn MemoryOwner + Send + Sync + 'static>) -> Buffer {
+    pub fn from_owner(owner: impl MemoryOwner + Send + Sync + 'static) -> Buffer {
         let MemoryAllocation {
             ptr,
             len,
@@ -508,6 +510,7 @@ impl Buffer {
         assert!(is_aligned(ptr, 64));
         assert!(capacity >= len);
         assert_eq!(capacity % 64, 0);
+        let owner = Arc::new(owner) as Arc<dyn MemoryOwner + Send + Sync + 'static>;
         Buffer {
             ptr,
             len,
@@ -803,34 +806,6 @@ impl BufOwner {
     }
 }
 
-/// Represents a block of allocated memory with its size information.
-#[derive(Debug, Clone)]
-pub struct MemoryAllocation {
-    /// Pointer to the start of the allocated memory.
-    pub ptr: *const u8,
-    /// Current length of the allocated memory in bytes
-    pub len: usize,
-    /// Total capacity of the allocated memory in bytes
-    pub capacity: usize,
-    /// Formal alignment of the memory buffer.
-    pub alignment: usize,
-}
-
-/// Trait for types that own aligned memory buffers.
-///
-/// # Safety
-///
-/// Implementors must guarantee that:
-/// - The memory returned by `memory()` remains valid and immutable
-///   for the entire lifetime of the owner.
-/// - The memory is at least 64-byte aligned.
-/// - The reported length and capacity are accurate.
-/// - The capacity is a multiple of 64 bytes.
-pub unsafe trait MemoryOwner {
-    /// Returns information about the owned memory block.
-    fn memory(&self) -> MemoryAllocation;
-}
-
 /// Rounds up a number to the next multiple of block_size.
 #[inline]
 fn round_up(n: usize, block_size: usize) -> usize {
@@ -977,13 +952,10 @@ mod tests {
     fn test_buffer_from_owner() {
         let data = vec![1, 2, 3, 4];
         let vec = AlignedByteVec::copy_from_slice(&data);
-        let owner = Arc::new(TestMemoryOwner { data: vec });
+        let owner = TestMemoryOwner { data: vec };
 
-        let buf = Buffer::from_owner(owner.clone());
+        let buf = Buffer::from_owner(owner);
         assert_eq!(buf.as_slice(), &data);
-
-        let _owner2 = buf.into_owner();
-        assert_eq!(Arc::strong_count(&owner), 2);
     }
 
     #[test]

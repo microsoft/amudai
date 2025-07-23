@@ -38,7 +38,7 @@ pub fn run_single(count: Option<u64>, shard_path: &str) -> Result<()> {
 
     // If count is specified, limit the position ranges
     if let Some(max_records) = count {
-        let ranges = amudai_collections::range_list::RangeList::from_elem(0..max_records);
+        let ranges = amudai_ranges::SharedRangeList::from_elem(0..max_records);
         builder = builder.with_position_ranges(Some(ranges));
     }
 

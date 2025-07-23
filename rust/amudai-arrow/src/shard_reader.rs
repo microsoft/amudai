@@ -8,12 +8,13 @@
 use std::{ops::Range, sync::Arc};
 
 use amudai_arrow_compat::amudai_to_arrow_error::ToArrowResult;
-use amudai_collections::{
-    range_iterators::{ChunkedRanges, RangeIteratorsExt, ShiftDownRanges},
-    range_list::{RangeList, RangeListIntoIter},
-};
 use amudai_common::try_or_ret_some_err;
 use amudai_format::schema::FieldList;
+use amudai_ranges::{
+    RangeIteratorsExt, SharedRangeList,
+    shared_range_list::SharedRangeListIntoIter,
+    transform::{chunk::ChunkedRanges, shift::ShiftDownRanges},
+};
 use amudai_shard::read::{shard::Shard, stripe::Stripe};
 use arrow::{
     array::{ArrayRef, RecordBatch, RecordBatchOptions},
@@ -33,7 +34,7 @@ pub struct ShardRecordBatchReader {
     shard: Shard,
     arrow_schema: Arc<ArrowSchema>,
     batch_size: u64,
-    pos_ranges: RangeList<u64>,
+    pos_ranges: SharedRangeList<u64>,
     stripe_reader: Option<StripeRecordBatchReader>,
     next_stripe_ordinal: usize,
 }
@@ -53,10 +54,10 @@ impl ShardRecordBatchReader {
         shard: Shard,
         arrow_schema: Arc<ArrowSchema>,
         batch_size: u64,
-        pos_ranges: Option<RangeList<u64>>,
+        pos_ranges: Option<SharedRangeList<u64>>,
     ) -> Result<ShardRecordBatchReader, ArrowError> {
         let pos_ranges = pos_ranges
-            .unwrap_or_else(|| RangeList::from_elem(0..shard.directory().total_record_count));
+            .unwrap_or_else(|| SharedRangeList::from_elem(0..shard.directory().total_record_count));
         Ok(ShardRecordBatchReader {
             shard,
             arrow_schema,
@@ -127,7 +128,7 @@ impl Iterator for ShardRecordBatchReader {
 pub struct StripeRecordBatchReader {
     _stripe: Stripe,
     arrow_schema: Arc<ArrowSchema>,
-    batch_ranges: ChunkedRanges<ShiftDownRanges<RangeListIntoIter<u64>>>,
+    batch_ranges: ChunkedRanges<ShiftDownRanges<SharedRangeListIntoIter<u64>>>,
     field_readers: Vec<ArrayReader>,
 }
 
@@ -146,10 +147,10 @@ impl StripeRecordBatchReader {
         stripe: Stripe,
         arrow_schema: Arc<ArrowSchema>,
         batch_size: u64,
-        shard_pos_ranges: Option<RangeList<u64>>,
+        shard_pos_ranges: Option<SharedRangeList<u64>>,
     ) -> Result<StripeRecordBatchReader, ArrowError> {
-        let shard_pos_ranges =
-            shard_pos_ranges.unwrap_or_else(|| RangeList::from_elem(stripe.shard_position_range()));
+        let shard_pos_ranges = shard_pos_ranges
+            .unwrap_or_else(|| SharedRangeList::from_elem(stripe.shard_position_range()));
 
         let stripe_pos_ranges = shard_pos_ranges
             .clone()
@@ -335,8 +336,8 @@ pub(crate) fn resolve_field(
 mod tests {
     use crate::{builder::ArrowReaderBuilder, shard_reader::ShardRecordBatchReader};
 
-    use amudai_collections::range_list::RangeList;
     use amudai_format::defs::common::DataRef;
+    use amudai_ranges::SharedRangeList;
     use amudai_shard::tests::{
         data_generator::{
             create_bytes_flat_test_schema, create_map_test_schema, create_nested_test_schema,
@@ -495,7 +496,8 @@ mod tests {
 
         consume_all_records(reader_builder.build().unwrap(), 10000);
 
-        let reader_builder = reader_builder.with_position_ranges(RangeList::from(vec![0u64..2]));
+        let reader_builder =
+            reader_builder.with_position_ranges(SharedRangeList::from(vec![0u64..2]));
         read_and_verify(reader_builder.build().unwrap());
     }
 }

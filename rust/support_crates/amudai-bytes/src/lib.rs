@@ -1,5 +1,12 @@
-//! Byte buffers for use by the Amudai infrastructure, mutable and shared immutable,
-//! with built-in support for proper alignment and padding.
+//! Byte buffers for the Amudai infrastructure, providing both mutable and shared
+//! immutable buffers with built-in support for proper alignment and padding.
+//!
+//! This crate provides two main types:
+//! - [`BytesMut`]: A mutable buffer for building byte sequences
+//! - [`Bytes`]: An immutable, shareable buffer for efficient data sharing
+//!
+//! Both types ensure at least 64-byte memory alignment and provide zero-copy
+//! slicing capabilities where possible.
 
 use std::ops::RangeBounds;
 
@@ -8,10 +15,11 @@ use buffer::{AlignedByteVec, Buffer};
 pub mod align;
 pub mod buffer;
 
-/// A mutable buffer of bytes, conceptually similar to a `Vec<u8>`.
+/// A mutable buffer of bytes, conceptually similar to `Vec<u8>`.
 ///
-/// This struct is designed for efficiently building an immutable [`Bytes`] instance.
-/// It provides methods for growing, shrinking, and manipulating the underlying byte buffer.
+/// `BytesMut` is designed for efficiently building an immutable [`Bytes`] instance.
+/// It provides methods for growing, shrinking, and manipulating the underlying byte
+/// buffer with guaranteed memory alignment.
 #[derive(Debug)]
 pub struct BytesMut(AlignedByteVec);
 
@@ -30,7 +38,8 @@ impl BytesMut {
 
     /// Creates a new `BytesMut` with the specified capacity and alignment.
     ///
-    /// The buffer will be able to hold at least `capacity` bytes without reallocating.
+    /// The buffer will be able to hold at least `capacity` bytes without reallocating,
+    /// and will be aligned according to the specified `alignment`.
     pub fn with_capacity_and_alignment(capacity: usize, alignment: usize) -> BytesMut {
         BytesMut(AlignedByteVec::with_capacity_and_alignment(
             capacity, alignment,
@@ -51,7 +60,8 @@ impl BytesMut {
 
     /// Returns the capacity of the buffer.
     ///
-    /// The capacity is the amount of space allocated for the buffer in terms of bytes.
+    /// The capacity is the amount of space allocated for the buffer, in bytes.
+    /// This represents how many bytes can be stored without reallocating.
     #[inline]
     pub fn capacity(&self) -> usize {
         self.0.capacity()
@@ -83,7 +93,7 @@ impl BytesMut {
     /// Resizes the buffer to the specified length.
     ///
     /// If `new_len` is greater than the current length, the buffer is extended with the given `value`.
-    /// If `new_len` is less than the current length, the buffer is simply truncated.
+    /// If `new_len` is less than the current length, the buffer is truncated.
     #[inline]
     pub fn resize(&mut self, new_len: usize, value: u8) {
         self.0.resize(new_len, value);
@@ -92,6 +102,8 @@ impl BytesMut {
     /// Reserves capacity for at least `additional` more bytes.
     ///
     /// The buffer may reserve more space than requested to avoid frequent reallocations.
+    /// After calling `reserve`, the buffer will be able to hold at least
+    /// `self.len() + additional` bytes without reallocating.
     #[inline]
     pub fn reserve(&mut self, additional: usize) {
         self.0.reserve(additional);
@@ -132,11 +144,13 @@ impl BytesMut {
 
     /// Returns a slice of `T` values from the underlying buffer data.
     ///
+    /// This function performs a raw cast from bytes to the specified type `T`.
+    /// The caller must ensure that the underlying data is valid for type `T`.
+    ///
     /// # Safety
     ///
-    /// This function performs a raw cast and relies on the caller to ensure that
-    /// the underlying data is valid for the type `T`. The type `T` must implement
-    /// `bytemuck::AnyBitPattern`.
+    /// The type `T` must implement `bytemuck::AnyBitPattern`, and the underlying
+    /// buffer data must be properly aligned and contain valid bit patterns for `T`.
     #[inline]
     pub fn typed_data<T>(&self) -> &[T]
     where
@@ -147,11 +161,14 @@ impl BytesMut {
 
     /// Returns a mutable slice of `T` values from the underlying buffer data.
     ///
+    /// This function performs a raw cast from bytes to the specified type `T`.
+    /// The caller must ensure that the underlying data is valid for type `T`.
+    ///
     /// # Safety
     ///
-    /// This function performs a raw cast and relies on the caller to ensure that
-    /// the underlying data is valid for the type `T`. The type `T` must implement
-    /// `bytemuck::AnyBitPattern + bytemuck::NoUninit`.
+    /// The type `T` must implement `bytemuck::AnyBitPattern + bytemuck::NoUninit`,
+    /// and the underlying buffer data must be properly aligned and contain valid
+    /// bit patterns for `T`.
     #[inline]
     pub fn typed_data_mut<T>(&mut self) -> &mut [T]
     where
@@ -206,13 +223,12 @@ impl From<&[u8]> for BytesMut {
     }
 }
 
-/// A contiguous, immutable memory region that can be shared with other buffers and across
-/// thread boundaries.
+/// A contiguous, immutable memory region that can be shared across buffers
+/// and thread boundaries.
 ///
-/// `Bytes` can be sliced and cloned without copying the underlying data.
-///
-/// The backing buffer is guaranteed to have at least 64-byte alignment when created from
-/// `BytesMut`, and at least 16-byte alignment when created from `Vec<u8>`.
+/// `Bytes` supports zero-copy slicing and cloning, making it efficient for sharing
+/// data without duplication. The backing buffer is guaranteed to have at least 64-byte
+/// alignment when created from `BytesMut`.
 #[derive(Debug, Clone)]
 pub struct Bytes(Buffer);
 
@@ -246,11 +262,13 @@ impl Bytes {
 
     /// Creates a new `Bytes` by slicing the current `Bytes` within the given range.
     ///
-    /// This operation is zero-copy; it does not allocate new memory.
+    /// This is a zero-copy operation that creates a new view into the same underlying
+    /// buffer. No memory allocation occurs.
     ///
     /// # Panics
     ///
-    /// Panics if the range is out of bounds.
+    /// Panics if the range is out of bounds or if the start index is greater than the
+    /// end index.
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Bytes {
         Bytes(self.0.slice(range))
     }
@@ -259,8 +277,8 @@ impl Bytes {
     ///
     /// # Arguments
     ///
-    /// * `alignment` - The alignment to check for. This must be a power of two and
-    ///   no greater than `128`.
+    /// * `alignment` - The alignment to check for. Must be a power of two and
+    /// no greater than 128.
     pub fn is_aligned(&self, alignment: usize) -> bool {
         self.0.is_aligned(alignment)
     }
@@ -271,8 +289,8 @@ impl Bytes {
     /// # Arguments
     ///
     /// * `offset` - The offset at which to check for alignment.
-    /// * `alignment` - The alignment to check for. This must be a power of two and
-    ///   no greater than `128`.
+    /// * `alignment` - The alignment to check for. Must be a power of two and
+    ///   no greater than 128.
     ///
     /// # Panics
     ///
@@ -281,23 +299,26 @@ impl Bytes {
         self.0.is_aligned_at(offset, alignment)
     }
 
-    /// Creates a new `Bytes` instance by slicing the current `Bytes` within the specified range,
-    /// ensuring that the resulting `Bytes` meets the requested `alignment`.
+    /// Creates a new `Bytes` instance by slicing the current `Bytes`
+    /// within the specified range, ensuring that the resulting `Bytes`
+    /// meets the requested alignment.
     ///
-    /// This operation may or may not be zero-copy, depending on the starting offset of the sub-slice
-    /// within the buffer.
+    /// This operation may or may not be zero-copy, depending on whether the starting
+    /// offset of the sub-slice within the buffer already meets the alignment requirements.
     pub fn aligned_slice(&self, range: impl RangeBounds<usize>, alignment: usize) -> Bytes {
         Bytes(self.0.aligned_slice(range, alignment))
     }
 
-    /// Aligns the buffer to the specified alignment. If the buffer is already aligned,
-    /// it returns a cloned reference to the buffer. Otherwise, it creates a new buffer
-    /// with a copy of the data, aligned to the specified alignment.
+    /// Aligns the buffer to the specified alignment.
+    ///
+    /// If the buffer is already aligned to the specified alignment, this returns a cloned
+    /// reference to the buffer. Otherwise, it creates a new buffer with a copy of the data,
+    /// aligned to the specified alignment.
     ///
     /// # Arguments
     ///
     /// * `alignment` - The alignment value to which the buffer should be aligned.
-    ///   This must be a power of two and no greater than `128`.
+    ///   Must be a power of two and no greater than 128.
     pub fn align(&self, alignment: usize) -> Bytes {
         Bytes(self.0.align(alignment))
     }
@@ -307,23 +328,25 @@ impl Bytes {
         self.0
     }
 
-    /// Consumes the `Bytes` and returns `AlignedByteVec` with the equivalent data.
+    /// Consumes the `Bytes` and returns the equivalent data as an `AlignedByteVec`.
     ///
     /// Under certain conditions, this will be a zero-copy and zero-allocation operation:
-    ///  - the buffer wraps `AlignedByteVec`
-    ///  - the buffer is not shared
-    ///  - the buffer is not a slice of the original `AlignedByteVec`
+    /// - The buffer wraps an `AlignedByteVec`
+    /// - The buffer is not shared with other `Bytes` instances
+    /// - The buffer is not a slice of the original `AlignedByteVec`
     pub fn into_vec(self) -> AlignedByteVec {
         self.0.into_vec()
     }
 
     /// Returns a slice of `T` values from the underlying buffer.
     ///
+    /// This function performs a raw cast from bytes to the specified type `T`.
+    /// The caller must ensure that the underlying data is valid for type `T`.
+    ///
     /// # Safety
     ///
-    /// This function performs a raw cast and relies on the caller to ensure
-    /// that the underlying data is valid for the type `T`. The type `T` must
-    /// implement `bytemuck::AnyBitPattern`.
+    /// The type `T` must implement `bytemuck::AnyBitPattern`, and the underlying
+    /// buffer data must be properly aligned and contain valid bit patterns for `T`.
     #[inline]
     pub fn typed_data<T>(&self) -> &[T]
     where
@@ -368,7 +391,7 @@ impl From<AlignedByteVec> for Bytes {
 
 impl From<Vec<u8>> for Bytes {
     fn from(vec: Vec<u8>) -> Self {
-        // TODO: optimize for cases where Vec is already properly aligned and padded.
+        // TODO: Optimize for cases where Vec is already properly aligned and padded.
         Bytes::copy_from_slice(&vec)
     }
 }

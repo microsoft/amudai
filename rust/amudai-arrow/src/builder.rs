@@ -10,10 +10,10 @@ use std::sync::{Arc, OnceLock};
 use amudai_arrow_compat::{
     amudai_to_arrow_error::ToArrowResult, amudai_to_arrow_schema::ToArrowSchema,
 };
-use amudai_collections::range_list::RangeList;
 use amudai_objectstore::{
     ObjectStore, ReferenceResolver, local_store::LocalFsObjectStore, url::ObjectUrl,
 };
+use amudai_ranges::SharedRangeList;
 use amudai_shard::read::shard::{Shard, ShardOptions};
 use arrow::error::ArrowError;
 
@@ -29,7 +29,7 @@ pub struct ArrowReaderBuilder {
     reference_resolver: Option<Arc<dyn ReferenceResolver>>,
     projection: Option<arrow::datatypes::SchemaRef>,
     batch_size: u64,
-    pos_ranges: Option<RangeList<u64>>,
+    pos_ranges: Option<SharedRangeList<u64>>,
     shard: OnceLock<Shard>,
 }
 
@@ -97,7 +97,7 @@ impl ArrowReaderBuilder {
     /// if the ranges to be read from the shard are `[1000..3000, 5000..5500]` and the
     /// `batch_size` is 1000, the iterator would yield the record batches
     /// `[1000..2000, 2000..3000, 5000..5500]`.
-    pub fn with_position_ranges(self, pos_ranges: impl Into<Option<RangeList<u64>>>) -> Self {
+    pub fn with_position_ranges(self, pos_ranges: impl Into<Option<SharedRangeList<u64>>>) -> Self {
         Self {
             pos_ranges: pos_ranges.into(),
             ..self

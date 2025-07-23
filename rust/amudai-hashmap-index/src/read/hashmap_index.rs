@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use amudai_arrow::builder::ArrowReaderBuilder;
-use amudai_collections::range_list::RangeList;
 use amudai_common::Result;
 use amudai_format::defs::shard::IndexDescriptor;
 use amudai_objectstore::{ObjectStore, ReferenceResolver, url::ObjectUrl};
+use amudai_ranges::SharedRangeList;
 use amudai_shard::read::{shard::Shard, shard::ShardOptions};
 use arrow_array::{Array, LargeListArray, StructArray, UInt64Array};
 
@@ -170,7 +170,8 @@ impl HashmapIndex {
         let bucket_index = get_entry_bucket_index(hash, partition.buckets_count);
 
         // Read the specific bucket from the shard using amudai-arrow
-        let position_ranges = RangeList::from_elem(bucket_index as u64..(bucket_index as u64 + 1));
+        let position_ranges =
+            SharedRangeList::from_elem(bucket_index as u64..(bucket_index as u64 + 1));
 
         // Use the existing amudai-arrow infrastructure to read the data
         let mut reader_builder = ArrowReaderBuilder::try_new(partition.shard.url().as_str())

@@ -8,4 +8,5 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+amudai-common-traits = { workspace = true }
 bytemuck = { workspace = true }

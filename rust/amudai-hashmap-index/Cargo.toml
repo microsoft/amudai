@@ -20,6 +20,7 @@ amudai-format = { workspace = true }
 amudai-index-core = { workspace = true }
 amudai-io = { workspace = true }
 amudai-objectstore = { workspace = true }
+amudai-ranges = { workspace = true }
 amudai-shard = { workspace = true }
 
 [dev-dependencies]

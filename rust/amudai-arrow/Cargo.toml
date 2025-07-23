@@ -15,6 +15,7 @@ amudai-encodings = { workspace = true }
 amudai-format = { workspace = true }
 amudai-io = { workspace = true }
 amudai-objectstore = { workspace = true }
+amudai-ranges = { workspace = true }
 amudai-sequence = { workspace = true }
 amudai-shard = { workspace = true }
 
