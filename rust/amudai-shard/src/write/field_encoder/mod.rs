@@ -345,6 +345,8 @@ impl EncodedField {
 /// Statistics collected during field encoding
 #[derive(Debug, Clone)]
 pub enum EncodedFieldStatistics {
+    /// No statistics available for this field
+    Missing,
     /// Statistics for primitive types (integers, floats, datetime)
     Primitive(amudai_data_stats::primitive::PrimitiveStats),
     /// Statistics for string types
@@ -357,8 +359,10 @@ pub enum EncodedFieldStatistics {
     Decimal(amudai_data_stats::decimal::DecimalStats),
     /// Statistics for floating-point types
     Floating(amudai_data_stats::floating::FloatingStats),
-    /// No statistics available for this field
-    Missing,
+    /// Statistics for struct-like container types (Struct, Map)
+    StructContainer(amudai_data_stats::container::StructStats),
+    /// Statistics for list-like container types (List, FixedSizeList)
+    ListContainer(amudai_data_stats::container::ListStats),
 }
 
 impl EncodedFieldStatistics {
@@ -377,13 +381,15 @@ impl EncodedFieldStatistics {
     /// Returns None if the field has varying values.
     pub fn try_get_constant(&self) -> Option<amudai_format::defs::common::AnyValue> {
         match self {
+            EncodedFieldStatistics::Missing => None,
             EncodedFieldStatistics::Primitive(stats) => stats.try_get_constant(),
             EncodedFieldStatistics::Boolean(stats) => stats.try_get_constant(),
             EncodedFieldStatistics::Floating(stats) => stats.try_get_constant(),
             EncodedFieldStatistics::Decimal(stats) => stats.try_get_constant(),
             EncodedFieldStatistics::String(stats) => stats.try_get_constant(),
             EncodedFieldStatistics::Binary(stats) => stats.try_get_constant(),
-            EncodedFieldStatistics::Missing => None,
+            EncodedFieldStatistics::StructContainer(_) => None,
+            EncodedFieldStatistics::ListContainer(_) => None,
         }
     }
 }

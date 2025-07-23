@@ -8,6 +8,7 @@ use amudai_blockstream::write::{
     staging_buffer::PrimitiveStagingBuffer,
 };
 use amudai_common::{Result, error::Error};
+use amudai_data_stats::container::ListStatsCollector;
 use amudai_encodings::block_encoder::{
     BlockChecksum, BlockEncodingParameters, BlockEncodingPolicy, BlockSizeConstraints,
     PresenceEncoding,
@@ -46,6 +47,8 @@ pub struct ListContainerFieldEncoder {
     offsets_encoder: PrimitiveBufferEncoder,
     /// Presence buffer encoder.
     presence_encoder: BitBufferEncoder,
+    /// Container statistics collector.
+    stats_collector: ListStatsCollector,
 }
 
 impl ListContainerFieldEncoder {
@@ -81,6 +84,7 @@ impl ListContainerFieldEncoder {
                 params.temp_store.clone(),
                 params.encoding_profile,
             ),
+            stats_collector: ListStatsCollector::new(),
         }))
     }
 }
@@ -137,6 +141,8 @@ impl ListContainerFieldEncoder {
 impl FieldEncoderOps for ListContainerFieldEncoder {
     fn push_array(&mut self, array: Arc<dyn Array>) -> Result<()> {
         let (offsets, next_offset) = make_offsets_array(&array, self.last_offset)?;
+        self.stats_collector
+            .process_lists(&offsets, self.last_offset, array.nulls());
         self.last_offset = next_offset;
         let slot_count = offsets.len();
         self.staging.append(offsets);
@@ -160,6 +166,7 @@ impl FieldEncoderOps for ListContainerFieldEncoder {
         ]));
         self.staging.append(offsets);
         self.presence_encoder.append_repeated(count, false)?;
+        self.stats_collector.process_nulls(count as u64);
 
         if self.may_flush() {
             self.flush(false)?;
@@ -172,6 +179,8 @@ impl FieldEncoderOps for ListContainerFieldEncoder {
             self.flush(true)?;
         }
 
+        // Collect container statistics
+        let container_stats = self.stats_collector.finalize();
         let mut buffers = Vec::new();
 
         let mut encoded_offsets = self.offsets_encoder.finish()?;
@@ -209,7 +218,7 @@ impl FieldEncoderOps for ListContainerFieldEncoder {
 
         Ok(EncodedField {
             buffers,
-            statistics: super::EncodedFieldStatistics::Missing, // Container fields don't collect primitive statistics
+            statistics: super::EncodedFieldStatistics::ListContainer(container_stats),
             dictionary_size: None,
             constant_value: None,
         })
@@ -226,7 +235,7 @@ impl FieldEncoderOps for ListContainerFieldEncoder {
 /// array within that specific List/Map array instance. They are not absolute offsets within the
 /// entire data stream, therefore the `rebase_offsets` calculation is performed as part of this
 /// function.
-pub fn make_offsets_array(source: &dyn Array, last_offset: u64) -> Result<(Arc<dyn Array>, u64)> {
+fn make_offsets_array(source: &dyn Array, last_offset: u64) -> Result<(Arc<dyn Array>, u64)> {
     fn rebase_offsets<O: arrow_array::OffsetSizeTrait>(
         last_offset: u64,
         offsets: &[O],

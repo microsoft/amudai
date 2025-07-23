@@ -418,6 +418,10 @@ impl SealedStripe {
         let mut field_list = defs::common::DataRefArray::default();
         let last_schema_id = self.fields.key_range().end;
         let mut schema_id = SchemaId::zero();
+
+        // Calculate the total raw data size
+        let total_raw_data_size = self.calculate_total_raw_data_size();
+
         while schema_id < last_schema_id {
             let mut field_ref = if let Some(field) = self.fields.get(schema_id) {
                 field.write_descriptor(writer)?
@@ -446,11 +450,39 @@ impl SealedStripe {
             indexes_ref: None,
             total_record_count: self.total_record_count,
             deleted_record_count: self.deleted_record_count,
-            stored_data_size: None,
-            stored_index_size: None,
-            plain_data_size: None,
+            raw_data_size: total_raw_data_size,
             record_offset,
         })
+    }
+
+    /// Calculates the total raw data size by summing up raw_data_size from all fields.
+    /// Fields without raw_data_size (None) are skipped.
+    ///
+    /// # Returns
+    /// - `Some(total_size)`: If at least one field has raw_data_size information
+    /// - `None`: If no fields have raw_data_size information
+    pub fn calculate_total_raw_data_size(&self) -> Option<u64> {
+        let mut total_size = 0u64;
+        let mut has_any_size = false;
+
+        let last_schema_id = self.fields.key_range().end;
+        let mut schema_id = SchemaId::zero();
+
+        while schema_id < last_schema_id {
+            if let Some(field) = self.fields.get(schema_id) {
+                if let Some(field_descriptor) = &field.descriptor.field {
+                    if let Some(field_size) = field_descriptor.raw_data_size {
+                        total_size += field_size;
+                        has_any_size = true;
+                    }
+                    // Skip fields with None raw_data_size
+                }
+                // Fields without descriptors are skipped
+            }
+            schema_id = schema_id.next();
+        }
+
+        if has_any_size { Some(total_size) } else { None }
     }
 }
 

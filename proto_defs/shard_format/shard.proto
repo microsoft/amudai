@@ -30,9 +30,7 @@ message ShardDirectory {
     fixed64 deleted_record_count = 8;
     fixed64 stripe_count = 9;
     
-    optional fixed64 stored_data_size = 10;
-    optional fixed64 stored_index_size = 11;
-    optional fixed64 plain_data_size = 12;
+    optional fixed64 raw_data_size = 10;
 }
 
 // Standard and custom name-value pairs associated with the shard.
@@ -73,14 +71,12 @@ message StripeDirectory {
     fixed64 total_record_count = 4;
     fixed64 deleted_record_count = 5;
     
-    optional fixed64 stored_data_size = 6;
-    optional fixed64 stored_index_size = 7;
-    optional fixed64 plain_data_size = 8;
+    optional fixed64 raw_data_size = 6;
 
     // The logical offset of the first record in this stripe within the
     // containing shard.
     // This value does not account for deleted records in preceding stripes.
-    fixed64 record_offset = 9;
+    fixed64 record_offset = 7;
 }
 
 message StripeProperties {
@@ -125,15 +121,16 @@ message FieldDescriptor {
     oneof type_specific {
         // Applicable only for the string type. All sizes are measured in bytes, not code points.
         StringStats string_stats = 20;
-        // Relevant for variable-length List, Map, and binary types (where binary is treated
-        // as a container of bytes).
-        ContainerStats container_stats = 21;
+        // Relevant for variable-length List, Map.
+        ListStats list_stats = 21;
         // Statistics specific to boolean fields.
         BooleanStats boolean_stats = 22;
         // Statistics specific to decimal fields (128-bit precision).
         DecimalStats decimal_stats = 23;
         // Statistics specific to floating-point fields (f32, f64).
         FloatingStats floating_stats = 24;
+        // Statistics for binary types (where binary is treated as a container of bytes).
+        BinaryStats binary_stats = 25;
     }
     
     repeated amudai.common.NameValuePair custom_properties = 40;
@@ -201,14 +198,23 @@ message BooleanStats {
     fixed64 false_count = 2;
 }
 
-// Relevant for variable-length List, Map, and binary types
-// (where binary is treated as a container of bytes).
-message ContainerStats {
-    // Minimum length of the container (`List`, `Map` or `Binary`).
+// Relevant for variable-length List and Map.
+message ListStats {
+    // Minimum length of the container (`List`, `Map`).
     fixed64 min_length = 1;
     // Minimum length of non-empty container.
     optional fixed64 min_non_empty_length = 2;
-    // Maximum length of the container (`List`, `Map` or `Binary`).
+    // Maximum length of the container (`List`, `Map`).
+    fixed64 max_length = 3;
+}
+
+// Relevant for Binary stats.
+message BinaryStats {
+    // Minimum length of the binary chunk.
+    fixed64 min_length = 1;
+    // Minimum length of non-empty container.
+    optional fixed64 min_non_empty_length = 2;
+    // Maximum length of the binary chunk.
     fixed64 max_length = 3;
 }
 

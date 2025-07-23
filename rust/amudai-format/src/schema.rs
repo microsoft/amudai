@@ -329,7 +329,7 @@ impl Schema {
 impl std::fmt::Display for Schema {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let fields = self.field_list().unwrap_or_default();
-        write!(f, "({})", fields)
+        write!(f, "({fields})")
     }
 }
 
@@ -766,12 +766,6 @@ impl From<SchemaId> for usize {
     }
 }
 
-impl Default for FieldList {
-    fn default() -> Self {
-        FieldList::Empty
-    }
-}
-
 impl std::fmt::Display for SchemaId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
@@ -792,9 +786,10 @@ pub enum FieldLocator<'a> {
 
 /// `FieldList` represents an ordered list of fields, which can either be at the `Schema`
 /// level or as the children of a `DataType` node.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum FieldList {
     /// An empty list of fields.
+    #[default]
     Empty,
     /// A list of fields within a schema.
     Schema(Schema),
@@ -895,7 +890,7 @@ impl std::fmt::Display for FieldList {
                 if name.is_empty() {
                     child.fmt(f)?;
                 } else {
-                    write!(f, "{}: {}", name, child)?;
+                    write!(f, "{name}: {child}")?;
                 }
             } else {
                 f.write_str("?")?;

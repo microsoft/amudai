@@ -42,7 +42,11 @@ pub fn create_with_stats(
 /// * `descriptor` - The field descriptor to populate with statistics
 /// * `encoded_field` - The encoded field containing optional statistics
 pub fn populate_statistics(descriptor: &mut shard::FieldDescriptor, encoded_field: &EncodedField) {
-    match &encoded_field.statistics {
+    let stats = &encoded_field.statistics;
+    match stats {
+        EncodedFieldStatistics::Missing => {
+            // No statistics to populate
+        }
         EncodedFieldStatistics::Primitive(primitive_stats) => {
             populate_primitive_statistics(descriptor, primitive_stats);
         }
@@ -61,8 +65,11 @@ pub fn populate_statistics(descriptor: &mut shard::FieldDescriptor, encoded_fiel
         EncodedFieldStatistics::Floating(floating_stats) => {
             populate_floating_statistics(descriptor, floating_stats);
         }
-        EncodedFieldStatistics::Missing => {
-            // No statistics to populate
+        EncodedFieldStatistics::StructContainer(struct_stats) => {
+            populate_struct_container_statistics(descriptor, struct_stats);
+        }
+        EncodedFieldStatistics::ListContainer(list_stats) => {
+            populate_list_container_statistics(descriptor, list_stats);
         }
     }
 }
@@ -304,10 +311,10 @@ fn populate_binary_statistics(
     // Map raw data size
     descriptor.raw_data_size = Some(binary_stats.raw_data_size);
 
-    // Set binary-specific statistics in type_specific field using ContainerStats
-    // which is appropriate for binary data (similar to how it's used for lists/maps)
-    descriptor.type_specific = Some(shard::field_descriptor::TypeSpecific::ContainerStats(
-        shard::ContainerStats {
+    // Set binary-specific statistics in type_specific field using BinaryStats
+    // which is appropriate for binary data (tracks byte lengths)
+    descriptor.type_specific = Some(shard::field_descriptor::TypeSpecific::BinaryStats(
+        shard::BinaryStats {
             min_length: binary_stats.min_length,
             max_length: binary_stats.max_length,
             min_non_empty_length: binary_stats.min_non_empty_length,
@@ -430,6 +437,39 @@ fn populate_floating_statistics(
     ));
 }
 
+fn populate_struct_container_statistics(
+    descriptor: &mut shard::FieldDescriptor,
+    struct_stats: &amudai_data_stats::container::StructStats,
+) {
+    // Map null count
+    descriptor.null_count = Some(struct_stats.null_count);
+
+    // Map raw data size
+    descriptor.raw_data_size = Some(struct_stats.raw_data_size);
+}
+
+fn populate_list_container_statistics(
+    descriptor: &mut shard::FieldDescriptor,
+    list_stats: &amudai_data_stats::container::ListStats,
+) {
+    // Map null count
+    descriptor.null_count = Some(list_stats.null_count);
+
+    // Map raw data size
+    descriptor.raw_data_size = Some(list_stats.raw_data_size);
+
+    // For list containers, we have detailed length statistics
+    if list_stats.count > 0 {
+        descriptor.type_specific = Some(shard::field_descriptor::TypeSpecific::ListStats(
+            shard::ListStats {
+                min_length: list_stats.min_length.unwrap_or(0),
+                max_length: list_stats.max_length.unwrap_or(0),
+                min_non_empty_length: list_stats.min_non_empty_length,
+            },
+        ));
+    }
+}
+
 /// Merges range statistics by updating min and max values appropriately.
 ///
 /// This function compares minimum and maximum values from field descriptor statistics
@@ -549,12 +589,36 @@ fn merge_type_specific_stats(
             accumulated_stats.true_count += current_stats.true_count;
             accumulated_stats.false_count += current_stats.false_count;
         }
-        (
-            TypeSpecific::ContainerStats(accumulated_stats),
-            TypeSpecific::ContainerStats(current_stats),
-        ) => {
-            // Merge container statistics (for binary, list, and map types)
+        (TypeSpecific::ListStats(accumulated_stats), TypeSpecific::ListStats(current_stats)) => {
+            // Merge ListStats (used for both container types like List/Map and length-based types like Binary/String)
             // by taking min of mins, max of maxes, and handling min_non_empty_length
+            accumulated_stats.min_length =
+                accumulated_stats.min_length.min(current_stats.min_length);
+            accumulated_stats.max_length =
+                accumulated_stats.max_length.max(current_stats.max_length);
+
+            // For min_non_empty_length, take the minimum of the non-None values
+            match (
+                &accumulated_stats.min_non_empty_length,
+                &current_stats.min_non_empty_length,
+            ) {
+                (Some(accumulated_min_non_empty), Some(current_min_non_empty)) => {
+                    accumulated_stats.min_non_empty_length =
+                        Some((*accumulated_min_non_empty).min(*current_min_non_empty));
+                }
+                (None, Some(current_min_non_empty)) => {
+                    accumulated_stats.min_non_empty_length = Some(*current_min_non_empty);
+                }
+                // If accumulated has value but current doesn't, or both are None, keep accumulated value
+                _ => {}
+            }
+        }
+        (
+            TypeSpecific::BinaryStats(accumulated_stats),
+            TypeSpecific::BinaryStats(current_stats),
+        ) => {
+            // Merge BinaryStats (similar to ListStats) by taking min of mins, max of maxes,
+            // and handling min_non_empty_length
             accumulated_stats.min_length =
                 accumulated_stats.min_length.min(current_stats.min_length);
             accumulated_stats.max_length =
@@ -585,6 +649,18 @@ fn merge_type_specific_stats(
             accumulated_stats.positive_count += current_stats.positive_count;
             accumulated_stats.negative_count += current_stats.negative_count;
             accumulated_stats.nan_count += current_stats.nan_count;
+        }
+        (
+            TypeSpecific::FloatingStats(accumulated_stats),
+            TypeSpecific::FloatingStats(current_stats),
+        ) => {
+            // Merge floating-point statistics by summing counts
+            accumulated_stats.zero_count += current_stats.zero_count;
+            accumulated_stats.positive_count += current_stats.positive_count;
+            accumulated_stats.negative_count += current_stats.negative_count;
+            accumulated_stats.nan_count += current_stats.nan_count;
+            accumulated_stats.positive_infinity_count += current_stats.positive_infinity_count;
+            accumulated_stats.negative_infinity_count += current_stats.negative_infinity_count;
         }
         _ => {
             // Mismatched types - this shouldn't happen in a well-formed shard

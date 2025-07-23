@@ -133,7 +133,7 @@ Below is the logical structure of a shard. Items highlighted in `code span` repr
               - (optional) Presence buffer descriptor
               - (optional) Dictionary descriptor *(possibly more than one)*
           - Alternative encoding(s).
-            - alternative or foreign encoding buffer descriprtors. *e.g. reference to Parquet file + row group + column.*
+            - alternative or foreign encoding buffer descriptors. *e.g. reference to Parquet file + row group + column.*
         - Stripe-level field indexes
             - Index descriptor 0
             - ...

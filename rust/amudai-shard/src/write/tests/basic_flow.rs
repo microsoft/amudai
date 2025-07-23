@@ -824,3 +824,50 @@ fn generate_dictionary_data(count: usize) -> arrow_array::RecordBatch {
     ])
     .unwrap()
 }
+
+#[test]
+fn test_raw_data_size_accumulation() {
+    let shard_store = ShardStore::new();
+    let shard_ref = shard_store.ingest_shard_with_nested_schema(1000);
+    let shard = shard_store.open_shard(&shard_ref.url);
+
+    // Verify stripe-level raw_data_size accumulation
+    let stripe_list = shard.fetch_stripe_list().unwrap();
+    assert!(
+        !stripe_list.stripes.is_empty(),
+        "Should have at least one stripe"
+    );
+
+    let mut total_stripe_raw_data_size = 0u64;
+    for stripe_directory in &stripe_list.stripes {
+        assert!(
+            stripe_directory.raw_data_size.is_some(),
+            "Stripe raw_data_size should be populated"
+        );
+        let stripe_raw_data_size = stripe_directory.raw_data_size.unwrap();
+        assert!(
+            stripe_raw_data_size > 0,
+            "Stripe raw_data_size should be greater than 0"
+        );
+        total_stripe_raw_data_size += stripe_raw_data_size;
+    }
+
+    // Verify shard-level raw_data_size propagation
+    let shard_raw_data_size = shard.directory().raw_data_size;
+    assert!(
+        shard_raw_data_size.is_some(),
+        "Shard raw_data_size should be populated"
+    );
+
+    let shard_raw_data_size = shard_raw_data_size.unwrap();
+    assert!(
+        shard_raw_data_size > 0,
+        "Shard raw_data_size should be greater than 0"
+    );
+
+    // The shard raw_data_size should equal the sum of all stripe raw_data_sizes
+    assert_eq!(
+        shard_raw_data_size, total_stripe_raw_data_size,
+        "Shard raw_data_size should equal sum of stripe raw_data_sizes"
+    );
+}

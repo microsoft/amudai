@@ -1325,13 +1325,13 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_container_statistics() {
-        // Test merging of ContainerStats (used for binary, list, and map types)
+    fn test_merge_list_container_statistics() {
+        // Test merging of ListStats for actual container types (List, Map)
         let mut shard_field = shard::FieldDescriptor {
             position_count: 100,
             null_count: Some(5),
-            type_specific: Some(shard::field_descriptor::TypeSpecific::ContainerStats(
-                shard::ContainerStats {
+            type_specific: Some(shard::field_descriptor::TypeSpecific::ListStats(
+                shard::ListStats {
                     min_length: 5,
                     min_non_empty_length: Some(7),
                     max_length: 50,
@@ -1343,8 +1343,8 @@ mod tests {
         let stripe_field = shard::FieldDescriptor {
             position_count: 50,
             null_count: Some(2),
-            type_specific: Some(shard::field_descriptor::TypeSpecific::ContainerStats(
-                shard::ContainerStats {
+            type_specific: Some(shard::field_descriptor::TypeSpecific::ListStats(
+                shard::ListStats {
                     min_length: 2,                 // Lower than shard min (5)
                     min_non_empty_length: Some(3), // Lower than shard min_non_empty (7)
                     max_length: 75,                // Higher than shard max (50)
@@ -1359,25 +1359,25 @@ mod tests {
         assert_eq!(shard_field.position_count, 150); // 100 + 50
         assert_eq!(shard_field.null_count, Some(7)); // 5 + 2
 
-        // Verify merged container statistics
-        if let Some(shard::field_descriptor::TypeSpecific::ContainerStats(merged_stats)) =
+        // Verify merged list container statistics
+        if let Some(shard::field_descriptor::TypeSpecific::ListStats(merged_stats)) =
             &shard_field.type_specific
         {
             assert_eq!(merged_stats.min_length, 2); // min(5, 2)
             assert_eq!(merged_stats.min_non_empty_length, Some(3)); // min(7, 3)
             assert_eq!(merged_stats.max_length, 75); // max(50, 75)
         } else {
-            panic!("Expected container statistics in type_specific field");
+            panic!("Expected list container statistics in type_specific field");
         }
     }
 
     #[test]
-    fn test_merge_container_statistics_with_none_min_non_empty() {
-        // Test container statistics merging when min_non_empty_length is None in one descriptor
+    fn test_merge_list_container_statistics_with_none_min_non_empty() {
+        // Test list container statistics merging when min_non_empty_length is None in one descriptor
         let mut accumulated = shard::FieldDescriptor {
             position_count: 100,
-            type_specific: Some(shard::field_descriptor::TypeSpecific::ContainerStats(
-                shard::ContainerStats {
+            type_specific: Some(shard::field_descriptor::TypeSpecific::ListStats(
+                shard::ListStats {
                     min_length: 0,
                     min_non_empty_length: None, // No non-empty containers yet
                     max_length: 10,
@@ -1388,8 +1388,8 @@ mod tests {
 
         let current = shard::FieldDescriptor {
             position_count: 50,
-            type_specific: Some(shard::field_descriptor::TypeSpecific::ContainerStats(
-                shard::ContainerStats {
+            type_specific: Some(shard::field_descriptor::TypeSpecific::ListStats(
+                shard::ListStats {
                     min_length: 1,
                     min_non_empty_length: Some(5), // Has non-empty containers
                     max_length: 20,
@@ -1400,14 +1400,62 @@ mod tests {
 
         merge(&mut accumulated, &current).unwrap();
 
-        if let Some(shard::field_descriptor::TypeSpecific::ContainerStats(merged_stats)) =
+        if let Some(shard::field_descriptor::TypeSpecific::ListStats(merged_stats)) =
             &accumulated.type_specific
         {
             assert_eq!(merged_stats.min_length, 0); // min(0, 1)
             assert_eq!(merged_stats.min_non_empty_length, Some(5)); // None + Some(5) = Some(5)
             assert_eq!(merged_stats.max_length, 20); // max(10, 20)
         } else {
-            panic!("Expected container statistics in type_specific field");
+            panic!("Expected list container statistics in type_specific field");
+        }
+    }
+
+    #[test]
+    fn test_merge_binary_length_statistics() {
+        // Test merging of ListStats for binary data types (Binary, String, etc.)
+        // Binary data uses the same ListStats structure but represents byte lengths
+        let mut shard_field = shard::FieldDescriptor {
+            position_count: 1000,
+            null_count: Some(50),
+            type_specific: Some(shard::field_descriptor::TypeSpecific::ListStats(
+                shard::ListStats {
+                    min_length: 10,                 // Minimum binary length in bytes
+                    min_non_empty_length: Some(12), // Minimum non-empty binary length
+                    max_length: 1024,               // Maximum binary length in bytes
+                },
+            )),
+            ..Default::default()
+        };
+
+        let stripe_field = shard::FieldDescriptor {
+            position_count: 500,
+            null_count: Some(25),
+            type_specific: Some(shard::field_descriptor::TypeSpecific::ListStats(
+                shard::ListStats {
+                    min_length: 5,                 // Lower min binary length
+                    min_non_empty_length: Some(8), // Lower min non-empty binary length
+                    max_length: 2048,              // Higher max binary length
+                },
+            )),
+            ..Default::default()
+        };
+
+        merge(&mut shard_field, &stripe_field).unwrap();
+
+        // Verify aggregated statistics
+        assert_eq!(shard_field.position_count, 1500); // 1000 + 500
+        assert_eq!(shard_field.null_count, Some(75)); // 50 + 25
+
+        // Verify merged binary length statistics
+        if let Some(shard::field_descriptor::TypeSpecific::ListStats(merged_stats)) =
+            &shard_field.type_specific
+        {
+            assert_eq!(merged_stats.min_length, 5); // min(10, 5) - shortest binary data
+            assert_eq!(merged_stats.min_non_empty_length, Some(8)); // min(12, 8) - shortest non-empty binary
+            assert_eq!(merged_stats.max_length, 2048); // max(1024, 2048) - longest binary data
+        } else {
+            panic!("Expected binary length statistics in type_specific field");
         }
     }
 
@@ -1554,6 +1602,7 @@ mod tests {
 
         assert_eq!(descriptor.position_count, 10);
         assert_eq!(descriptor.null_count, Some(2));
+        assert_eq!(descriptor.raw_data_size, Some(4));
 
         // Check boolean-specific statistics
         if let Some(shard::field_descriptor::TypeSpecific::BooleanStats(proto_boolean_stats)) =
@@ -1564,6 +1613,147 @@ mod tests {
         } else {
             panic!("Expected boolean statistics in type_specific field");
         }
+    }
+
+    #[test]
+    fn test_create_with_stats_floating_statistics() {
+        let floating_stats = amudai_data_stats::floating::FloatingStats {
+            min_value: Some(-10.5),
+            max_value: Some(100.75),
+            null_count: 5,
+            total_count: 100,
+            zero_count: 10,
+            positive_count: 40,
+            negative_count: 35,
+            nan_count: 5,
+            positive_infinity_count: 3,
+            negative_infinity_count: 2,
+            raw_data_size: 765, // 95 non-null values * 8 bytes + ceil(100/8) = 13 bytes null bitmap = 765 bytes
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Floating(floating_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let descriptor = create_with_stats(100, &encoded_field);
+
+        assert_eq!(descriptor.position_count, 100);
+        assert_eq!(descriptor.null_count, Some(5));
+        assert_eq!(descriptor.raw_data_size, Some(765));
+
+        // Check floating-specific statistics
+        if let Some(shard::field_descriptor::TypeSpecific::FloatingStats(proto_floating_stats)) =
+            &descriptor.type_specific
+        {
+            assert_eq!(proto_floating_stats.nan_count, 5);
+            assert_eq!(proto_floating_stats.positive_infinity_count, 3);
+            assert_eq!(proto_floating_stats.negative_infinity_count, 2);
+        } else {
+            panic!("Expected floating statistics in type_specific field");
+        }
+    }
+
+    #[test]
+    fn test_create_with_stats_binary_statistics() {
+        let binary_stats = amudai_data_stats::binary::BinaryStats {
+            min_length: 5,
+            max_length: 1024,
+            min_non_empty_length: Some(8),
+            null_count: 3,
+            total_count: 50,
+            raw_data_size: 1247, // Variable length binary data + null bitmap overhead
+            bloom_filter: None,
+            min_value: None,
+            max_value: None,
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Binary(binary_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let descriptor = create_with_stats(50, &encoded_field);
+
+        assert_eq!(descriptor.position_count, 50);
+        assert_eq!(descriptor.null_count, Some(3));
+        assert_eq!(descriptor.raw_data_size, Some(1247));
+
+        // Check binary-specific statistics (uses BinaryStats for length tracking)
+        if let Some(shard::field_descriptor::TypeSpecific::BinaryStats(proto_binary_stats)) =
+            &descriptor.type_specific
+        {
+            assert_eq!(proto_binary_stats.min_length, 5);
+            assert_eq!(proto_binary_stats.min_non_empty_length, Some(8));
+            assert_eq!(proto_binary_stats.max_length, 1024);
+        } else {
+            panic!("Expected binary statistics in type_specific field");
+        }
+    }
+
+    #[test]
+    fn test_create_with_stats_list_container_statistics() {
+        let list_stats = amudai_data_stats::container::ListStats {
+            count: 75,
+            null_count: 10,
+            raw_data_size: 608, // 75 lists * 8 bytes per offset + ceil(75/8) = 10 bytes null bitmap = 608 bytes
+            min_length: Some(0),
+            max_length: Some(50),
+            min_non_empty_length: Some(3),
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::ListContainer(list_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let descriptor = create_with_stats(75, &encoded_field);
+
+        assert_eq!(descriptor.position_count, 75);
+        assert_eq!(descriptor.null_count, Some(10));
+        assert_eq!(descriptor.raw_data_size, Some(608));
+
+        // Check list container statistics
+        if let Some(shard::field_descriptor::TypeSpecific::ListStats(proto_list_stats)) =
+            &descriptor.type_specific
+        {
+            assert_eq!(proto_list_stats.min_length, 0);
+            assert_eq!(proto_list_stats.min_non_empty_length, Some(3));
+            assert_eq!(proto_list_stats.max_length, 50);
+        } else {
+            panic!("Expected list container statistics in type_specific field");
+        }
+    }
+
+    #[test]
+    fn test_create_with_stats_struct_container_statistics() {
+        let struct_stats = amudai_data_stats::container::StructStats {
+            count: 200,
+            null_count: 15,
+            raw_data_size: 25, // ceil(200/8) = 25 bytes for null bitmap
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::StructContainer(struct_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let descriptor = create_with_stats(200, &encoded_field);
+
+        assert_eq!(descriptor.position_count, 200);
+        assert_eq!(descriptor.null_count, Some(15));
+        assert_eq!(descriptor.raw_data_size, Some(25));
+
+        // Struct statistics don't have type_specific data (only null bitmap overhead)
+        assert!(descriptor.type_specific.is_none());
     }
     #[test]
     fn test_populate_boolean_statistics() {
@@ -1590,6 +1780,7 @@ mod tests {
         populate_statistics(&mut descriptor, &encoded_field);
 
         assert_eq!(descriptor.null_count, Some(1));
+        assert_eq!(descriptor.raw_data_size, Some(2));
         assert!(descriptor.type_specific.is_some());
 
         if let Some(shard::field_descriptor::TypeSpecific::BooleanStats(proto_boolean_stats)) =
@@ -1600,6 +1791,163 @@ mod tests {
         } else {
             panic!("Expected boolean statistics in type_specific field");
         }
+    }
+
+    #[test]
+    fn test_populate_floating_statistics() {
+        let floating_stats = amudai_data_stats::floating::FloatingStats {
+            min_value: Some(-5.25),
+            max_value: Some(42.0),
+            null_count: 2,
+            total_count: 50,
+            zero_count: 5,
+            positive_count: 25,
+            negative_count: 15,
+            nan_count: 3,
+            positive_infinity_count: 0,
+            negative_infinity_count: 0,
+            raw_data_size: 385, // 48 non-null values * 8 bytes + ceil(50/8) = 7 bytes null bitmap = 385 bytes
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Floating(floating_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let mut descriptor = shard::FieldDescriptor {
+            position_count: 50,
+            ..Default::default()
+        };
+
+        populate_statistics(&mut descriptor, &encoded_field);
+
+        assert_eq!(descriptor.null_count, Some(2));
+        assert_eq!(descriptor.raw_data_size, Some(385));
+        assert!(descriptor.type_specific.is_some());
+
+        if let Some(shard::field_descriptor::TypeSpecific::FloatingStats(proto_floating_stats)) =
+            &descriptor.type_specific
+        {
+            assert_eq!(proto_floating_stats.nan_count, 3);
+            assert_eq!(proto_floating_stats.positive_infinity_count, 0);
+            assert_eq!(proto_floating_stats.negative_infinity_count, 0);
+        } else {
+            panic!("Expected floating statistics in type_specific field");
+        }
+    }
+
+    #[test]
+    fn test_populate_binary_statistics() {
+        let binary_stats = amudai_data_stats::binary::BinaryStats {
+            min_length: 10,
+            max_length: 512,
+            min_non_empty_length: Some(15),
+            null_count: 5,
+            total_count: 30,
+            raw_data_size: 2048, // Variable length binary data + null bitmap overhead
+            bloom_filter: None,
+            min_value: None,
+            max_value: None,
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Binary(binary_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let mut descriptor = shard::FieldDescriptor {
+            position_count: 30,
+            ..Default::default()
+        };
+
+        populate_statistics(&mut descriptor, &encoded_field);
+
+        assert_eq!(descriptor.null_count, Some(5));
+        assert_eq!(descriptor.raw_data_size, Some(2048));
+        assert!(descriptor.type_specific.is_some());
+
+        if let Some(shard::field_descriptor::TypeSpecific::BinaryStats(proto_binary_stats)) =
+            &descriptor.type_specific
+        {
+            assert_eq!(proto_binary_stats.min_length, 10);
+            assert_eq!(proto_binary_stats.min_non_empty_length, Some(15));
+            assert_eq!(proto_binary_stats.max_length, 512);
+        } else {
+            panic!("Expected binary statistics in type_specific field");
+        }
+    }
+
+    #[test]
+    fn test_populate_list_container_statistics() {
+        let list_stats = amudai_data_stats::container::ListStats {
+            count: 100,
+            null_count: 8,
+            raw_data_size: 813, // 100 lists * 8 bytes per offset + ceil(100/8) = 13 bytes null bitmap = 813 bytes
+            min_length: Some(0),
+            max_length: Some(25),
+            min_non_empty_length: Some(2),
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::ListContainer(list_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let mut descriptor = shard::FieldDescriptor {
+            position_count: 100,
+            ..Default::default()
+        };
+
+        populate_statistics(&mut descriptor, &encoded_field);
+
+        assert_eq!(descriptor.null_count, Some(8));
+        assert_eq!(descriptor.raw_data_size, Some(813));
+        assert!(descriptor.type_specific.is_some());
+
+        if let Some(shard::field_descriptor::TypeSpecific::ListStats(proto_list_stats)) =
+            &descriptor.type_specific
+        {
+            assert_eq!(proto_list_stats.min_length, 0);
+            assert_eq!(proto_list_stats.min_non_empty_length, Some(2));
+            assert_eq!(proto_list_stats.max_length, 25);
+        } else {
+            panic!("Expected list container statistics in type_specific field");
+        }
+    }
+
+    #[test]
+    fn test_populate_struct_container_statistics() {
+        let struct_stats = amudai_data_stats::container::StructStats {
+            count: 150,
+            null_count: 12,
+            raw_data_size: 19, // ceil(150/8) = 19 bytes for null bitmap
+        };
+
+        let encoded_field = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::StructContainer(struct_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let mut descriptor = shard::FieldDescriptor {
+            position_count: 150,
+            ..Default::default()
+        };
+
+        populate_statistics(&mut descriptor, &encoded_field);
+
+        assert_eq!(descriptor.null_count, Some(12));
+        assert_eq!(descriptor.raw_data_size, Some(19));
+
+        // Struct statistics don't have type_specific data (only null bitmap overhead)
+        assert!(descriptor.type_specific.is_none());
     }
 
     #[test]
@@ -1926,12 +2274,254 @@ mod tests {
         let descriptor2 = create_with_stats(100, &encoded_field2);
         assert_eq!(descriptor2.raw_data_size, Some(1213));
 
-        // Test merging - raw_data_size should be aggregated
-        let mut accumulated = descriptor.clone();
-        merge(&mut accumulated, &descriptor2).unwrap();
+        // Test boolean statistics
+        let boolean_stats = amudai_data_stats::boolean::BooleanStats {
+            count: 50,
+            null_count: 5,
+            true_count: 30,
+            false_count: 15,
+            raw_data_size: 13, // ceil(50/8) = 7 bytes for boolean data + ceil(50/8) = 7 bytes null bitmap = 14 bytes
+        };
 
-        assert_eq!(accumulated.position_count, 200); // 100 + 100
-        assert_eq!(accumulated.raw_data_size, Some(1578)); // 365 + 1213
+        let encoded_field3 = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Boolean(boolean_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let descriptor3 = create_with_stats(50, &encoded_field3);
+        assert_eq!(descriptor3.raw_data_size, Some(13));
+
+        // Test floating statistics
+        let floating_stats = amudai_data_stats::floating::FloatingStats {
+            min_value: Some(-25.5),
+            max_value: Some(150.0),
+            null_count: 3,
+            total_count: 75,
+            zero_count: 10,
+            positive_count: 35,
+            negative_count: 27,
+            nan_count: 0,
+            positive_infinity_count: 0,
+            negative_infinity_count: 0,
+            raw_data_size: 577, // 72 non-null values * 8 bytes + ceil(75/8) = 10 bytes null bitmap = 577 bytes
+        };
+
+        let encoded_field4 = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Floating(floating_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let descriptor4 = create_with_stats(75, &encoded_field4);
+        assert_eq!(descriptor4.raw_data_size, Some(577));
+
+        // Test binary statistics
+        let binary_stats = amudai_data_stats::binary::BinaryStats {
+            min_length: 8,
+            max_length: 256,
+            min_non_empty_length: Some(8),
+            null_count: 2,
+            total_count: 25,
+            raw_data_size: 2048, // Variable length binary data + null bitmap overhead
+            bloom_filter: None,
+            min_value: None,
+            max_value: None,
+        };
+
+        let encoded_field5 = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Binary(binary_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let descriptor5 = create_with_stats(25, &encoded_field5);
+        assert_eq!(descriptor5.raw_data_size, Some(2048));
+
+        // Test list container statistics
+        let list_stats = amudai_data_stats::container::ListStats {
+            count: 60,
+            null_count: 4,
+            raw_data_size: 481, // 60 lists * 8 bytes per offset + ceil(60/8) = 8 bytes null bitmap = 481 bytes
+            min_length: Some(0),
+            max_length: Some(15),
+            min_non_empty_length: Some(2),
+        };
+
+        let encoded_field6 = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::ListContainer(list_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let descriptor6 = create_with_stats(60, &encoded_field6);
+        assert_eq!(descriptor6.raw_data_size, Some(481));
+
+        // Test struct container statistics
+        let struct_stats = amudai_data_stats::container::StructStats {
+            count: 40,
+            null_count: 3,
+            raw_data_size: 5, // ceil(40/8) = 5 bytes for null bitmap
+        };
+
+        let encoded_field7 = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::StructContainer(struct_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let descriptor7 = create_with_stats(40, &encoded_field7);
+        assert_eq!(descriptor7.raw_data_size, Some(5));
+
+        // Test decimal statistics (if available)
+        let decimal_stats = amudai_data_stats::decimal::DecimalStats {
+            min_value: None,
+            max_value: None,
+            null_count: 6,
+            total_count: 80,
+            zero_count: 5,
+            positive_count: 35,
+            negative_count: 34,
+            nan_count: 0,
+            raw_data_size: 1190, // 74 non-null values * 16 bytes + ceil(80/8) = 10 bytes null bitmap = 1190 bytes
+        };
+
+        let encoded_field8 = EncodedField {
+            buffers: vec![],
+            statistics: EncodedFieldStatistics::Decimal(decimal_stats),
+            dictionary_size: None,
+            constant_value: None,
+        };
+
+        let descriptor8 = create_with_stats(80, &encoded_field8);
+        assert_eq!(descriptor8.raw_data_size, Some(1190));
+
+        // Test merging - raw_data_size should be aggregated across all types
+        let mut accumulated = descriptor.clone();
+        merge(&mut accumulated, &descriptor2).unwrap(); // 365 + 1213 = 1578
+        merge(&mut accumulated, &descriptor3).unwrap(); // 1578 + 13 = 1591
+        merge(&mut accumulated, &descriptor4).unwrap(); // 1591 + 577 = 2168
+        merge(&mut accumulated, &descriptor5).unwrap(); // 2168 + 2048 = 4216
+        merge(&mut accumulated, &descriptor6).unwrap(); // 4216 + 481 = 4697
+        merge(&mut accumulated, &descriptor7).unwrap(); // 4697 + 5 = 4702
+        merge(&mut accumulated, &descriptor8).unwrap(); // 4702 + 1190 = 5892
+
+        assert_eq!(accumulated.position_count, 530); // 100+100+50+75+25+60+40+80
+        assert_eq!(accumulated.raw_data_size, Some(5892)); // Sum of all raw_data_sizes
+    }
+
+    #[test]
+    fn test_merge_floating_statistics_with_raw_data_size() {
+        // Test merging FloatingStats to ensure raw_data_size is properly aggregated
+        let mut shard_field = shard::FieldDescriptor {
+            position_count: 100,
+            null_count: Some(5),
+            raw_data_size: Some(765), // Initial raw_data_size
+            type_specific: Some(shard::field_descriptor::TypeSpecific::FloatingStats(
+                shard::FloatingStats {
+                    zero_count: 10,
+                    positive_count: 40,
+                    negative_count: 45,
+                    nan_count: 3,
+                    positive_infinity_count: 1,
+                    negative_infinity_count: 0,
+                },
+            )),
+            ..Default::default()
+        };
+
+        let stripe_field = shard::FieldDescriptor {
+            position_count: 50,
+            null_count: Some(2),
+            raw_data_size: Some(385), // Additional raw_data_size
+            type_specific: Some(shard::field_descriptor::TypeSpecific::FloatingStats(
+                shard::FloatingStats {
+                    zero_count: 5,
+                    positive_count: 20,
+                    negative_count: 23,
+                    nan_count: 1,
+                    positive_infinity_count: 0,
+                    negative_infinity_count: 1,
+                },
+            )),
+            ..Default::default()
+        };
+
+        merge(&mut shard_field, &stripe_field).unwrap();
+
+        // Verify aggregated statistics
+        assert_eq!(shard_field.position_count, 150); // 100 + 50
+        assert_eq!(shard_field.null_count, Some(7)); // 5 + 2
+        assert_eq!(shard_field.raw_data_size, Some(1150)); // 765 + 385
+
+        // Verify merged floating statistics
+        if let Some(shard::field_descriptor::TypeSpecific::FloatingStats(merged_stats)) =
+            &shard_field.type_specific
+        {
+            assert_eq!(merged_stats.zero_count, 15); // 10 + 5
+            assert_eq!(merged_stats.positive_count, 60); // 40 + 20
+            assert_eq!(merged_stats.negative_count, 68); // 45 + 23
+            assert_eq!(merged_stats.nan_count, 4); // 3 + 1
+            assert_eq!(merged_stats.positive_infinity_count, 1); // 1 + 0
+            assert_eq!(merged_stats.negative_infinity_count, 1); // 0 + 1
+        } else {
+            panic!("Expected floating statistics after merge");
+        }
+    }
+
+    #[test]
+    fn test_merge_binary_length_statistics_with_raw_data_size() {
+        // Test merging of ListStats for binary data types with raw_data_size validation
+        let mut shard_field = shard::FieldDescriptor {
+            position_count: 1000,
+            null_count: Some(50),
+            raw_data_size: Some(8192), // Initial binary raw_data_size
+            type_specific: Some(shard::field_descriptor::TypeSpecific::ListStats(
+                shard::ListStats {
+                    min_length: 10,                 // Minimum binary length in bytes
+                    min_non_empty_length: Some(12), // Minimum non-empty binary length
+                    max_length: 1024,               // Maximum binary length in bytes
+                },
+            )),
+            ..Default::default()
+        };
+
+        let stripe_field = shard::FieldDescriptor {
+            position_count: 500,
+            null_count: Some(25),
+            raw_data_size: Some(4096), // Additional binary raw_data_size
+            type_specific: Some(shard::field_descriptor::TypeSpecific::ListStats(
+                shard::ListStats {
+                    min_length: 5,                 // Lower min binary length
+                    min_non_empty_length: Some(8), // Lower min non-empty binary length
+                    max_length: 2048,              // Higher max binary length
+                },
+            )),
+            ..Default::default()
+        };
+
+        merge(&mut shard_field, &stripe_field).unwrap();
+
+        // Verify aggregated statistics
+        assert_eq!(shard_field.position_count, 1500); // 1000 + 500
+        assert_eq!(shard_field.null_count, Some(75)); // 50 + 25
+        assert_eq!(shard_field.raw_data_size, Some(12288)); // 8192 + 4096
+
+        // Verify merged binary length statistics
+        if let Some(shard::field_descriptor::TypeSpecific::ListStats(merged_stats)) =
+            &shard_field.type_specific
+        {
+            assert_eq!(merged_stats.min_length, 5); // min(10, 5) - shortest binary data
+            assert_eq!(merged_stats.min_non_empty_length, Some(8)); // min(12, 8) - shortest non-empty binary
+            assert_eq!(merged_stats.max_length, 2048); // max(1024, 2048) - longest binary data
+        } else {
+            panic!("Expected binary length statistics in type_specific field");
+        }
     }
 
     #[test]

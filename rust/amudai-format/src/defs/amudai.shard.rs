@@ -29,11 +29,7 @@ pub struct ShardDirectory {
     #[prost(fixed64, tag = "9")]
     pub stripe_count: u64,
     #[prost(fixed64, optional, tag = "10")]
-    pub stored_data_size: ::core::option::Option<u64>,
-    #[prost(fixed64, optional, tag = "11")]
-    pub stored_index_size: ::core::option::Option<u64>,
-    #[prost(fixed64, optional, tag = "12")]
-    pub plain_data_size: ::core::option::Option<u64>,
+    pub raw_data_size: ::core::option::Option<u64>,
 }
 /// Standard and custom name-value pairs associated with the shard.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -82,15 +78,11 @@ pub struct StripeDirectory {
     #[prost(fixed64, tag = "5")]
     pub deleted_record_count: u64,
     #[prost(fixed64, optional, tag = "6")]
-    pub stored_data_size: ::core::option::Option<u64>,
-    #[prost(fixed64, optional, tag = "7")]
-    pub stored_index_size: ::core::option::Option<u64>,
-    #[prost(fixed64, optional, tag = "8")]
-    pub plain_data_size: ::core::option::Option<u64>,
+    pub raw_data_size: ::core::option::Option<u64>,
     /// The logical offset of the first record in this stripe within the
     /// containing shard.
     /// This value does not account for deleted records in preceding stripes.
-    #[prost(fixed64, tag = "9")]
+    #[prost(fixed64, tag = "7")]
     pub record_offset: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -173,7 +165,10 @@ pub struct FieldDescriptor {
     ///    - 1000 all-null values: 0 bytes
     #[prost(fixed64, optional, tag = "41")]
     pub raw_data_size: ::core::option::Option<u64>,
-    #[prost(oneof = "field_descriptor::TypeSpecific", tags = "20, 21, 22, 23, 24")]
+    #[prost(
+        oneof = "field_descriptor::TypeSpecific",
+        tags = "20, 21, 22, 23, 24, 25"
+    )]
     pub type_specific: ::core::option::Option<field_descriptor::TypeSpecific>,
 }
 /// Nested message and enum types in `FieldDescriptor`.
@@ -183,10 +178,9 @@ pub mod field_descriptor {
         /// Applicable only for the string type. All sizes are measured in bytes, not code points.
         #[prost(message, tag = "20")]
         StringStats(super::StringStats),
-        /// Relevant for variable-length List, Map, and binary types (where binary is treated
-        /// as a container of bytes).
+        /// Relevant for variable-length List, Map.
         #[prost(message, tag = "21")]
-        ContainerStats(super::ContainerStats),
+        ListStats(super::ListStats),
         /// Statistics specific to boolean fields.
         #[prost(message, tag = "22")]
         BooleanStats(super::BooleanStats),
@@ -196,6 +190,9 @@ pub mod field_descriptor {
         /// Statistics specific to floating-point fields (f32, f64).
         #[prost(message, tag = "24")]
         FloatingStats(super::FloatingStats),
+        /// Statistics for binary types (where binary is treated as a container of bytes).
+        #[prost(message, tag = "25")]
+        BinaryStats(super::BinaryStats),
     }
 }
 /// Provides the minimum and maximum values for the stored sequence.
@@ -242,17 +239,29 @@ pub struct BooleanStats {
     #[prost(fixed64, tag = "2")]
     pub false_count: u64,
 }
-/// Relevant for variable-length List, Map, and binary types
-/// (where binary is treated as a container of bytes).
+/// Relevant for variable-length List and Map.
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct ContainerStats {
-    /// Minimum length of the container (`List`, `Map` or `Binary`).
+pub struct ListStats {
+    /// Minimum length of the container (`List`, `Map`).
     #[prost(fixed64, tag = "1")]
     pub min_length: u64,
     /// Minimum length of non-empty container.
     #[prost(fixed64, optional, tag = "2")]
     pub min_non_empty_length: ::core::option::Option<u64>,
-    /// Maximum length of the container (`List`, `Map` or `Binary`).
+    /// Maximum length of the container (`List`, `Map`).
+    #[prost(fixed64, tag = "3")]
+    pub max_length: u64,
+}
+/// Relevant for Binary stats.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct BinaryStats {
+    /// Minimum length of the binary chunk.
+    #[prost(fixed64, tag = "1")]
+    pub min_length: u64,
+    /// Minimum length of non-empty container.
+    #[prost(fixed64, optional, tag = "2")]
+    pub min_non_empty_length: ::core::option::Option<u64>,
+    /// Maximum length of the binary chunk.
     #[prost(fixed64, tag = "3")]
     pub max_length: u64,
 }

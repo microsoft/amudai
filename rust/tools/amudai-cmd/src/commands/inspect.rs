@@ -94,11 +94,7 @@ struct StripeDescriptorInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     indexes_ref: Option<DataRefInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    stored_data_size: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    stored_index_size: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    plain_data_size: Option<u64>,
+    raw_data_size: Option<u64>,
     record_offset: u64,
 }
 
@@ -545,9 +541,7 @@ fn create_stripe_info(
         Some(StripeDescriptorInfo {
             properties_ref: directory.properties_ref.as_ref().map(create_data_ref_info),
             indexes_ref: directory.indexes_ref.as_ref().map(create_data_ref_info),
-            stored_data_size: directory.stored_data_size,
-            stored_index_size: directory.stored_index_size,
-            plain_data_size: directory.plain_data_size,
+            raw_data_size: directory.raw_data_size,
             record_offset: directory.record_offset,
         })
     } else {

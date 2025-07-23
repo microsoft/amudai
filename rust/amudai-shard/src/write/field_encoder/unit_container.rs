@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use amudai_blockstream::write::bit_buffer::{BitBufferEncoder, EncodedBitBuffer};
 use amudai_common::{Result, error::Error};
+use amudai_data_stats::container::StructStatsCollector;
 use amudai_format::defs::shard;
 use arrow_array::{Array, cast::AsArray};
 
@@ -20,6 +21,7 @@ use super::{EncodedField, FieldEncoderOps};
 pub struct UnitContainerFieldEncoder {
     params: FieldEncoderParams,
     presence_encoder: BitBufferEncoder,
+    stats_collector: StructStatsCollector,
 }
 
 impl UnitContainerFieldEncoder {
@@ -30,6 +32,7 @@ impl UnitContainerFieldEncoder {
                 params.temp_store.clone(),
                 params.encoding_profile,
             ),
+            stats_collector: StructStatsCollector::new(),
         }))
     }
 }
@@ -47,21 +50,31 @@ impl FieldEncoderOps for UnitContainerFieldEncoder {
             ));
         };
 
+        let array_len = array.len();
         if let Some(buf) = buf_opt {
             self.presence_encoder.append(buf)?;
+            self.stats_collector
+                .process_structs(array_len, array.null_count());
         } else {
-            self.presence_encoder.append_repeated(array.len(), true)?;
+            self.presence_encoder.append_repeated(array_len, true)?;
+            self.stats_collector.process_structs(array_len, 0);
         }
         Ok(())
     }
 
     fn push_nulls(&mut self, count: usize) -> Result<()> {
         self.presence_encoder.append_repeated(count, false)?;
+        // Add null containers to statistics
+        self.stats_collector.process_nulls(count as u64);
         Ok(())
     }
 
     fn finish(self: Box<Self>) -> Result<EncodedField> {
         let mut buffers = Vec::new();
+
+        // Collect container statistics
+        let container_stats = self.stats_collector.finalize();
+
         match self.presence_encoder.finish()? {
             EncodedBitBuffer::Constant(value, count) => {
                 if !value {
@@ -90,7 +103,7 @@ impl FieldEncoderOps for UnitContainerFieldEncoder {
         }
         Ok(EncodedField {
             buffers,
-            statistics: super::EncodedFieldStatistics::Missing, // Container fields don't collect primitive statistics
+            statistics: super::EncodedFieldStatistics::StructContainer(container_stats),
             dictionary_size: None,
             constant_value: None,
         })

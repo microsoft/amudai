@@ -349,9 +349,7 @@ impl PreparedShard {
 
         let shard_url = ObjectUrl::parse(writer.url())?;
         let shard_url_container = shard_url.get_container()?;
-        let container = container
-            .map(|url| Cow::Borrowed(url))
-            .unwrap_or(shard_url_container);
+        let container = container.map(Cow::Borrowed).unwrap_or(shard_url_container);
 
         let stripes = match params.file_organization {
             ShardFileOrganization::TwoLevel => {
@@ -387,6 +385,8 @@ impl PreparedShard {
         let url_list = Self::prepare_url_list(&stripes, shard_url);
         let fields = Self::prepare_field_list(&params.schema.schema()?, &stripes)?;
 
+        // Calculate the total raw data size from the sealed stripes
+        directory.raw_data_size = Self::calculate_shard_raw_data_size(&stripes);
         directory.stripe_list_ref = Self::write_stripe_list(stripes, writer, shard_url)?.into();
         directory.url_list_ref = Self::write_url_list(writer, &url_list, shard_url)?.into();
         directory.field_list_ref = Self::write_field_list(writer, &fields, shard_url)?.into();
@@ -540,6 +540,28 @@ impl PreparedShard {
         writer.write_all(schema.as_bytes())?;
         let end = writer.position();
         Ok(DataRef::new("", start..end))
+    }
+
+    /// Calculates the total raw data size by summing up raw_data_size from all sealed stripes.
+    /// Sealed stripes without raw_data_size (None) are skipped.
+    ///
+    /// # Returns
+    /// - `Some(total_size)`: If at least one sealed stripe has raw_data_size information
+    /// - `None`: If no sealed stripes have raw_data_size information
+    fn calculate_shard_raw_data_size(stripes: &[SealedStripe]) -> Option<u64> {
+        let mut total_size = 0u64;
+        let mut has_any_size = false;
+
+        for stripe in stripes {
+            // We need to calculate the raw data size from the stripe's fields
+            if let Some(stripe_raw_size) = stripe.calculate_total_raw_data_size() {
+                total_size += stripe_raw_size;
+                has_any_size = true;
+            }
+            // Skip stripes with None raw_data_size
+        }
+
+        if has_any_size { Some(total_size) } else { None }
     }
 
     fn write_stripe_list(

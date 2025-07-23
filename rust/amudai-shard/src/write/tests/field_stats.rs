@@ -862,7 +862,7 @@ fn test_binary_statistics_integration_and_edge_cases() -> Result<()> {
     assert_eq!(field_descriptor.position_count, 4);
     assert_eq!(field_descriptor.null_count, Some(1));
 
-    if let Some(amudai_format::defs::shard::field_descriptor::TypeSpecific::ContainerStats(
+    if let Some(amudai_format::defs::shard::field_descriptor::TypeSpecific::BinaryStats(
         binary_stats,
     )) = &field_descriptor.type_specific
     {
@@ -939,7 +939,7 @@ fn test_binary_statistics_aggregation_across_stripes() -> Result<()> {
     assert_eq!(shard_field_desc.position_count, 7);
     assert_eq!(shard_field_desc.null_count, Some(1));
 
-    if let Some(amudai_format::defs::shard::field_descriptor::TypeSpecific::ContainerStats(
+    if let Some(amudai_format::defs::shard::field_descriptor::TypeSpecific::BinaryStats(
         binary_stats,
     )) = &shard_field_desc.type_specific
     {

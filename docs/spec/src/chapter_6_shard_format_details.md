@@ -221,9 +221,7 @@ message ShardDirectory {
     fixed64 deleted_record_count = 8;
     fixed64 stripe_count = 9;
     
-    optional fixed64 stored_data_size = 10;
-    optional fixed64 stored_index_size = 11;
-    optional fixed64 plain_data_size = 12;
+    optional fixed64 raw_data_size = 10;
 }
 ```
 
@@ -344,8 +342,8 @@ The `ShardProperties` message is referenced by the `properties_ref` field in the
 message ShardProperties {
     DateTimeUtc creation_min = 1;
     DateTimeUtc creation_max = 2;
-    repeated NameValuePair standard_properties = 4;
-    repeated NameValuePair custom_properties = 5;
+    repeated NameValuePair standard_properties = 3;
+    repeated NameValuePair custom_properties = 4;
 }
 ```
 
@@ -383,7 +381,7 @@ The `StripeList` is referenced by the `stripe_list_ref` in the shard directory.
 
 ```protobuf
 message StripeList {
-    repeated StripeDirectory stipes = 1;
+    repeated StripeDirectory stripes = 1;
 }
 
 message StripeDirectory {
@@ -399,9 +397,9 @@ message StripeDirectory {
     fixed64 total_record_count = 4;
     fixed64 deleted_record_count = 5;
     
-    optional fixed64 stored_data_size = 6;
-    optional fixed64 stored_index_size = 7;
-    optional fixed64 plain_data_size = 8;
+    optional fixed64 raw_data_size = 6;
+
+    fixed64 record_offset = 7;
 }
 
 message StripeProperties {
@@ -424,14 +422,15 @@ message FieldDescriptor {
     optional CardinalityInfo cardinality = 7;
     optional MembershipFilters membership_filters = 8;
     optional IndexCollection indexes = 9;
-    repeated NameValuePair properties = 10;
+    repeated NameValuePair standard_properties = 10;
 
     oneof type_specific {
         StringStats string_stats = 20;
-        ContainerStats container_stats = 21;
+        ListStats container_stats = 21;
         BooleanStats boolean_stats = 22;
         DecimalStats decimal_stats = 23;
         FloatingStats floating_stats = 24;
+        BinaryStats binary_stats = 25;
     }
     
     repeated NameValuePair custom_properties = 40;
@@ -457,7 +456,13 @@ message BooleanStats {
     fixed64 false_count = 2;
 }
 
-message ContainerStats {
+message ListStats {
+    fixed64 min_length = 1;
+    optional fixed64 min_non_empty_length = 2;
+    fixed64 max_length = 3;
+}
+
+message BinaryStats {
     fixed64 min_length = 1;
     optional fixed64 min_non_empty_length = 2;
     fixed64 max_length = 3;
@@ -535,6 +540,8 @@ message SplitBlockBloomFilter {
 
 - `indexes`: Optional indexes specific to the field (these can exist alongside multi-field indexes at the shard or stripe level).
 
+- `standard_properties`: Additional properties associated with the field.
+
 - `membership_filters`: Optional approximate membership query (AMQ) filters for the values of the field. **Note**: This field is only populated when the `FieldDescriptor` is used at the stripe level (within `StripeFieldDescriptor`). At the shard level, this field remains empty.
 
 - `StringStats`: Applicable only for the `string` type. All sizes are measured in bytes, not code points.
@@ -546,10 +553,15 @@ message SplitBlockBloomFilter {
     - `true_count`: The number of value slots equal to `true`.
     - `false_count`: The number of value slots equal to `false`.
 
-- `ContainerStats`: Relevant for variable-length `List`, `Map`, and `binary` types (where `binary` is treated as a container of bytes).
+- `ListStats`: Relevant for variable-length `List` and `Map` types.
     - `min_length`: The minimum length of the container.
     - `min_non_empty_length`: The minimum length of a non-empty container.
     - `max_length`: The maximum length of the container.
+
+- `BinaryStats`: Relevant for `binary` types (where `binary` is treated as a container of bytes).
+    - `min_length`: The minimum length of the binary chunk.
+    - `min_non_empty_length`: The minimum length of a non-empty container.
+    - `max_length`: The maximum length of the binary chunk.
 
 - `DecimalStats`: Applicable only for decimal types (128-bit precision).
     - `zero_count`: The number of decimal values that are zero.
@@ -585,13 +597,10 @@ The Stripe Field Descriptor shares part of its definition with a base Field Desc
 message StripeFieldDescriptor {
     FieldDescriptor field = 1;
     repeated DataEncoding encodings = 2;
-    optional MembershipFilters membership_filters = 3;
 }
 ```
 
 The `StripeFieldDescriptor` contains a list of data encodings, each offering an alternative way to represent the sequence of values. Typically, you'll find just one `DataEncoding` in this list. However, if there are multiple encodings, they should be arranged by priority, with the most efficient one for decoding placed first. When accessing the field's values, the reader should always try the first data encoding and use the others only as backups if the first isn't fully supported.
-
-The `StripeFieldDescriptor` includes `membership_filters` at the top level (field 3) to provide approximate membership query (AMQ) filters like bloom filters. Note that `membership_filters` should not be populated in the embedded `FieldDescriptor` (field 8) as these filters are maintained exclusively at the stripe level.
 
 ### Data Encoding
 
@@ -626,6 +635,7 @@ The `NativeDataEncoding` of a field is expressed through one or more encoded buf
 - `OFFSETS`: Works alongside the `DATA` buffer for variable-sized types such as `string` and `binary`. It stores the end-of-value offsets of the corresponding byte slices in the `DATA` buffer. Logically, this is a sequence of `uint64` values starting from zero, with a length one greater than the number of value slots. A variable-sized value at logical position `i` has a byte range `offsets[i]..offsets[i + 1]` in the `DATA` buffer.
 - `VALUE_DICTIONARY`: Supports the dictionary encoding of values. It associates a unique integer ID (`uint32`) with each distinct value of the field within the stripe, while the `DATA` buffer stores a sequence of these dictionary IDs.
 - `OPAQUE_DICTIONARY`: An opaque dictionary buffer used by the general-purpose block compressor as a shared dictionary across multiple blocks. A block that uses this dictionary will reference the corresponding dictionary buffer in its header.
+- `RANGE_INDEX`: Stores numeric range index data for numeric fields.
 
 The following sections review encodings specific to data types.
 
@@ -716,10 +726,11 @@ message EncodedBuffer {
 
 enum BufferKind {
     DATA = 0;
-    PRESENSE = 1;
+    PRESENCE = 1;
     OFFSETS = 2;
     VALUE_DICTIONARY = 3;
     OPAQUE_DICTIONARY = 4;
+    RANGE_INDEX = 5;
 }
 ```
 
@@ -863,14 +874,14 @@ message ParquetColumnChunkRef {
 }
 
 enum ParquetStorageType {
-  BOOLEAN = 0;
-  INT32 = 1;
-  INT64 = 2;
-  INT96 = 3;
-  FLOAT = 4;
-  DOUBLE = 5;
-  BYTE_ARRAY = 6;
-  FIXED_LEN_BYTE_ARRAY = 7;
+    BOOLEAN = 0;
+    INT32 = 1;
+    INT64 = 2;
+    INT96 = 3;
+    FLOAT = 4;
+    DOUBLE = 5;
+    BYTE_ARRAY = 6;
+    FIXED_LEN_BYTE_ARRAY = 7;
 }
 ```
 
@@ -927,13 +938,7 @@ message IndexDescriptor {
 }
 
 message IndexedField {
-    oneof kind {
-        // schema id of the corresponding field
-        fixed32 single = 1;
-        
-        // schema id's of the corresponding fields
-        repeated fixed32 composite = 2;
-    }
+    repeated fixed32 schema_ids = 1;
 }
 ```
 
@@ -951,10 +956,10 @@ Let's clarify this concept with an example. Imagine a shard for a table with fie
 {
     "index_type": "inverted-term-index",
     "indexed_fields": [
-        { "single": 0 },
-        { "single": 1 },
-        { "single": 2 },
-        { "composite": [1, 2] }
+        { "schema_ids": [0] },
+        { "schema_ids": [1] },
+        { "schema_ids": [2] },
+        { "schema_ids": [1, 2] }
     ]
 }
 ```
