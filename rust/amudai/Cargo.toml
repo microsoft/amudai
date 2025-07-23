@@ -19,8 +19,9 @@ amudai-budget-tracker = { workspace = true }
 amudai-bytes = { workspace = true }
 amudai-collections = { workspace = true }
 amudai-common = { workspace = true }
-amudai-spill-data = { workspace = true }
+amudai-common-traits = { workspace = true }
 amudai-data-stats = { workspace = true }
+amudai-decimal = { workspace = true }
 amudai-encodings = { workspace = true }
 amudai-format = { workspace = true }
 amudai-hashmap-index = { workspace = true }
@@ -29,7 +30,13 @@ amudai-io = { workspace = true }
 amudai-io-impl = { workspace = true }
 amudai-keyed-vector = { workspace = true }
 amudai-objectstore = { workspace = true }
+amudai-page-alloc = { workspace = true }
+amudai-position-set = { workspace = true }
+amudai-ranges = { workspace = true }
 amudai-sequence = { workspace = true }
 amudai-shard = { workspace = true }
+amudai-shared-vec = { workspace = true }
+amudai-spill-data = { workspace = true }
 amudai-text-index = { workspace = true }
+amudai-value-conversions = { workspace = true }
 amudai-workflow = { workspace = true }

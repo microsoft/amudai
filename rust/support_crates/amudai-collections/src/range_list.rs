@@ -2,14 +2,14 @@
 //!
 //! A `RangeList<T>` stores a list of non-overlapping, ascending ranges
 //! (typically over integral types) in a shared, immutable view. It builds
-//! on top of `SharedVecSlice<Range<T>>`.
+//! on top of `SharedVec<Range<T>>`.
 //!
 //! In addition to borrowing the underlying slice of `Range<T>` values,
 //! it "trims" the first and last range. This means the logical start of the
 //! first range can be greater than `inner[0].start`, and the logical end
 //! of the last range can be less than `inner[inner.len()-1].end`.
 
-use crate::shared_vec_slice::SharedVecSlice;
+use amudai_shared_vec::SharedVec;
 use std::{
     convert::identity,
     ops::{Range, RangeBounds},
@@ -36,7 +36,7 @@ pub struct RangeList<T> {
     /// These ranges are guaranteed to be sorted and non-overlapping.
     /// `self.first` and `self.last` override `self.inner[0]` and
     /// `self.inner[last_idx]`.
-    inner: SharedVecSlice<Range<T>>,
+    inner: SharedVec<Range<T>>,
 
     /// First logical range, "overrides" `inner[0]`.
     ///
@@ -73,7 +73,7 @@ impl<T: Clone> RangeList<T> {
     /// A `RangeList` with one logical range.
     pub fn from_elem(r: Range<T>) -> Self {
         RangeList {
-            inner: SharedVecSlice::from_elem(r.clone()),
+            inner: SharedVec::from_elem(r.clone()),
             first: r.clone(),
             last: r,
         }
@@ -130,7 +130,7 @@ impl<T: Default + Clone> RangeList<T> {
     /// An empty `RangeList`.
     pub fn empty() -> Self {
         RangeList {
-            inner: SharedVecSlice::empty(),
+            inner: SharedVec::empty(),
             first: T::default()..T::default(),
             last: T::default()..T::default(),
         }
@@ -145,7 +145,7 @@ impl<T: Default + Clone> RangeList<T> {
     /// # Returns
     ///
     /// A `RangeList` covering the full extent of the provided ranges.
-    pub fn new(inner: SharedVecSlice<Range<T>>) -> Self {
+    pub fn new(inner: SharedVec<Range<T>>) -> Self {
         if inner.is_empty() {
             Self::empty()
         } else {
@@ -165,7 +165,7 @@ impl<T: Default + Clone> RangeList<T> {
     ///
     /// A `RangeList` covering the full extent of the provided ranges.
     pub fn from_slice(slice: &[Range<T>]) -> Self {
-        Self::new(SharedVecSlice::from_slice(slice))
+        Self::new(SharedVec::from_slice(slice))
     }
 }
 
@@ -350,7 +350,7 @@ impl<T: Default + Clone + PartialOrd> RangeList<T> {
     /// # Returns
     ///
     /// A `RangeList<T>` representing the trimmed view. Returns an empty list if `inner` is empty.
-    fn new_trimmed(inner: SharedVecSlice<Range<T>>, start: T, end: T) -> Self {
+    fn new_trimmed(inner: SharedVec<Range<T>>, start: T, end: T) -> Self {
         if inner.is_empty() {
             Self::empty()
         } else {
@@ -419,7 +419,7 @@ impl<T> RangeList<T> {
     }
 
     /// Returns a reference to the underlying shared slice of ranges.
-    pub fn inner(&self) -> &SharedVecSlice<Range<T>> {
+    pub fn inner(&self) -> &SharedVec<Range<T>> {
         &self.inner
     }
 
@@ -743,7 +743,7 @@ mod tests {
 
     #[test]
     fn test_new_trimmed() {
-        let empty = SharedVecSlice::empty();
+        let empty = SharedVec::empty();
         let trimmed = RangeList::new_trimmed(empty, 0, 0);
         assert!(trimmed.is_empty());
         assert_eq!(trimmed.len(), 0);

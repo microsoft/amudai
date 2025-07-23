@@ -721,7 +721,7 @@ mod details {
         Bytes, BytesMut,
         buffer::{AlignedByteVec, Buffer},
     };
-    use amudai_collections::shared_vec_slice::SharedVecSlice;
+    use amudai_shared_vec::SharedVec;
 
     use crate::pod_vec::{PodCollector, PodView};
 
@@ -779,12 +779,12 @@ mod details {
         }
     }
 
-    impl<T> AsSlice for SharedVecSlice<T> {
+    impl<T> AsSlice for SharedVec<T> {
         type Item = T;
 
         #[inline]
         fn as_slice(&self) -> &[Self::Item] {
-            SharedVecSlice::as_slice(self)
+            SharedVec::as_slice(self)
         }
     }
 

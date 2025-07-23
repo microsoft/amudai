@@ -113,6 +113,13 @@ pub mod support {
     pub use amudai_budget_tracker as budget_tracker;
     pub use amudai_bytes as bytes;
     pub use amudai_collections as collections;
+    pub use amudai_common_traits as common_traits;
+    pub use amudai_decimal as decimal;
     pub use amudai_keyed_vector as keyed_vector;
+    pub use amudai_page_alloc as page_alloc;
+    pub use amudai_position_set as position_set;
+    pub use amudai_ranges as ranges;
+    pub use amudai_shared_vec as shared_vec;
+    pub use amudai_value_conversions as value_conversions;
     pub use amudai_workflow as workflow;
 }
