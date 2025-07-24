@@ -8,3 +8,11 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+amudai-common-traits = { workspace = true }
+bytemuck = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }
+
+[target.'cfg(not(windows))'.dependencies]
+libc = { workspace = true }

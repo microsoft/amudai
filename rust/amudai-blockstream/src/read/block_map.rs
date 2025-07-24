@@ -517,7 +517,7 @@ impl BlockMap {
     ///
     /// # Performance Considerations
     ///
-    /// - **Individual positions**: Each position potemtially requires a block lookup. Adjacent
+    /// - **Individual positions**: Each position potentially requires a block lookup. Adjacent
     ///   positions within the same block are automatically deduplicated.
     /// - **Position ranges**: More efficient for contiguous data access as entire ranges
     ///   can be processed together.

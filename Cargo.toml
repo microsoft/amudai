@@ -43,7 +43,7 @@ exclude = []
 resolver = "2"
 
 [workspace.package]
-version = "0.2.31"
+version = "0.2.32"
 edition = "2024"
 authors = ["Kusto Devs"]
 readme = "README.md"
@@ -108,47 +108,52 @@ url = "2"
 uuid = "1"
 windows-sys = { version = "0.60", features = [
         "Win32_Foundation",
+        "Win32_Security",
         "Win32_Storage_FileSystem",
-        "Win32_System_IO"
+        "Win32_System_IO",
+        "Win32_System_Threading",
+        "Win32_System_Memory",
+        "Win32_System_SystemInformation",
+        "Win32_System_Diagnostics_Debug",
     ] }
 xshell = "0.2"
 xxhash-rust = { version = "0.8", features = ["xxh64", "xxh3"] }
 zstd = { version = "0.13" }
 
-amudai = { version = "0.2.31", path = "rust/amudai" }
-amudai-arrow = { version = "0.2.31", path = "rust/amudai-arrow" }
-amudai-arrow-builders = { version = "0.2.31", path = "rust/support_crates/amudai-arrow-builders" }
-amudai-arrow-builders-macros = { version = "0.2.31", path = "rust/support_crates/amudai-arrow-builders-macros" }
-amudai-arrow-compat = { version = "0.2.31", path = "rust/amudai-arrow-compat" }
-amudai-arrow-processing = { version = "0.2.31", path = "rust/support_crates/amudai-arrow-processing" }
-amudai-blockstream = { version = "0.2.31", path = "rust/amudai-blockstream" }
-amudai-bloom-filters = { version = "0.2.31", path = "rust/support_crates/amudai-bloom-filters" }
-amudai-budget-tracker = { version = "0.2.31", path = "rust/support_crates/amudai-budget-tracker" }
-amudai-bytes = { version = "0.2.31", path = "rust/support_crates/amudai-bytes" }
-amudai-collections = { version = "0.2.31", path = "rust/support_crates/amudai-collections" }
-amudai-common = { version = "0.2.31", path = "rust/amudai-common" }
-amudai-common-traits = { version = "0.2.31", path = "rust/support_crates/amudai-common-traits" }
-amudai-data-stats = { version = "0.2.31", path = "rust/amudai-data-stats" }
-amudai-decimal = { version = "0.2.31", path = "rust/support_crates/amudai-decimal" }
-amudai-encodings = { version = "0.2.31", path = "rust/amudai-encodings" }
-amudai-format = { version = "0.2.31", path = "rust/amudai-format" }
-amudai-hashmap-index = { version = "0.2.31", path = "rust/amudai-hashmap-index" }
-amudai-index-core = { version = "0.2.31", path = "rust/amudai-index-core" }
-amudai-io = { version = "0.2.31", path = "rust/amudai-io" }
-amudai-io-impl = { version = "0.2.31", path = "rust/amudai-io-impl" }
-amudai-keyed-vector = { version = "0.2.31", path = "rust/support_crates/amudai-keyed-vector" }
-amudai-objectstore = { version = "0.2.31", path = "rust/amudai-objectstore" }
-amudai-page-alloc = { version = "0.2.31", path = "rust/support_crates/amudai-page-alloc" }
-amudai-position-set = { version = "0.2.31", path = "rust/support_crates/amudai-position-set" }
-amudai-ranges = { version = "0.2.31", path = "rust/support_crates/amudai-ranges" }
-amudai-sequence = { version = "0.2.31", path = "rust/amudai-sequence" }
-amudai-shard = { version = "0.2.31", path = "rust/amudai-shard" }
-amudai-shared-vec = { version = "0.2.31", path = "rust/support_crates/amudai-shared-vec" }
-amudai-spill-data = { version = "0.2.31", path = "rust/amudai-spill-data" }
-amudai-testkit = { version = "0.2.31", path = "rust/amudai-testkit" }
-amudai-text-index = { version = "0.2.31", path = "rust/amudai-text-index" }
-amudai-value-conversions = { version = "0.2.31", path = "rust/support_crates/amudai-value-conversions" }
-amudai-workflow = { version = "0.2.31", path = "rust/support_crates/amudai-workflow" }
+amudai = { version = "0.2.32", path = "rust/amudai" }
+amudai-arrow = { version = "0.2.32", path = "rust/amudai-arrow" }
+amudai-arrow-builders = { version = "0.2.32", path = "rust/support_crates/amudai-arrow-builders" }
+amudai-arrow-builders-macros = { version = "0.2.32", path = "rust/support_crates/amudai-arrow-builders-macros" }
+amudai-arrow-compat = { version = "0.2.32", path = "rust/amudai-arrow-compat" }
+amudai-arrow-processing = { version = "0.2.32", path = "rust/support_crates/amudai-arrow-processing" }
+amudai-blockstream = { version = "0.2.32", path = "rust/amudai-blockstream" }
+amudai-bloom-filters = { version = "0.2.32", path = "rust/support_crates/amudai-bloom-filters" }
+amudai-budget-tracker = { version = "0.2.32", path = "rust/support_crates/amudai-budget-tracker" }
+amudai-bytes = { version = "0.2.32", path = "rust/support_crates/amudai-bytes" }
+amudai-collections = { version = "0.2.32", path = "rust/support_crates/amudai-collections" }
+amudai-common = { version = "0.2.32", path = "rust/amudai-common" }
+amudai-common-traits = { version = "0.2.32", path = "rust/support_crates/amudai-common-traits" }
+amudai-data-stats = { version = "0.2.32", path = "rust/amudai-data-stats" }
+amudai-decimal = { version = "0.2.32", path = "rust/support_crates/amudai-decimal" }
+amudai-encodings = { version = "0.2.32", path = "rust/amudai-encodings" }
+amudai-format = { version = "0.2.32", path = "rust/amudai-format" }
+amudai-hashmap-index = { version = "0.2.32", path = "rust/amudai-hashmap-index" }
+amudai-index-core = { version = "0.2.32", path = "rust/amudai-index-core" }
+amudai-io = { version = "0.2.32", path = "rust/amudai-io" }
+amudai-io-impl = { version = "0.2.32", path = "rust/amudai-io-impl" }
+amudai-keyed-vector = { version = "0.2.32", path = "rust/support_crates/amudai-keyed-vector" }
+amudai-objectstore = { version = "0.2.32", path = "rust/amudai-objectstore" }
+amudai-page-alloc = { version = "0.2.32", path = "rust/support_crates/amudai-page-alloc" }
+amudai-position-set = { version = "0.2.32", path = "rust/support_crates/amudai-position-set" }
+amudai-ranges = { version = "0.2.32", path = "rust/support_crates/amudai-ranges" }
+amudai-sequence = { version = "0.2.32", path = "rust/amudai-sequence" }
+amudai-shard = { version = "0.2.32", path = "rust/amudai-shard" }
+amudai-shared-vec = { version = "0.2.32", path = "rust/support_crates/amudai-shared-vec" }
+amudai-spill-data = { version = "0.2.32", path = "rust/amudai-spill-data" }
+amudai-testkit = { version = "0.2.32", path = "rust/amudai-testkit" }
+amudai-text-index = { version = "0.2.32", path = "rust/amudai-text-index" }
+amudai-value-conversions = { version = "0.2.32", path = "rust/support_crates/amudai-value-conversions" }
+amudai-workflow = { version = "0.2.32", path = "rust/support_crates/amudai-workflow" }
 
 [profile.devrel]
 inherits = "release"
