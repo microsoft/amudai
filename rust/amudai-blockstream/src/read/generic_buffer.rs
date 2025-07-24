@@ -20,7 +20,7 @@ use super::{
 /// - Decoding binary block data
 /// - Merging data from multiple blocks into a single result sequence
 ///
-/// This reader is typically created by calling `PrimitiveBufferDecoder::create_reader_with_ranges`.
+/// This reader is typically created by calling `PrimitiveBufferDecoder::create_reader`.
 pub struct GenericBufferReader<Decoder> {
     /// The underlying block reader that handles block I/O operations
     block_reader: BlockReader,

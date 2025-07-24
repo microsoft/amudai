@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+use amudai_blockstream::read::block_stream::empty_hint;
 use amudai_format::{
     defs::shard::BufferKind,
     schema::{BasicType, BasicTypeDescriptor},
@@ -194,9 +195,7 @@ fn test_dictionary_codes_reader() {
     assert!(dictionary.null_id().unwrap().is_some());
     assert!(dictionary.null_id().unwrap().unwrap() < value_count as u32);
 
-    let mut reader = dictionary_field
-        .create_codes_reader_with_ranges(std::iter::empty())
-        .unwrap();
+    let mut reader = dictionary_field.create_codes_reader(empty_hint()).unwrap();
     let codes = reader.read_range(10000..20000).unwrap();
     assert!(
         codes
@@ -205,9 +204,7 @@ fn test_dictionary_codes_reader() {
             .all(|&code| code < value_count as u32)
     );
 
-    let mut cursor = dictionary_field
-        .create_codes_cursor(std::iter::empty())
-        .unwrap();
+    let mut cursor = dictionary_field.create_codes_cursor(empty_hint()).unwrap();
     let values = dictionary.values().unwrap();
     for pos in 0u64..20000 {
         let code = cursor.fetch(pos).unwrap();

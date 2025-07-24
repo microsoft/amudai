@@ -5,6 +5,7 @@ use std::{
 
 use amudai_common::{Result, error::Error, verify_arg, verify_data};
 use amudai_io::{ReadAt, SlicedFile, StorageProfile};
+use amudai_ranges::PositionSeries;
 
 use super::{
     block_map_decoder::BlockMapDecoder,
@@ -476,6 +477,69 @@ impl BlockMap {
         }
     }
 
+    /// Translates a sequence of logical positions or logical position ranges to the
+    /// corresponding storage block ranges.
+    ///
+    /// This method provides a unified interface for converting either individual positions
+    /// or position ranges into block ranges. It leverages the `PositionSeries` trait to
+    /// automatically dispatch to the appropriate conversion method based on the input type.
+    ///
+    /// # Type Flexibility
+    ///
+    /// The method accepts any type that implements `PositionSeries<u64>`, which includes:
+    ///
+    /// - **Individual positions**: Arrays, slices, vectors, or iterators of `u64` values
+    /// - **Position ranges**: Arrays, slices, vectors, or iterators of `Range<u64>`
+    ///
+    /// # Arguments
+    ///
+    /// * `positions` - A sequence that implements `PositionSeries<u64>`. This can be:
+    ///   - An iterator, array, slice, or vector of individual `u64` positions.
+    ///     The positions must be sorted in ascending order.
+    ///   - An iterator, array, slice, or vector of `Range<u64>` position ranges.
+    ///     The ranges must be in ascending order and must not overlap.
+    ///   
+    /// # Returns
+    ///
+    /// A `Result` containing:
+    /// - `Ok(Vec<Range<u32>>)`: Vector of block ranges that contain the specified positions.
+    ///   Each range represents a contiguous sequence of blocks by their ordinals.
+    /// - `Err`: If any position is out of bounds or if block lookup fails
+    ///
+    /// # Behavior
+    ///
+    /// The method inspect the provided `PositionSeries` to determine whether the input
+    /// contains individual positions or ranges, then dispatches to the appropriate specialized
+    /// implementation:
+    ///
+    /// - For individual positions: Calls [`map_positions_to_block_ranges`](Self::map_positions_to_block_ranges)
+    /// - For position ranges: Calls [`map_position_ranges_to_block_ranges`](Self::map_position_ranges_to_block_ranges)
+    ///
+    /// # Performance Considerations
+    ///
+    /// - **Individual positions**: Each position potemtially requires a block lookup. Adjacent
+    ///   positions within the same block are automatically deduplicated.
+    /// - **Position ranges**: More efficient for contiguous data access as entire ranges
+    ///   can be processed together.
+    ///
+    /// # See Also
+    ///
+    /// - [`map_positions_to_block_ranges`](Self::map_positions_to_block_ranges) - direct method
+    ///   for individual positions
+    /// - [`map_position_ranges_to_block_ranges`](Self::map_position_ranges_to_block_ranges) - direct
+    ///   method for position ranges
+    /// - [`PositionSeries`] - The trait that enables this type flexibility
+    pub fn positions_to_blocks(
+        &self,
+        positions: impl PositionSeries<u64>,
+    ) -> Result<Vec<Range<u32>>> {
+        if positions.is_ranges() {
+            self.map_position_ranges_to_block_ranges(positions.into_ranges())
+        } else {
+            self.map_positions_to_block_ranges(positions.into_positions())
+        }
+    }
+
     /// Converts logical position ranges to optimized block ranges for reading.
     ///
     /// This method intelligently chooses between decoder and block list based on:
@@ -490,18 +554,18 @@ impl BlockMap {
     ///
     /// A result containing vector of block ranges optimized for reading, or an error
     /// if any position is invalid.
-    pub fn pos_ranges_to_block_ranges(
+    pub fn map_position_ranges_to_block_ranges(
         &self,
-        pos_ranges: impl Iterator<Item = Range<u64>> + Clone,
+        pos_ranges: impl IntoIterator<Item = Range<u64>> + Clone,
     ) -> Result<Vec<Range<u32>>> {
         if let Some(list) = self.get_block_list() {
-            list.pos_ranges_to_block_ranges(pos_ranges, &self.profile)
+            list.map_position_ranges_to_block_ranges(pos_ranges, &self.profile)
         } else if self.should_load_block_list_for_pos_ranges(pos_ranges.clone()) {
             self.establish_block_list()?
-                .pos_ranges_to_block_ranges(pos_ranges, &self.profile)
+                .map_position_ranges_to_block_ranges(pos_ranges, &self.profile)
         } else {
             self.establish_decoder()?
-                .pos_ranges_to_block_ranges(pos_ranges, &self.profile)
+                .map_position_ranges_to_block_ranges(pos_ranges, &self.profile)
         }
     }
 
@@ -519,18 +583,18 @@ impl BlockMap {
     ///
     /// A result containing vector of block ranges covering the positions, or an error
     /// if any position is invalid.
-    pub fn positions_to_block_ranges(
+    pub fn map_positions_to_block_ranges(
         &self,
-        positions: impl Iterator<Item = u64> + Clone,
+        positions: impl IntoIterator<Item = u64> + Clone,
     ) -> Result<Vec<Range<u32>>> {
         if let Some(list) = self.get_block_list() {
-            list.positions_to_block_ranges(positions)
+            list.map_positions_to_block_ranges(positions)
         } else if self.should_load_block_list_for_positions(positions.clone()) {
             self.establish_block_list()?
-                .positions_to_block_ranges(positions)
+                .map_positions_to_block_ranges(positions)
         } else {
             self.establish_decoder()?
-                .positions_to_block_ranges(positions)
+                .map_positions_to_block_ranges(positions)
         }
     }
 
@@ -550,11 +614,13 @@ impl BlockMap {
     /// if any block range is invalid.
     pub fn compute_read_optimized_block_ranges(
         &self,
-        block_ranges: impl Iterator<Item = Range<u32>> + Clone,
+        block_ranges: impl IntoIterator<Item = Range<u32>> + Clone,
     ) -> Result<Vec<Range<u32>>> {
         if let Some(list) = self.get_block_list() {
             list.compute_read_optimized_block_ranges(block_ranges, &self.profile)
-        } else if block_ranges.clone().count() as u64 * 2 > Self::MAX_BLOCKS_FOR_BLOCK_MAP_DECODER {
+        } else if block_ranges.clone().into_iter().count() as u64 * 2
+            > Self::MAX_BLOCKS_FOR_BLOCK_MAP_DECODER
+        {
             self.establish_block_list()?
                 .compute_read_optimized_block_ranges(block_ranges, &self.profile)
         } else {
@@ -579,11 +645,13 @@ impl BlockMap {
     /// if any block range is invalid.
     pub fn block_ranges_to_storage_ranges(
         &self,
-        block_ranges: impl Iterator<Item = Range<u32>> + Clone,
+        block_ranges: impl IntoIterator<Item = Range<u32>> + Clone,
     ) -> Result<Vec<Range<u64>>> {
         if let Some(list) = self.get_block_list() {
             list.block_ranges_to_storage_ranges(block_ranges)
-        } else if block_ranges.clone().count() as u64 * 2 > Self::MAX_BLOCKS_FOR_BLOCK_MAP_DECODER {
+        } else if block_ranges.clone().into_iter().count() as u64 * 2
+            > Self::MAX_BLOCKS_FOR_BLOCK_MAP_DECODER
+        {
             self.establish_block_list()?
                 .block_ranges_to_storage_ranges(block_ranges)
         } else {
@@ -674,11 +742,11 @@ impl BlockMap {
     /// accessed when processing the given position ranges.
     fn should_load_block_list_for_pos_ranges(
         &self,
-        pos_ranges: impl Iterator<Item = Range<u64>>,
+        pos_ranges: impl IntoIterator<Item = Range<u64>>,
     ) -> bool {
         estimate_block_count_for_pos_ranges(
             self.estimate_values_per_block() as f64,
-            pos_ranges,
+            pos_ranges.into_iter(),
             Self::MAX_BLOCKS_FOR_BLOCK_MAP_DECODER,
         ) >= Self::MAX_BLOCKS_FOR_BLOCK_MAP_DECODER
     }
@@ -689,10 +757,13 @@ impl BlockMap {
     /// when to switch from the memory-efficient `BlockMapDecoder` to the performance-optimized
     /// `BlockList`. The decision is based on estimating how many blocks would be
     /// accessed when processing the given sequence of logical positions.
-    fn should_load_block_list_for_positions(&self, positions: impl Iterator<Item = u64>) -> bool {
+    fn should_load_block_list_for_positions(
+        &self,
+        positions: impl IntoIterator<Item = u64>,
+    ) -> bool {
         estimate_block_count_for_positions(
             self.estimate_values_per_block() as f64,
-            positions,
+            positions.into_iter(),
             Self::MAX_BLOCKS_FOR_BLOCK_MAP_DECODER,
         ) >= Self::MAX_BLOCKS_FOR_BLOCK_MAP_DECODER
     }

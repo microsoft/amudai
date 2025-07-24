@@ -1087,7 +1087,7 @@ mod decimal_tests {
 mod primitive_tests {
     use super::*;
     use amudai_arrow_compat::datetime_conversions;
-    use amudai_blockstream::read::block_stream::BlockReaderPrefetch;
+    use amudai_blockstream::read::block_stream::{BlockReaderPrefetch, empty_hint};
     use amudai_blockstream::read::primitive_buffer::PrimitiveBufferDecoder;
     use arrow_array::builder::{TimestampMillisecondBuilder, TimestampNanosecondBuilder};
     use arrow_array::{Float32Array, Float64Array, Int32Array};
@@ -1151,8 +1151,7 @@ mod primitive_tests {
 
         let prepared_buffer = &encoded_field.buffers[0]; // Use the data buffer for decoding
         let decoder = PrimitiveBufferDecoder::from_prepared_buffer(prepared_buffer, basic_type)?;
-        let mut reader =
-            decoder.create_reader_with_ranges(std::iter::empty(), BlockReaderPrefetch::Disabled)?;
+        let mut reader = decoder.create_reader(empty_hint(), BlockReaderPrefetch::Disabled)?;
         let seq = reader.read_range(1000..2000).unwrap();
         let t = seq.values.as_slice::<u64>()[0];
         let t = datetime_conversions::ticks_to_unix_seconds(t).unwrap();

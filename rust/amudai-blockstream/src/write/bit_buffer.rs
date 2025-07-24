@@ -661,7 +661,8 @@ mod tests {
 
     // BitBufferBlocksEncoder tests
     use crate::read::{
-        block_stream::BlockReaderPrefetch, primitive_buffer::PrimitiveBufferDecoder,
+        block_stream::{BlockReaderPrefetch, empty_hint},
+        primitive_buffer::PrimitiveBufferDecoder,
     };
 
     fn bit_buffer_blocks_encoder_default() -> BitBufferBlocksEncoder {
@@ -696,7 +697,7 @@ mod tests {
         let byte_count = decoder.block_stream().block_map().value_count().unwrap();
         assert_eq!(bit_count.div_ceil(8), byte_count);
         let mut reader = decoder
-            .create_reader_with_ranges(std::iter::empty(), BlockReaderPrefetch::Disabled)
+            .create_reader(empty_hint(), BlockReaderPrefetch::Disabled)
             .unwrap();
         let mut pos = 0;
         while pos < byte_count {

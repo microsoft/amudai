@@ -11,6 +11,7 @@ use amudai_format::{
     defs::{common::AnyValue, shard},
     schema::{BasicType, BasicTypeDescriptor},
 };
+use amudai_ranges::PositionSeries;
 use amudai_sequence::sequence::ValueSequence;
 
 use super::{ConstantFieldReader, FieldReader};
@@ -139,23 +140,24 @@ impl BytesFieldDecoder {
         self.basic_type
     }
 
-    /// Creates a reader for efficiently accessing ranges of values in this field.
+    /// Creates a reader for efficiently accessing ranges of values or specific positions
+    /// in this field.
     ///
     /// The reader can fetch specific ranges of binary values from the field.
-    /// The pos_ranges_hint parameter allows the system to optimize data access
+    /// The `positions_hint` parameter allows the system to optimize data access
     /// by prefetching required blocks.
     ///
     /// # Arguments
     ///
-    /// * `pos_ranges_hint` - An iterator of logical position ranges that are likely
+    /// * `positions_hint` - An iterator of logical positions or ranges that are likely
     ///   to be accessed, used for prefetching optimization
     ///
     /// # Returns
     ///
     /// A boxed field reader for accessing the values
-    pub fn create_reader_with_ranges(
+    pub fn create_reader(
         &self,
-        pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
+        positions_hint: impl PositionSeries<u64>,
     ) -> Result<Box<dyn FieldReader>> {
         if let Some(constant_value) = &self.constant_value {
             return Ok(Box::new(ConstantFieldReader::new(
@@ -168,38 +170,7 @@ impl BytesFieldDecoder {
             .bytes_buffer
             .as_ref()
             .expect("bytes_buffer")
-            .create_reader_with_ranges(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
-        Ok(Box::new(BytesFieldReader::new(buffer_reader)))
-    }
-
-    /// Creates a reader for efficiently accessing specific positions in this field.
-    ///
-    /// # Arguments
-    ///
-    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
-    ///   to be accessed. These hints are used to optimize prefetching strategies
-    ///   for better performance when reading from storage. The positions must be
-    ///   in non-descending order but don't need to be unique or contiguous.
-    ///
-    /// # Returns
-    ///
-    /// A boxed field reader for accessing the primitive values at the specified positions.
-    pub fn create_reader_with_positions(
-        &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
-    ) -> Result<Box<dyn FieldReader>> {
-        if let Some(constant_value) = &self.constant_value {
-            return Ok(Box::new(ConstantFieldReader::new(
-                constant_value.clone(),
-                self.basic_type,
-            )));
-        }
-
-        let buffer_reader = self
-            .bytes_buffer
-            .as_ref()
-            .expect("bytes_buffer")
-            .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
+            .create_reader(positions_hint, BlockReaderPrefetch::Enabled)?;
         Ok(Box::new(BytesFieldReader::new(buffer_reader)))
     }
 }
@@ -518,6 +489,7 @@ impl FieldReader for BytesFieldReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use amudai_blockstream::read::block_stream::empty_hint;
     use amudai_format::{
         defs::common::{AnyValue, UnitValue, any_value::Kind},
         schema::{BasicType, BasicTypeDescriptor},
@@ -560,9 +532,7 @@ mod tests {
         .map(|r| r.start as u64..r.end as u64)
         .collect::<Vec<_>>();
 
-        let mut reader = decoder
-            .create_reader_with_ranges(ranges.iter().cloned())
-            .unwrap();
+        let mut reader = decoder.create_reader(ranges.iter().cloned()).unwrap();
 
         let mut null_count = 0usize;
         for range in ranges {
@@ -572,9 +542,7 @@ mod tests {
         }
         assert!(null_count > 500);
 
-        let mut reader = decoder
-            .create_reader_with_ranges(std::iter::empty())
-            .unwrap();
+        let mut reader = decoder.create_reader(empty_hint()).unwrap();
         let seq = reader.read_range(1000..1020).unwrap();
         let mut len = 0;
         for i in 0..20 {
@@ -605,9 +573,7 @@ mod tests {
         };
 
         let decoder = BytesFieldDecoder::from_encoded_field(&encoded_field, basic_type).unwrap();
-        let mut reader = decoder
-            .create_reader_with_ranges(std::iter::empty())
-            .unwrap();
+        let mut reader = decoder.create_reader(empty_hint()).unwrap();
 
         // Test reading a range of constant values
         let seq = reader.read_range(0..5).unwrap();
@@ -642,9 +608,7 @@ mod tests {
         };
 
         let decoder = BytesFieldDecoder::from_encoded_field(&encoded_field, basic_type).unwrap();
-        let mut reader = decoder
-            .create_reader_with_ranges(std::iter::empty())
-            .unwrap();
+        let mut reader = decoder.create_reader(empty_hint()).unwrap();
 
         // Test reading a range of constant values
         let seq = reader.read_range(0..3).unwrap();
@@ -685,9 +649,7 @@ mod tests {
         };
 
         let decoder = BytesFieldDecoder::from_encoded_field(&encoded_field, basic_type).unwrap();
-        let mut reader = decoder
-            .create_reader_with_ranges(std::iter::empty())
-            .unwrap();
+        let mut reader = decoder.create_reader(empty_hint()).unwrap();
 
         // Test reading a range of null constant values
         let seq = reader.read_range(0..4).unwrap();
@@ -723,9 +685,7 @@ mod tests {
         };
 
         let decoder = BytesFieldDecoder::from_encoded_field(&encoded_field, basic_type).unwrap();
-        let mut reader = decoder
-            .create_reader_with_ranges(std::iter::empty())
-            .unwrap();
+        let mut reader = decoder.create_reader(empty_hint()).unwrap();
 
         // Test reading a range of constant GUID values
         let seq = reader.read_range(0..3).unwrap();
@@ -777,9 +737,7 @@ mod tests {
         };
 
         let decoder = BytesFieldDecoder::from_encoded_field(&encoded_field, basic_type).unwrap();
-        let mut reader = decoder
-            .create_reader_with_ranges(std::iter::empty())
-            .unwrap();
+        let mut reader = decoder.create_reader(empty_hint()).unwrap();
 
         // Test reading a range of constant decimal values
         let seq = reader.read_range(0..4).unwrap();

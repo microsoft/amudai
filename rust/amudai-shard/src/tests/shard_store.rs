@@ -171,7 +171,7 @@ impl ShardStore {
 
         let total_positions = field.position_count();
         let mut reader = decoder
-            .create_reader_with_ranges(std::iter::once(0..total_positions))
+            .create_reader(std::iter::once(0..total_positions))
             .unwrap_or_else(|_| {
                 panic!(
                     "Failed to create reader for field '{}' (schema_id: {:?})",

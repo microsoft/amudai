@@ -10,6 +10,7 @@
 //! ensuring efficient storage and retrieval of repeated byte values.
 
 use amudai_arrow_compat::arrow_fields::make_guid;
+use amudai_blockstream::read::block_stream::empty_hint;
 use amudai_common::Result;
 use amudai_format::schema::BasicType;
 use arrow_array::{
@@ -70,7 +71,7 @@ fn test_constant_string_stripe_integration() -> Result<()> {
 
     // Create decoder and reader for the message field
     let message_decoder = message_field.create_decoder()?;
-    let mut message_reader = message_decoder.create_reader_with_ranges(std::iter::empty())?;
+    let mut message_reader = message_decoder.create_reader(empty_hint())?;
 
     // Read a range of values and verify they're all the same constant
     let seq = message_reader.read_range(0..10)?;
@@ -160,7 +161,7 @@ fn test_constant_short_string_stripe_integration() -> Result<()> {
 
     // Create decoder and reader for the code field
     let code_decoder = code_field.create_decoder()?;
-    let mut code_reader = code_decoder.create_reader_with_ranges(std::iter::empty())?;
+    let mut code_reader = code_decoder.create_reader(empty_hint())?;
 
     // Read a range of values and verify they're all the same constant
     let seq = code_reader.read_range(0..10)?;
@@ -253,7 +254,7 @@ fn test_constant_guid_stripe_integration() -> Result<()> {
 
     // Create decoder and reader for the UUID field
     let uuid_decoder = uuid_field.create_decoder()?;
-    let mut uuid_reader = uuid_decoder.create_reader_with_ranges(std::iter::empty())?;
+    let mut uuid_reader = uuid_decoder.create_reader(empty_hint())?;
 
     // Read a range of values and verify they're all the same constant
     let seq = uuid_reader.read_range(0..10)?;
@@ -349,7 +350,7 @@ fn test_constant_binary_stripe_integration() -> Result<()> {
 
     // Create decoder and reader for the data field
     let data_decoder = data_field.create_decoder()?;
-    let mut data_reader = data_decoder.create_reader_with_ranges(std::iter::empty())?;
+    let mut data_reader = data_decoder.create_reader(empty_hint())?;
 
     // Read a range of values and verify they're all the same constant
     let seq = data_reader.read_range(0..10)?;
@@ -440,8 +441,7 @@ fn test_mixed_constant_null_string_stripe_integration() -> Result<()> {
 
     // Create decoder and reader for the optional_message field
     let optional_message_decoder = optional_message_field.create_decoder()?;
-    let mut optional_message_reader =
-        optional_message_decoder.create_reader_with_ranges(std::iter::empty())?;
+    let mut optional_message_reader = optional_message_decoder.create_reader(empty_hint())?;
 
     // Read a range of values and verify the pattern
     let seq = optional_message_reader.read_range(0..20)?;

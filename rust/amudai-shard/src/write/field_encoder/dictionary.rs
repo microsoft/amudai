@@ -466,7 +466,7 @@ impl DictionaryFieldEncoder<Vec<u8>> {
 
         // Create a reader to read the codes back.
         let total_count = codes_decoder.block_stream().block_map().value_count()?;
-        let mut reader = codes_decoder.create_reader_with_ranges(
+        let mut reader = codes_decoder.create_reader(
             std::iter::once(0..total_count),
             BlockReaderPrefetch::Disabled,
         )?;

@@ -20,6 +20,7 @@ use amudai_format::{
     },
     schema::{BasicType, BasicTypeDescriptor},
 };
+use amudai_ranges::PositionSeries;
 use amudai_sequence::sequence::ValueSequence;
 use arrow_array::BooleanArray;
 use arrow_buffer::NullBuffer;
@@ -275,12 +276,12 @@ impl BooleanFieldDecoder {
     /// Creates a field reader optimized for the specified position ranges.
     ///
     /// This method creates a reader that can efficiently access boolean values and their
-    /// presence information for logical positions within the field. The position range hints
+    /// presence information for logical positions within the field. The position hints
     /// are used to optimize data prefetching and caching strategies.
     ///
     /// # Arguments
     ///
-    /// * `pos_ranges_hint` - An iterator of logical position ranges that are likely
+    /// * `positions_hint` - An iterator of logical position ranges that are likely
     ///   to be accessed. These hints help optimize prefetching strategies for better
     ///   performance when reading from storage.
     ///
@@ -295,46 +296,25 @@ impl BooleanFieldDecoder {
     /// # Errors
     ///
     /// Returns an error if the underlying bit buffer decoders fail to create readers.
-    pub fn create_reader_with_ranges(
+    pub fn create_reader(
         &self,
-        pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
+        positions_hint: impl PositionSeries<u64> + Clone,
     ) -> Result<Box<dyn FieldReader>> {
-        self.create_boolean_reader_with_ranges(pos_ranges_hint)
+        self.create_boolean_reader(positions_hint)
             .map(|reader| Box::new(reader) as _)
     }
 
-    /// Creates a field reader for efficiently accessing specific positions in this field.
+    /// Creates a concrete boolean field reader optimized for the specified positions hint.
     ///
-    /// # Arguments
-    ///
-    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
-    ///   to be accessed. These hints are used to optimize prefetching strategies
-    ///   for better performance when reading from storage. The positions must be
-    ///   in non-descending order but don't need to be unique or contiguous.
-    ///
-    /// # Returns
-    ///
-    /// A boxed field reader that can read boolean values and presence information for the
-    /// specified positions.
-    pub fn create_reader_with_positions(
-        &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
-    ) -> Result<Box<dyn FieldReader>> {
-        self.create_boolean_reader_with_positions(positions_hint)
-            .map(|reader| Box::new(reader) as _)
-    }
-
-    /// Creates a concrete boolean field reader optimized for the specified position ranges.
-    ///
-    /// Unlike [`create_reader_with_ranges`](Self::create_reader_with_ranges) which returns
-    /// a boxed trait object, this method returns the concrete `BooleanFieldReader` type.
+    /// Unlike [`create_reader`](Self::create_reader) which returns a boxed trait object,
+    /// this method returns the concrete `BooleanFieldReader` type.
     /// This enables access to boolean-specific functionality such as
     /// [`read_array`](BooleanFieldReader::read_array) which returns Arrow `BooleanArray`
     /// instances directly.
     ///
     /// # Arguments
     ///
-    /// * `pos_ranges_hint` - An iterator of logical position ranges that are likely
+    /// * `positions_hint` - An iterator of logical positions or ranges that are likely
     ///   to be accessed. These hints help optimize prefetching strategies for better
     ///   performance when reading from storage.
     ///
@@ -346,48 +326,16 @@ impl BooleanFieldDecoder {
     /// # Errors
     ///
     /// Returns an error if the underlying bit buffer decoders fail to create readers.
-    pub fn create_boolean_reader_with_ranges(
+    pub fn create_boolean_reader(
         &self,
-        pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
+        positions_hint: impl PositionSeries<u64> + Clone,
     ) -> Result<BooleanFieldReader> {
         let values_reader = self
             .values_decoder
-            .create_reader_with_ranges(pos_ranges_hint.clone(), BlockReaderPrefetch::Enabled)?;
+            .create_reader(positions_hint.clone(), BlockReaderPrefetch::Enabled)?;
         let presence_reader = self
             .presence_decoder
-            .create_reader_with_ranges(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
-
-        Ok(BooleanFieldReader {
-            values_reader,
-            presence_reader,
-            basic_type: self.basic_type,
-            positions: self.positions,
-        })
-    }
-
-    /// Creates a concrete boolean field reader for efficiently accessing specific positions
-    /// in this field.
-    ///
-    /// # Arguments
-    ///
-    /// * `positions_hint` - An iterator of non-descending logical bit positions that are likely
-    ///   to be accessed. These hints are used to optimize prefetching strategies
-    ///   for better performance when reading from storage. The positions must be
-    ///   in non-descending order but don't need to be unique or contiguous.
-    ///
-    /// # Returns
-    ///
-    /// A `BooleanFieldReader` for accessing the primitive values at the specified positions.
-    pub fn create_boolean_reader_with_positions(
-        &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
-    ) -> Result<BooleanFieldReader> {
-        let values_reader = self
-            .values_decoder
-            .create_reader_with_positions(positions_hint.clone(), BlockReaderPrefetch::Enabled)?;
-        let presence_reader = self
-            .presence_decoder
-            .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
+            .create_reader(positions_hint, BlockReaderPrefetch::Enabled)?;
 
         Ok(BooleanFieldReader {
             values_reader,
@@ -518,9 +466,7 @@ mod tests {
         .map(|r| r.start as u64..r.end as u64)
         .collect::<Vec<_>>();
 
-        let mut reader = decoder
-            .create_reader_with_ranges(ranges.iter().cloned())
-            .unwrap();
+        let mut reader = decoder.create_reader(ranges.iter().cloned()).unwrap();
 
         let mut null_count = 0usize;
         for range in ranges.iter().cloned() {
@@ -533,7 +479,7 @@ mod tests {
 
         let mut reader = match decoder {
             FieldDecoder::Boolean(decoder) => decoder
-                .create_boolean_reader_with_ranges(ranges.iter().cloned())
+                .create_boolean_reader(ranges.iter().cloned())
                 .unwrap(),
             _ => panic!("unexpected ecoder"),
         };
@@ -578,7 +524,7 @@ mod tests {
             BooleanFieldDecoder::from_encoded_field(&encoded_field, basic_type, 100).unwrap();
 
         let mut reader = decoder
-            .create_boolean_reader_with_ranges(std::iter::empty())
+            .create_boolean_reader(std::iter::empty::<u64>())
             .unwrap();
 
         // Test reading a range
@@ -588,9 +534,7 @@ mod tests {
         assert_eq!(array.null_count(), 0);
 
         // Test using the generic FieldReader interface
-        let mut reader = decoder
-            .create_reader_with_ranges(std::iter::empty())
-            .unwrap();
+        let mut reader = decoder.create_reader(std::iter::empty::<u64>()).unwrap();
         let sequence = reader.read_range(5..15).unwrap();
         assert_eq!(sequence.len(), 10);
         assert!(sequence.presence.is_trivial_non_null());
@@ -609,7 +553,7 @@ mod tests {
         let decoder =
             BooleanFieldDecoder::from_encoded_field(&encoded_field, basic_type, 50).unwrap();
         let mut reader = decoder
-            .create_boolean_reader_with_ranges(std::iter::empty())
+            .create_boolean_reader(std::iter::empty::<u64>())
             .unwrap();
 
         let array = reader.read_array(0..5).unwrap();
@@ -646,7 +590,7 @@ mod tests {
             BooleanFieldDecoder::from_encoded_field(&encoded_field, basic_type, 100).unwrap();
 
         let mut reader = decoder
-            .create_boolean_reader_with_ranges(std::iter::empty())
+            .create_boolean_reader(std::iter::empty::<u64>())
             .unwrap();
 
         // Test reading a range
@@ -656,9 +600,7 @@ mod tests {
         assert_eq!(array.null_count(), 10);
 
         // Test using the generic FieldReader interface
-        let mut reader = decoder
-            .create_reader_with_ranges(std::iter::empty())
-            .unwrap();
+        let mut reader = decoder.create_reader(std::iter::empty::<u64>()).unwrap();
         let sequence = reader.read_range(5..15).unwrap();
         assert_eq!(sequence.len(), 10);
         assert!(sequence.presence.is_trivial_all_null());

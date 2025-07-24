@@ -29,6 +29,7 @@ use amudai_format::{
     defs::shard::{self, BufferKind},
     schema::{BasicType, BasicTypeDescriptor},
 };
+use amudai_ranges::PositionSeries;
 use amudai_sequence::{presence::Presence, sequence::ValueSequence, values::Values};
 
 use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
@@ -209,61 +210,26 @@ impl StructFieldDecoder {
     ///
     /// # Arguments
     ///
-    /// * `pos_ranges_hint` - An iterator of logical position ranges that are likely
+    /// * `positions_hint` - An iterator of logical positions or ranges that are likely
     ///   to be accessed. These hints help optimize prefetching strategies for better
     ///   performance when reading from storage.
     ///
     /// # Returns
     ///
     /// A boxed field reader that can efficiently read presence information for the
-    /// specified ranges. The actual reader type depends on whether the field uses
-    /// explicit presence buffers or trivial (all-valid) presence.
+    /// specified positions or ranges. The actual reader type depends on whether the field
+    /// uses explicit presence buffers or trivial (all-valid) presence.
     ///
     /// # Errors
     ///
     /// Returns an error if the underlying bit buffer decoder fails to create a reader.
-    pub fn create_reader_with_ranges(
+    pub fn create_reader(
         &self,
-        pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
+        positions_hint: impl PositionSeries<u64> + Clone,
     ) -> Result<Box<dyn FieldReader>> {
         let reader = self
             .presence
-            .create_reader_with_ranges(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
-        match &reader {
-            BitBufferReader::Blocks(_) => Ok(Box::new(PresenceFieldReader(
-                reader,
-                self.basic_type,
-                self.positions,
-            ))),
-            BitBufferReader::Constant(value) => {
-                assert!(*value);
-                Ok(Box::new(TrivialPresenceFieldReader(
-                    self.basic_type,
-                    self.positions,
-                )))
-            }
-        }
-    }
-
-    /// Creates a reader for efficiently accessing specific positions in this field.
-    ///
-    /// # Arguments
-    ///
-    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
-    ///   to be accessed. These hints are used to optimize prefetching strategies
-    ///   for better performance when reading from storage. The positions must be
-    ///   in non-descending order but don't need to be unique or contiguous.
-    ///
-    /// # Returns
-    ///
-    /// A boxed field reader for accessing the primitive values at the specified positions.
-    pub fn create_reader_with_positions(
-        &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
-    ) -> Result<Box<dyn FieldReader>> {
-        let reader = self
-            .presence
-            .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
+            .create_reader(positions_hint, BlockReaderPrefetch::Enabled)?;
         match &reader {
             BitBufferReader::Blocks(_) => Ok(Box::new(PresenceFieldReader(
                 reader,

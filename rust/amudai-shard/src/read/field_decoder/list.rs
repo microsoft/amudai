@@ -11,6 +11,7 @@ use amudai_format::{
     defs::shard::{self, BufferKind},
     schema::{BasicType, BasicTypeDescriptor},
 };
+use amudai_ranges::PositionSeries;
 use amudai_sequence::sequence::ValueSequence;
 
 use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
@@ -167,33 +168,6 @@ impl ListFieldDecoder {
         }
     }
 
-    /// Creates a `FieldReader` for efficiently accessing ranges of list offsets.
-    ///
-    /// The returned reader can be used to fetch specific ranges of offsets from the
-    /// list field. These offsets define the structure of the lists.
-    ///
-    /// # Arguments
-    ///
-    /// * `pos_ranges_hint` - An iterator of logical position ranges (representing
-    ///   list indices) that are likely to be accessed. These hints can be used
-    ///   by the underlying buffer reader to optimize data access, for example,
-    ///   by prefetching required data blocks.
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing a boxed `FieldReader` capable of reading list offsets,
-    /// or an `Error` if the reader cannot be created (e.g., due to issues with
-    /// the underlying `offsets_buffer`).
-    pub fn create_reader_with_ranges(
-        &self,
-        pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
-    ) -> Result<Box<dyn FieldReader>> {
-        let buffer_reader = self
-            .offsets_buffer
-            .create_reader_with_ranges(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
-        Ok(Box::new(ListFieldReader::new(buffer_reader)))
-    }
-
     /// Creates a reader for efficiently accessing specific positions in this field.
     ///
     /// # Arguments
@@ -206,13 +180,13 @@ impl ListFieldDecoder {
     /// # Returns
     ///
     /// A boxed field reader for accessing the primitive values at the specified positions.
-    pub fn create_reader_with_positions(
+    pub fn create_reader(
         &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
+        positions_hint: impl PositionSeries<u64>,
     ) -> Result<Box<dyn FieldReader>> {
         let buffer_reader = self
             .offsets_buffer
-            .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
+            .create_reader(positions_hint, BlockReaderPrefetch::Enabled)?;
         Ok(Box::new(ListFieldReader::new(buffer_reader)))
     }
 }

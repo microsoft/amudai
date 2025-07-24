@@ -1,3 +1,4 @@
+use amudai_blockstream::read::block_stream::empty_hint;
 use amudai_common::Result;
 use amudai_format::schema::BasicType;
 use arrow_array::{ArrayRef, FixedSizeBinaryArray, RecordBatch, RecordBatchIterator};
@@ -440,9 +441,7 @@ fn test_decimal_end_to_end_read_back() -> Result<()> {
     let amount_field = stripe.open_field(amount_field_info.1.data_type().unwrap())?;
 
     // Create decoder and read back the values
-    let mut amount_decoder = amount_field
-        .create_decoder()?
-        .create_reader_with_ranges(std::iter::empty())?;
+    let mut amount_decoder = amount_field.create_decoder()?.create_reader(empty_hint())?;
 
     let amount_seq = amount_decoder.read_range(0..5)?;
 
@@ -556,9 +555,7 @@ fn test_decimal_with_index_end_to_end() -> Result<()> {
     assert!(has_index_buffer, "Expected index buffer for decimal field");
 
     // Create decoder and read back some values
-    let mut amount_decoder = amount_field
-        .create_decoder()?
-        .create_reader_with_ranges(std::iter::empty())?;
+    let mut amount_decoder = amount_field.create_decoder()?.create_reader(empty_hint())?;
 
     // Read back a subset of values
     let amount_seq = amount_decoder.read_range(10..20)?;
@@ -645,7 +642,7 @@ fn test_constant_decimal_stripe_integration() -> Result<()> {
 
     // Create decoder and reader for the amount field
     let amount_decoder = amount_field.create_decoder()?;
-    let mut amount_reader = amount_decoder.create_reader_with_ranges(std::iter::empty())?;
+    let mut amount_reader = amount_decoder.create_reader(empty_hint())?;
 
     // Read a range of values and verify they're all the same constant
     let seq = amount_reader.read_range(0..10)?;
@@ -685,7 +682,7 @@ fn test_constant_decimal_stripe_integration() -> Result<()> {
 
     // Test the price field as well
     let price_decoder = price_field.create_decoder()?;
-    let mut price_reader = price_decoder.create_reader_with_ranges(std::iter::empty())?;
+    let mut price_reader = price_decoder.create_reader(empty_hint())?;
 
     let price_seq = price_reader.read_range(0..5)?;
     assert_eq!(price_seq.len(), 5);

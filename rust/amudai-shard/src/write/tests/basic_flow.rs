@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use amudai_arrow_compat::arrow_to_amudai_schema::FromArrowSchema;
+use amudai_blockstream::read::block_stream::empty_hint;
 use amudai_format::{defs::shard::BufferKind, schema::BasicType, schema_builder::SchemaBuilder};
 use amudai_io_impl::temp_file_store;
 use amudai_objectstore::null_store::NullObjectStore;
@@ -129,7 +130,7 @@ fn test_list_encoding() {
     let mut reader = field
         .create_decoder()
         .unwrap()
-        .create_reader_with_ranges(std::iter::empty())
+        .create_reader(empty_hint())
         .unwrap();
     let seq = reader.read_range(0..11).unwrap();
     assert_eq!(
@@ -164,7 +165,7 @@ fn test_map_encoding() {
     let mut reader = field
         .create_decoder()
         .unwrap()
-        .create_reader_with_ranges(std::iter::empty())
+        .create_reader(empty_hint())
         .unwrap();
     let seq = reader.read_range(0..11).unwrap();
     assert_eq!(
@@ -177,14 +178,14 @@ fn test_map_encoding() {
         .unwrap()
         .create_decoder()
         .unwrap()
-        .create_reader_with_ranges(std::iter::empty())
+        .create_reader(empty_hint())
         .unwrap();
     let mut values = field
         .open_child_at(1)
         .unwrap()
         .create_decoder()
         .unwrap()
-        .create_reader_with_ranges(std::iter::empty())
+        .create_reader(empty_hint())
         .unwrap();
 
     keys.read_range(0..45).unwrap();
@@ -256,7 +257,7 @@ fn test_struct_encoding() {
     let mut simple_reader = simple_field_decoder
         .create_decoder()
         .unwrap()
-        .create_reader_with_ranges(std::iter::empty())
+        .create_reader(empty_hint())
         .unwrap();
     let simple_seq = simple_reader.read_range(0..5).unwrap();
     assert_eq!(simple_seq.type_desc.basic_type, BasicType::Struct);
@@ -267,7 +268,7 @@ fn test_struct_encoding() {
     let mut nested_reader = nested_field_decoder
         .create_decoder()
         .unwrap()
-        .create_reader_with_ranges(std::iter::empty())
+        .create_reader(empty_hint())
         .unwrap();
     let nested_seq = nested_reader.read_range(0..5).unwrap();
     assert_eq!(nested_seq.type_desc.basic_type, BasicType::Struct);
@@ -345,7 +346,7 @@ fn test_decimal_encoding() {
     let mut amount_decoder = amount_field_reader
         .create_decoder()
         .unwrap()
-        .create_reader_with_ranges(std::iter::empty())
+        .create_reader(empty_hint())
         .unwrap();
 
     let amount_seq = amount_decoder.read_range(0..100).unwrap();
@@ -403,7 +404,7 @@ fn test_decimal_encoding() {
     let mut price_decoder = price_field_reader
         .create_decoder()
         .unwrap()
-        .create_reader_with_ranges(std::iter::empty())
+        .create_reader(empty_hint())
         .unwrap();
 
     let price_seq = price_decoder.read_range(0..100).unwrap();
@@ -579,7 +580,7 @@ fn test_dictionary_encoding() {
     let mut category_reader = category_field_decoder
         .create_decoder()
         .unwrap()
-        .create_reader_with_ranges(std::iter::empty())
+        .create_reader(empty_hint())
         .unwrap();
     let category_seq = category_reader.read_range(0..records_count as u64).unwrap();
     assert_eq!(category_seq.type_desc.basic_type, BasicType::String);
@@ -593,7 +594,7 @@ fn test_dictionary_encoding() {
     let mut status_reader = status_field_decoder
         .create_decoder()
         .unwrap()
-        .create_reader_with_ranges(std::iter::empty())
+        .create_reader(empty_hint())
         .unwrap();
     let status_seq = status_reader.read_range(0..records_count as u64).unwrap();
     assert_eq!(status_seq.type_desc.basic_type, BasicType::String);

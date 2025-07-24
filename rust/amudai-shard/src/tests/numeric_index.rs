@@ -32,6 +32,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use amudai_arrow_compat::arrow_to_amudai_schema::FromArrowSchema;
+use amudai_blockstream::read::block_stream::empty_hint;
 use amudai_common::Result;
 use amudai_encodings::block_encoder::BlockEncodingProfile;
 use amudai_format::defs::schema::BasicType;
@@ -1872,7 +1873,7 @@ fn test_constant_integer_stripe_integration() -> Result<()> {
 
     // Create decoder and reader for the value field
     let value_decoder = value_field.create_decoder()?;
-    let mut value_reader = value_decoder.create_reader_with_ranges(std::iter::empty())?;
+    let mut value_reader = value_decoder.create_reader(empty_hint())?;
 
     // Read a range of values and verify they're all the same constant
     let seq = value_reader.read_range(0..10)?;
@@ -1967,7 +1968,7 @@ fn test_constant_datetime_stripe_integration() -> Result<()> {
 
     // Create decoder and reader for the timestamp field
     let timestamp_decoder = timestamp_field.create_decoder()?;
-    let mut timestamp_reader = timestamp_decoder.create_reader_with_ranges(std::iter::empty())?;
+    let mut timestamp_reader = timestamp_decoder.create_reader(empty_hint())?;
 
     // Read a range of values and verify they're all the same constant
     let seq = timestamp_reader.read_range(0..10)?;

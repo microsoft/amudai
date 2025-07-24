@@ -14,6 +14,7 @@ use amudai_format::{
 };
 use amudai_io::{ReadAt, SlicedFile};
 use amudai_io_impl::prefetch_read::PrefetchReadAt;
+use amudai_ranges::PositionSeries;
 use amudai_sequence::sequence::ValueSequence;
 
 use crate::write::PreparedEncodedBuffer;
@@ -190,31 +191,33 @@ impl BlockStreamDecoder {
         &self.block_map
     }
 
-    /// Creates a reader for accessing blocks within specified logical position ranges.
+    /// Creates a reader for accessing blocks within specified logical positions or position
+    /// ranges.
     ///
     /// This method provides a higher-level interface for creating block readers by accepting
-    /// logical position ranges (value indices) rather than block ordinal ranges. It automatically
+    /// logical positions or position ranges rather than block ordinal ranges. It automatically
     /// converts position ranges to the corresponding block ranges and optimizes them for
     /// efficient I/O access patterns.
     ///
     /// # Arguments
     ///
-    /// * `pos_ranges` - Iterator of ascending non--overlapping logical position ranges within
-    ///   the data stream. Each range represents a span of values (not blocks) that are expected
-    ///   to be read. Positions are zero-based value indices that span across all blocks in the stream.
+    /// * `positions` - Sequence (iterator) of ascending non-overlapping logical position ranges
+    ///   or individual positions within the data stream. Each logical range represents a span of
+    ///   values (not blocks) that are expected to be read. Positions are zero-based value indices
+    ///   that span across all blocks in the stream.
     ///
     /// * `prefetch` - Controls whether to enable background prefetching for improved
     ///   read performance. See [`BlockReaderPrefetch`] for detailed behavior descriptions.
     ///
     /// # Returns
     ///
-    /// Result containing a `BlockReader` configured for the specified position ranges,
-    /// or an error if the conversion or reader creation fails.
+    /// Result containing a `BlockReader` configured for the specified positions, or an error
+    /// if the conversion or reader creation fails.
     ///
     /// # Errors
     ///
     /// Returns errors if:
-    /// - Position ranges extend beyond the total value count in the stream
+    /// - Positions extend beyond the total value count in the stream
     /// - The block map cannot be accessed or is corrupted
     /// - Block range optimization fails due to storage constraints
     /// - Reader creation fails due to invalid block ranges
@@ -224,73 +227,12 @@ impl BlockStreamDecoder {
     /// - [`Self::create_reader_with_block_ranges`] for direct block-based reader creation
     /// - [`BlockReaderPrefetch`] for prefetching behavior details
     /// - Block map methods for understanding position-to-block mapping
-    pub fn create_reader_with_ranges(
+    pub fn create_reader(
         &self,
-        pos_ranges: impl Iterator<Item = Range<u64>> + Clone,
+        positions: impl PositionSeries<u64>,
         prefetch: BlockReaderPrefetch,
     ) -> Result<BlockReader> {
-        let block_ranges = self.block_map.pos_ranges_to_block_ranges(pos_ranges)?;
-        let block_ranges = self
-            .block_map
-            .compute_read_optimized_block_ranges(block_ranges.into_iter())?;
-        self.create_reader_with_block_ranges(block_ranges, prefetch)
-    }
-
-    /// Creates a reader for accessing blocks containing specified logical positions.
-    ///
-    /// This method provides an efficient way to create block readers when you know the exact
-    /// logical positions (value indices) you need to access, rather than position ranges.
-    /// It automatically determines which blocks contain those positions and creates an
-    /// optimized reader for accessing them.
-    ///
-    /// # Arguments
-    ///
-    /// * `positions` - Iterator of ascending logical positions (value indices) that will be
-    ///   accessed. Positions are zero-based indices that span across all blocks in the stream.
-    ///   Duplicate positions are automatically deduplicated - if multiple positions fall
-    ///   within the same block, that block will only be included once in the reader.
-    ///
-    /// * `prefetch` - Controls whether to enable background prefetching for improved
-    ///   read performance. See [`BlockReaderPrefetch`] for detailed behavior descriptions.
-    ///
-    /// # Returns
-    ///
-    /// Result containing a `BlockReader` configured to access blocks containing the specified
-    /// positions, or an error if the conversion or reader creation fails.
-    ///
-    /// # Behavior
-    ///
-    /// The method performs several optimization steps:
-    ///
-    /// 1. **Position-to-block mapping**: Each logical position is mapped to the block
-    ///    that contains it, creating individual block ranges (each containing exactly one block).
-    ///
-    /// 2. **Deduplication**: If multiple positions fall within the same block, that block
-    ///    is only included once in the final block ranges.
-    ///
-    /// 3. **I/O optimization**: The resulting block ranges are analyzed and potentially
-    ///    coalesced to minimize I/O operations while respecting storage constraints.
-    ///    Adjacent or nearby blocks may be combined into larger ranges for more efficient
-    ///    reading.
-    ///
-    /// # Performance Considerations
-    ///
-    /// This method is particularly efficient for:
-    /// - **Sparse access patterns**: When you need to access specific values scattered
-    ///   across the stream, rather than contiguous ranges
-    /// - **Index-based lookups**: When you have a list of specific indices to retrieve
-    ///
-    /// # See Also
-    ///
-    /// - [`Self::create_reader_with_ranges`] for contiguous position ranges
-    /// - [`Self::create_reader_with_block_ranges`] for direct block-based reader creation
-    /// - [`BlockReaderPrefetch`] for prefetching behavior details
-    pub fn create_reader_with_positions(
-        &self,
-        positions: impl Iterator<Item = u64> + Clone,
-        prefetch: BlockReaderPrefetch,
-    ) -> Result<BlockReader> {
-        let block_ranges = self.block_map.positions_to_block_ranges(positions)?;
+        let block_ranges = self.block_map.positions_to_blocks(positions)?;
         let block_ranges = self
             .block_map
             .compute_read_optimized_block_ranges(block_ranges.into_iter())?;
@@ -404,9 +346,9 @@ pub enum BlockReaderPrefetch {
     /// Enables background prefetching of blocks based on the provided block ranges.
     ///
     /// When this mode is selected and non-empty block ranges are provided to
-    /// `BlockStreamDecoder::create_reader_with_ranges`, the reader will create a background prefetcher
-    /// that reads ahead along the predicted access path. This can significantly reduce latency
-    /// for sequential or predictable access patterns.
+    /// [`BlockStreamDecoder::create_reader_with_block_ranges`], the reader will create
+    /// a background prefetcher that reads ahead along the predicted access path. This can
+    /// significantly reduce latency for sequential or predictable access patterns.
     ///
     /// This mode is appropriate when:
     /// - Blocks are accessed in a sequential or predictable order
@@ -918,6 +860,11 @@ impl DecodedBlock {
     }
 }
 
+/// Empty positions hint.
+pub fn empty_hint() -> std::iter::Empty<u64> {
+    std::iter::empty()
+}
+
 #[cfg(test)]
 mod tests {
     use std::ops::Range;
@@ -1088,7 +1035,7 @@ mod tests {
             max_io_size: 64 * 1024,
         };
         let block_ranges = block_list
-            .pos_ranges_to_block_ranges(vec![0..value_count].into_iter(), &profile)
+            .map_position_ranges_to_block_ranges(vec![0..value_count].into_iter(), &profile)
             .unwrap();
         let block_ranges = block_list
             .compute_read_optimized_block_ranges(block_ranges.into_iter(), &profile)

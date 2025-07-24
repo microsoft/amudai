@@ -192,9 +192,9 @@ pub trait BlockMapOps {
     }
 
     /// Converts logical position ranges to optimized block ranges for reading.
-    fn pos_ranges_to_block_ranges(
+    fn map_position_ranges_to_block_ranges(
         &self,
-        pos_ranges: impl Iterator<Item = Range<u64>>,
+        pos_ranges: impl IntoIterator<Item = Range<u64>>,
         profile: &StorageProfile,
     ) -> Result<Vec<Range<u32>>> {
         let mut block_ranges = Vec::<Range<u32>>::new();
@@ -220,9 +220,9 @@ pub trait BlockMapOps {
     }
 
     /// Converts a sequence of logical positions to block ranges.
-    fn positions_to_block_ranges(
+    fn map_positions_to_block_ranges(
         &self,
-        positions: impl Iterator<Item = u64>,
+        positions: impl IntoIterator<Item = u64>,
     ) -> Result<Vec<Range<u32>>> {
         let mut block_ranges = Vec::<Range<u32>>::new();
         let mut last_block = 0u64..0u64;
@@ -253,10 +253,11 @@ pub trait BlockMapOps {
     ///    is less than `profile.max_io_size`.
     fn compute_read_optimized_block_ranges(
         &self,
-        block_ranges: impl Iterator<Item = Range<u32>>,
+        block_ranges: impl IntoIterator<Item = Range<u32>>,
         profile: &StorageProfile,
     ) -> Result<Vec<Range<u32>>> {
         Ok(block_ranges
+            .into_iter()
             .coalesce(|a, b| self.coalesce_block_ranges(a, b, profile))
             .collect())
     }
@@ -264,9 +265,10 @@ pub trait BlockMapOps {
     /// Converts block ranges to their corresponding storage byte ranges.
     fn block_ranges_to_storage_ranges(
         &self,
-        block_ranges: impl Iterator<Item = Range<u32>>,
+        block_ranges: impl IntoIterator<Item = Range<u32>>,
     ) -> Result<Vec<Range<u64>>> {
         block_ranges
+            .into_iter()
             .map(|r| self.block_range_to_storage_range(r))
             .collect()
     }

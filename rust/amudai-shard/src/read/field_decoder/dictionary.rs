@@ -19,6 +19,7 @@ use amudai_format::{
     schema::{BasicType, BasicTypeDescriptor},
 };
 use amudai_io::{PrecachedReadAt, ReadAt, SlicedFile};
+use amudai_ranges::PositionSeries;
 use amudai_sequence::{
     offsets::Offsets, presence::Presence, sequence::ValueSequence, values::Values,
 };
@@ -1003,50 +1004,25 @@ impl DictionaryFieldDecoder {
         &self.dictionary
     }
 
-    /// Creates a reader for accessing value ranges in this field.
-    ///
-    /// The reader fetches specific ranges of dictionary-decoded values.
-    /// Position range hints enable optimization through prefetching.
-    ///
-    /// # Arguments
-    /// * `pos_ranges_hint` - Iterator of logical position ranges for prefetching optimization
-    ///
-    /// # Returns
-    /// Boxed field reader for accessing dictionary-decoded values
-    pub fn create_reader_with_ranges(
-        &self,
-        pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
-    ) -> Result<Box<dyn FieldReader>> {
-        let codes_reader = self
-            .codes_buffer
-            .create_reader_with_ranges(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
-
-        Ok(Box::new(DictionaryFieldReader {
-            codes_reader,
-            dictionary: self.dictionary.clone(),
-            basic_type: self.basic_type,
-        }))
-    }
-
-    /// Creates a reader for efficiently accessing specific positions in this field.
+    /// Creates a reader for efficiently accessing specific positions or positions ranges
+    /// in this field.
     ///
     /// # Arguments
     ///
     /// * `positions_hint` - An iterator of non-descending logical positions that are likely
     ///   to be accessed. These hints are used to optimize prefetching strategies
-    ///   for better performance when reading from storage. The positions must be
-    ///   in non-descending order but don't need to be unique or contiguous.
+    ///   for better performance when reading from storage.
     ///
     /// # Returns
     ///
     /// A boxed field reader for accessing the primitive values at the specified positions.
-    pub fn create_reader_with_positions(
+    pub fn create_reader(
         &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
+        positions_hint: impl PositionSeries<u64>,
     ) -> Result<Box<dyn FieldReader>> {
         let codes_reader = self
             .codes_buffer
-            .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
+            .create_reader(positions_hint, BlockReaderPrefetch::Enabled)?;
 
         Ok(Box::new(DictionaryFieldReader {
             codes_reader,
@@ -1055,7 +1031,8 @@ impl DictionaryFieldDecoder {
         }))
     }
 
-    /// Creates a reader for accessing dictionary codes (keys) for value ranges in this field.
+    /// Creates a reader for accessing dictionary codes (keys) for value positions or
+    /// ranges in this field.
     ///
     /// This method creates a reader that returns the raw dictionary codes instead of the
     /// decoded values. This is useful when you need to work with the codes directly, such as
@@ -1063,8 +1040,8 @@ impl DictionaryFieldDecoder {
     ///
     /// # Arguments
     ///
-    /// * `pos_ranges_hint` - Iterator of logical position ranges for prefetching optimization.
-    ///   These hints are used to optimize I/O patterns when reading from storage.
+    /// * `positions_hint` - Iterator of logical positions or position ranges for prefetching
+    ///   optimization. These hints are used to optimize I/O patterns when reading from storage.
     ///
     /// # Returns
     ///
@@ -1073,49 +1050,15 @@ impl DictionaryFieldDecoder {
     ///
     /// # Performance Notes
     ///
-    /// This method is more efficient than `create_reader_with_ranges` when you only need
-    /// the codes, as it avoids the dictionary lookup and value reconstruction overhead.
-    pub fn create_codes_reader_with_ranges(
+    /// This method is more efficient than `create_reader` when you only need the codes,
+    /// as it avoids the dictionary lookup and value reconstruction overhead.
+    pub fn create_codes_reader(
         &self,
-        pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
+        positions_hint: impl PositionSeries<u64>,
     ) -> Result<Box<dyn FieldReader>> {
         let codes_reader = self
             .codes_buffer
-            .create_reader_with_ranges(pos_ranges_hint, BlockReaderPrefetch::Enabled)?;
-
-        Ok(Box::new(PrimitiveFieldReader::new(codes_reader)))
-    }
-
-    /// Creates a reader for accessing dictionary codes (keys) at specific positions in this field.
-    ///
-    /// This method creates a reader that returns the raw dictionary codes instead of the
-    /// decoded values. This is useful when you need to work with the codes directly, such as
-    /// for grouping operations, building indexes, or when the actual values are not needed.
-    ///
-    /// # Arguments
-    ///
-    /// * `positions_hint` - An iterator of non-descending logical positions that are likely
-    ///   to be accessed. These hints are used to optimize prefetching strategies for better
-    ///   performance when reading from storage. The positions must be in non-descending
-    ///   order but don't need to be unique or contiguous.
-    ///
-    /// # Returns
-    ///
-    /// A boxed field reader that returns dictionary codes as `u32` values instead of
-    /// the decoded original values.
-    ///
-    /// # Performance Notes
-    ///
-    /// This method is more efficient than `create_reader_with_positions` when you only need
-    /// the codes, as it avoids the dictionary lookup and value reconstruction overhead.
-    pub fn create_codes_reader_with_positions(
-        &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
-    ) -> Result<Box<dyn FieldReader>> {
-        let codes_reader = self
-            .codes_buffer
-            .create_reader_with_positions(positions_hint, BlockReaderPrefetch::Enabled)?;
-
+            .create_reader(positions_hint, BlockReaderPrefetch::Enabled)?;
         Ok(Box::new(PrimitiveFieldReader::new(codes_reader)))
     }
 
@@ -1148,9 +1091,9 @@ impl DictionaryFieldDecoder {
     /// need the codes, as it avoids the dictionary lookup and value reconstruction overhead.
     pub fn create_codes_cursor(
         &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
+        positions_hint: impl PositionSeries<u64>,
     ) -> Result<super::primitive::PrimitiveFieldCursor<u32>> {
-        let reader = self.create_codes_reader_with_positions(positions_hint)?;
+        let reader = self.create_codes_reader(positions_hint)?;
         Ok(super::primitive::PrimitiveFieldCursor::new(
             reader,
             BasicTypeDescriptor {

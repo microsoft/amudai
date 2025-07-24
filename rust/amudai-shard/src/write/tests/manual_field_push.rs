@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use amudai_blockstream::read::block_stream::empty_hint;
 use amudai_format::schema::FieldLocator;
 use arrow_array::Int64Array;
 use arrow_schema::{DataType, Field, Schema};
@@ -60,7 +61,7 @@ fn test_manual_list_push() {
         .unwrap()
         .create_decoder()
         .unwrap()
-        .create_reader_with_ranges(std::iter::empty())
+        .create_reader(empty_hint())
         .unwrap();
     let offsets = offsets_reader.read_range(0..51).unwrap();
     assert_eq!(*offsets.values.as_slice::<u64>().last().unwrap(), 60);

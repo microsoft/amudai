@@ -34,6 +34,7 @@ amudai-io = { workspace = true }
 amudai-io-impl = { workspace = true }
 amudai-keyed-vector = { workspace = true }
 amudai-objectstore = { workspace = true }
+amudai-ranges = { workspace = true }
 amudai-sequence = { workspace = true }
 
 [dev-dependencies]

@@ -1,3 +1,4 @@
+use amudai_blockstream::read::block_stream::empty_hint;
 use amudai_format::schema::SchemaId;
 use amudai_testkit::data_gen::procedural::generate_amudatum_record_batches;
 
@@ -18,7 +19,7 @@ fn test_field_cursor_read_list() {
     let mut cursor = data_str_field
         .create_decoder()
         .unwrap()
-        .create_string_cursor(std::iter::empty())
+        .create_string_cursor(empty_hint())
         .unwrap();
 
     for pos in 0..data_str_field.position_count() {
@@ -33,12 +34,12 @@ fn test_field_cursor_read_list() {
     let mut list_cursor = num_list_field
         .create_decoder()
         .unwrap()
-        .create_list_cursor(std::iter::empty())
+        .create_list_cursor(empty_hint())
         .unwrap();
     let mut item_cursor = num_list_item_field
         .create_decoder()
         .unwrap()
-        .create_primitive_cursor::<i32>(std::iter::empty())
+        .create_primitive_cursor::<i32>(empty_hint())
         .unwrap();
 
     for list_pos in 0..num_list_field.position_count() {
@@ -79,25 +80,19 @@ fn consume_primitive_field_cursor<T: bytemuck::Pod>(
     decoder: &crate::read::field_decoder::FieldDecoder,
     position_count: u64,
 ) {
-    let mut cursor = decoder
-        .create_primitive_cursor::<T>(std::iter::empty())
-        .unwrap();
+    let mut cursor = decoder.create_primitive_cursor::<T>(empty_hint()).unwrap();
     for pos in 0..position_count {
         cursor.fetch(pos).unwrap();
         cursor.is_null(pos).unwrap();
     }
 
-    let mut cursor = decoder
-        .create_primitive_cursor::<T>(std::iter::empty())
-        .unwrap();
+    let mut cursor = decoder.create_primitive_cursor::<T>(empty_hint()).unwrap();
     for pos in (0..position_count).rev() {
         cursor.fetch(pos).unwrap();
         cursor.is_null(pos).unwrap();
     }
 
-    let mut cursor = decoder
-        .create_primitive_cursor::<T>(std::iter::empty())
-        .unwrap();
+    let mut cursor = decoder.create_primitive_cursor::<T>(empty_hint()).unwrap();
     let mut pos = 1000u64;
     for i in 2000u64..2050 {
         cursor.fetch(pos).unwrap();
@@ -113,17 +108,17 @@ fn consume_struct_field_cursor(
     decoder: &crate::read::field_decoder::FieldDecoder,
     position_count: u64,
 ) {
-    let mut cursor = decoder.create_struct_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_struct_cursor(empty_hint()).unwrap();
     for pos in 0..position_count {
         cursor.is_null(pos).unwrap();
     }
 
-    let mut cursor = decoder.create_struct_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_struct_cursor(empty_hint()).unwrap();
     for pos in (0..position_count).rev() {
         cursor.is_null(pos).unwrap();
     }
 
-    let mut cursor = decoder.create_struct_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_struct_cursor(empty_hint()).unwrap();
     let mut pos = 1000u64;
     for i in 2000u64..2050 {
         cursor.is_null(pos).unwrap();
@@ -136,19 +131,19 @@ fn consume_fixed_bytes_field_cursor(
     value_size: usize,
     position_count: u64,
 ) {
-    let mut cursor = decoder.create_bytes_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_bytes_cursor(empty_hint()).unwrap();
     for pos in 0..position_count {
         let value = cursor.fetch(pos).unwrap();
         assert_eq!(value.len(), value_size);
     }
 
-    let mut cursor = decoder.create_bytes_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_bytes_cursor(empty_hint()).unwrap();
     for pos in (0..position_count).rev() {
         let value = cursor.fetch(pos).unwrap();
         assert_eq!(value.len(), value_size);
     }
 
-    let mut cursor = decoder.create_bytes_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_bytes_cursor(empty_hint()).unwrap();
     let mut pos = 1000u64;
     for i in 2000u64..2050 {
         let value = cursor.fetch(pos).unwrap();
@@ -161,17 +156,17 @@ fn consume_bytes_field_cursor(
     decoder: &crate::read::field_decoder::FieldDecoder,
     position_count: u64,
 ) {
-    let mut cursor = decoder.create_bytes_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_bytes_cursor(empty_hint()).unwrap();
     for pos in 0..position_count {
         cursor.fetch(pos).unwrap();
     }
 
-    let mut cursor = decoder.create_bytes_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_bytes_cursor(empty_hint()).unwrap();
     for pos in (0..position_count).rev() {
         cursor.fetch(pos).unwrap();
     }
 
-    let mut cursor = decoder.create_bytes_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_bytes_cursor(empty_hint()).unwrap();
     let mut pos = 1000u64;
     for i in 2000u64..2050 {
         cursor.fetch(pos).unwrap();
@@ -183,19 +178,19 @@ fn consume_string_field_cursor(
     decoder: &crate::read::field_decoder::FieldDecoder,
     position_count: u64,
 ) {
-    let mut cursor = decoder.create_string_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_string_cursor(empty_hint()).unwrap();
     for pos in 0..position_count {
         cursor.fetch(pos).unwrap();
         cursor.is_null(pos).unwrap();
     }
 
-    let mut cursor = decoder.create_string_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_string_cursor(empty_hint()).unwrap();
     for pos in (0..position_count).rev() {
         cursor.fetch(pos).unwrap();
         cursor.fetch_nullable(pos).unwrap();
     }
 
-    let mut cursor = decoder.create_string_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_string_cursor(empty_hint()).unwrap();
     let mut pos = 1000u64;
     for i in 2000u64..2050 {
         cursor.fetch(pos).unwrap();
@@ -207,7 +202,7 @@ fn consume_list_field_cursor(
     decoder: &crate::read::field_decoder::FieldDecoder,
     position_count: u64,
 ) {
-    let mut cursor = decoder.create_list_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_list_cursor(empty_hint()).unwrap();
     let mut last_offset = 0u64;
     for pos in 0..position_count {
         let range = cursor.fetch(pos).unwrap();
@@ -215,7 +210,7 @@ fn consume_list_field_cursor(
         last_offset = range.end;
     }
 
-    let mut cursor = decoder.create_list_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_list_cursor(empty_hint()).unwrap();
     let mut last_offset = cursor.fetch(position_count - 1).unwrap().end;
     for pos in (0..position_count).rev() {
         let range = cursor.fetch(pos).unwrap();
@@ -223,7 +218,7 @@ fn consume_list_field_cursor(
         last_offset = range.start;
     }
 
-    let mut cursor = decoder.create_list_cursor(std::iter::empty()).unwrap();
+    let mut cursor = decoder.create_list_cursor(empty_hint()).unwrap();
     let mut pos = 1000u64;
     for i in 2000u64..2050 {
         cursor.fetch(pos).unwrap();

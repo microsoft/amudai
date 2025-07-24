@@ -14,6 +14,7 @@ use amudai_format::{
     schema::{BasicType, BasicTypeDescriptor},
 };
 use amudai_io::ReadAt;
+use amudai_ranges::{IntoIteratorExt, PositionSeries};
 use amudai_sequence::{presence::Presence, sequence::ValueSequence, values::Values};
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
@@ -102,31 +103,8 @@ impl BitBufferDecoder {
         BitBufferDecoder::Constant(value)
     }
 
-    /// Creates a [`BitBufferReader`] for accessing ranges of bits in the stream.
-    ///
-    /// # Arguments
-    /// * `bit_ranges` - Iterator over logical bit ranges to be accessed.
-    /// * `prefetch` - Prefetching policy for block reads.
-    ///
-    /// # Returns
-    /// A [`BitBufferReader`] for reading the specified bit ranges.
-    pub fn create_reader_with_ranges(
-        &self,
-        bit_ranges: impl Iterator<Item = Range<u64>> + Clone,
-        prefetch: BlockReaderPrefetch,
-    ) -> Result<BitBufferReader> {
-        match self {
-            BitBufferDecoder::Blocks(decoder) => {
-                let byte_ranges = bit_ranges_to_byte_ranges(bit_ranges);
-                let reader = decoder.create_reader_with_ranges(byte_ranges, prefetch)?;
-                Ok(BitBufferReader::Blocks(Box::new(reader)))
-            }
-            BitBufferDecoder::Constant(value) => Ok(BitBufferReader::Constant(*value)),
-        }
-    }
-
-    /// Creates a [`BitBufferReader`] for accessing bits at the specified positions
-    /// in the stream.
+    /// Creates a [`BitBufferReader`] for accessing bits or ranges of bits at the
+    /// specified positions in the stream.
     ///
     /// # Arguments
     /// * `bit_positions` - Iterator over non-descending logical bit positions
@@ -135,15 +113,15 @@ impl BitBufferDecoder {
     ///
     /// # Returns
     /// A [`BitBufferReader`] for reading the specified bit positions.
-    pub fn create_reader_with_positions(
+    pub fn create_reader(
         &self,
-        bit_positions: impl Iterator<Item = u64> + Clone,
+        bit_positions: impl PositionSeries<u64>,
         prefetch: BlockReaderPrefetch,
     ) -> Result<BitBufferReader> {
         match self {
             BitBufferDecoder::Blocks(decoder) => {
-                let byte_positions = bit_positions_to_byte_positions(bit_positions);
-                let reader = decoder.create_reader_with_positions(byte_positions, prefetch)?;
+                let byte_positions = BitPosToBytePos(bit_positions);
+                let reader = decoder.create_reader(byte_positions, prefetch)?;
                 Ok(BitBufferReader::Blocks(Box::new(reader)))
             }
             BitBufferDecoder::Constant(value) => Ok(BitBufferReader::Constant(*value)),
@@ -167,7 +145,7 @@ impl BitBufferDecoder {
 ///
 /// This enum provides an interface for reading boolean values from a bit-packed buffer,
 /// supporting both block-based and constant representations. It is typically constructed
-/// via [`BitBufferDecoder::create_reader_with_ranges`].
+/// via [`BitBufferDecoder::create_reader`].
 pub enum BitBufferReader {
     Blocks(Box<PrimitiveBufferReader>),
     Constant(bool),
@@ -388,6 +366,28 @@ fn extract_bit(bits: &[u8], index: usize) -> u8 {
     (bits[byte_idx] >> bit_pos) & 1
 }
 
+/// Turns the bit-level `PositionSeries` into a byte-level `PositionSeries`.
+struct BitPosToBytePos<P>(P);
+
+impl<P> PositionSeries<u64> for BitPosToBytePos<P>
+where
+    P: PositionSeries<u64>,
+{
+    const RANGES: bool = P::RANGES;
+
+    fn into_ranges(self) -> impl IntoIterator<Item = Range<u64>> + Clone {
+        self.0
+            .into_ranges()
+            .mapped(|it| bit_ranges_to_byte_ranges(it))
+    }
+
+    fn into_positions(self) -> impl IntoIterator<Item = u64> + Clone {
+        self.0
+            .into_positions()
+            .mapped(|it| bit_positions_to_byte_positions(it))
+    }
+}
+
 /// Converts an iterator of bit ranges (`Range<u64>`) into an iterator of byte ranges
 /// (`Range<u64>`), coalescing adjacent or overlapping byte ranges.
 ///
@@ -402,9 +402,10 @@ fn extract_bit(bits: &[u8], index: usize) -> u8 {
 /// Each output range specifies a half-open interval of byte offsets. Adjacent or
 /// overlapping byte ranges are merged into a single range.
 fn bit_ranges_to_byte_ranges(
-    bit_ranges: impl Iterator<Item = Range<u64>> + Clone,
-) -> impl Iterator<Item = Range<u64>> + Clone {
+    bit_ranges: impl Iterator<Item = Range<u64>>,
+) -> impl Iterator<Item = Range<u64>> {
     bit_ranges
+        .into_iter()
         .map(|r| r.start / 8..r.end.div_ceil(8))
         .coalesce(|a, b| {
             if a.end >= b.start {
@@ -430,8 +431,8 @@ fn bit_ranges_to_byte_ranges(
 /// so each byte position appears at most once in the output, even if multiple input
 /// bit positions map to the same byte.
 fn bit_positions_to_byte_positions(
-    bit_positions: impl Iterator<Item = u64> + Clone,
-) -> impl Iterator<Item = u64> + Clone {
+    bit_positions: impl Iterator<Item = u64>,
+) -> impl Iterator<Item = u64> {
     bit_positions.map(|pos| pos / 8).dedup()
 }
 
@@ -446,9 +447,12 @@ mod tests {
     };
     use arrow_buffer::BooleanBuffer;
 
-    use crate::write::{
-        PreparedEncodedBuffer,
-        bit_buffer::{BitBufferEncoder, EncodedBitBuffer},
+    use crate::{
+        read::block_stream::empty_hint,
+        write::{
+            PreparedEncodedBuffer,
+            bit_buffer::{BitBufferEncoder, EncodedBitBuffer},
+        },
     };
 
     use super::{
@@ -672,7 +676,7 @@ mod tests {
         let buffer = create_test_buffer_alternating(100).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let reader = decoder
-            .create_reader_with_ranges(std::iter::empty(), BlockReaderPrefetch::Disabled)
+            .create_reader(empty_hint(), BlockReaderPrefetch::Disabled)
             .unwrap();
         match reader {
             BitBufferReader::Blocks(_) => {}
@@ -685,7 +689,7 @@ mod tests {
         let buffer = create_test_buffer_alternating(1000).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let reader = decoder
-            .create_reader_with_ranges(
+            .create_reader(
                 vec![0..100, 200..300, 500..600].into_iter(),
                 BlockReaderPrefetch::Enabled,
             )
@@ -700,7 +704,7 @@ mod tests {
     fn test_reader_constant_true_various_ranges() {
         let decoder = BitBufferDecoder::from_constant(true);
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
 
         // Empty range
@@ -728,7 +732,7 @@ mod tests {
     fn test_reader_constant_false_various_ranges() {
         let decoder = BitBufferDecoder::from_constant(false);
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
 
         // Empty range
@@ -756,7 +760,7 @@ mod tests {
     fn test_reader_constant_arbitrary_positions() {
         let decoder = BitBufferDecoder::from_constant(true);
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..10000].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..10000].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
 
         // Test arbitrary start/end positions
@@ -774,7 +778,7 @@ mod tests {
         let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..64].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..64].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
 
         // Read exactly one byte
@@ -796,7 +800,7 @@ mod tests {
         let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..64].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..64].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
 
         // Read across single byte boundary
@@ -818,7 +822,7 @@ mod tests {
         let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..15].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..15].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
 
         // Read single bit
@@ -847,7 +851,7 @@ mod tests {
         let buffer = create_test_buffer_alternating(64).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..64].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..64].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
 
         let result = reader.read_range_as_arrow_boolean(0..0).unwrap();
@@ -866,7 +870,7 @@ mod tests {
         let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..8].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..8].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
 
         for i in 0..8 {
@@ -888,10 +892,7 @@ mod tests {
 
                 let decoder = BitBufferDecoder::from_constant(value);
                 let mut reader = decoder
-                    .create_reader_with_ranges(
-                        vec![0..1000].into_iter(),
-                        BlockReaderPrefetch::Disabled,
-                    )
+                    .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Disabled)
                     .unwrap();
                 let result = reader.read_range_as_arrow_boolean(0..1000).unwrap();
                 verify_boolean_buffer_constant(&result, true, 1000);
@@ -909,10 +910,7 @@ mod tests {
 
                 let decoder = BitBufferDecoder::from_constant(value);
                 let mut reader = decoder
-                    .create_reader_with_ranges(
-                        vec![0..1000].into_iter(),
-                        BlockReaderPrefetch::Disabled,
-                    )
+                    .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Disabled)
                     .unwrap();
                 let result = reader.read_range_as_arrow_boolean(0..1000).unwrap();
                 verify_boolean_buffer_constant(&result, false, 1000);
@@ -927,7 +925,7 @@ mod tests {
         let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..100].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..100].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
 
         let result = reader.read_range_as_arrow_boolean(0..100).unwrap();
@@ -945,7 +943,7 @@ mod tests {
             let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
             let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
             let mut reader = decoder
-                .create_reader_with_ranges(vec![0..200].into_iter(), BlockReaderPrefetch::Disabled)
+                .create_reader(vec![0..200].into_iter(), BlockReaderPrefetch::Disabled)
                 .unwrap();
 
             let result = reader.read_range_as_arrow_boolean(0..200).unwrap();
@@ -973,7 +971,7 @@ mod tests {
         let buffer = create_test_buffer_runs(&runs).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(
+            .create_reader(
                 vec![0..expected_pattern.len() as u64].into_iter(),
                 BlockReaderPrefetch::Disabled,
             )
@@ -992,7 +990,7 @@ mod tests {
         let buffer = create_test_buffer_from_pattern(&block_pattern).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..128].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..128].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
         let result = reader.read_range_as_arrow_boolean(0..128).unwrap();
         verify_boolean_buffer_values(&result, &block_pattern);
@@ -1002,7 +1000,7 @@ mod tests {
         let buffer = create_test_buffer_from_pattern(&checkerboard).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..64].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..64].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
         let result = reader.read_range_as_arrow_boolean(0..64).unwrap();
         verify_boolean_buffer_values(&result, &checkerboard);
@@ -1018,7 +1016,7 @@ mod tests {
 
         // Create reader with disjoint ranges
         let mut reader = decoder
-            .create_reader_with_ranges(
+            .create_reader(
                 vec![0..200, 400..600, 800..1000].into_iter(),
                 BlockReaderPrefetch::Enabled,
             )
@@ -1043,7 +1041,7 @@ mod tests {
         let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..100].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..100].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
 
         // Read overlapping ranges
@@ -1065,7 +1063,7 @@ mod tests {
         let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..200].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..200].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
 
         // Read in sequential chunks
@@ -1082,7 +1080,7 @@ mod tests {
         let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..500].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..500].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
 
         // Random access reads
@@ -1118,7 +1116,7 @@ mod tests {
             let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
             let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
             let mut reader = decoder
-                .create_reader_with_ranges(
+                .create_reader(
                     vec![0..size as u64].into_iter(),
                     BlockReaderPrefetch::Disabled,
                 )
@@ -1136,7 +1134,7 @@ mod tests {
         let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(
+            .create_reader(
                 vec![0..large_size as u64].into_iter(),
                 BlockReaderPrefetch::Enabled,
             )
@@ -1166,7 +1164,7 @@ mod tests {
             let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
             let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
             let mut reader = decoder
-                .create_reader_with_ranges(
+                .create_reader(
                     vec![0..pattern_size as u64].into_iter(),
                     BlockReaderPrefetch::Disabled,
                 )
@@ -1202,7 +1200,7 @@ mod tests {
 
         // Test with prefetch disabled
         let mut reader_no_prefetch = decoder
-            .create_reader_with_ranges(vec![0..200].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..200].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
         let result_no_prefetch = reader_no_prefetch
             .read_range_as_arrow_boolean(0..200)
@@ -1210,7 +1208,7 @@ mod tests {
 
         // Test with prefetch enabled
         let mut reader_prefetch = decoder
-            .create_reader_with_ranges(vec![0..200].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader(vec![0..200].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
         let result_prefetch = reader_prefetch.read_range_as_arrow_boolean(0..200).unwrap();
 
@@ -1271,7 +1269,7 @@ mod tests {
             let buffer = encoder.finish().unwrap();
             let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
             let mut reader = decoder
-                .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+                .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
                 .unwrap();
 
             let result = reader.read_range_as_arrow_boolean(0..1000).unwrap();
@@ -1292,7 +1290,7 @@ mod tests {
             let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
             let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
             let mut reader = decoder
-                .create_reader_with_ranges(
+                .create_reader(
                     vec![0..size as u64].into_iter(),
                     BlockReaderPrefetch::Disabled,
                 )
@@ -1320,7 +1318,7 @@ mod tests {
         let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Perform many small reads
@@ -1339,7 +1337,7 @@ mod tests {
         let buffer = create_test_buffer_from_pattern(&pattern).unwrap();
         let decoder = BitBufferDecoder::from_prepared_buffer(&buffer).unwrap();
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..500].into_iter(), BlockReaderPrefetch::Disabled)
+            .create_reader(vec![0..500].into_iter(), BlockReaderPrefetch::Disabled)
             .unwrap();
 
         // Perform many overlapping reads

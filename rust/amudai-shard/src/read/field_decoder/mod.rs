@@ -8,6 +8,7 @@ use amudai_format::{
     defs::common::AnyValue,
     schema::{BasicType, BasicTypeDescriptor},
 };
+use amudai_ranges::PositionSeries;
 use amudai_sequence::sequence::ValueSequence;
 use boolean::BooleanFieldDecoder;
 use bytes::BytesFieldDecoder;
@@ -66,17 +67,8 @@ pub mod unit;
 ///
 /// `FieldDecoder` supports multiple access patterns for different use cases:
 ///
-/// ## Range-based Access
-/// Use [`create_reader_with_ranges`](Self::create_reader_with_ranges) when:
-/// - Reading contiguous ranges of values
-/// - Performing sequential scans
-/// - Processing large batches of data
-///
-/// ## Position-based Access
-/// Use [`create_reader_with_positions`](Self::create_reader_with_positions) when:
-/// - Reading sparse, non-contiguous positions
-/// - Following index-based lookups
-/// - Implementing filtered queries
+/// ## Reader-style access for fetching value ranges
+/// Use [`create_reader`](Self::create_reader).
 ///
 /// ## Iterator-style Cursors
 /// Use specialized cursors for:
@@ -160,89 +152,35 @@ impl FieldDecoder {
         }
     }
 
-    /// Creates a reader for accessing ranges of values in this field.
-    ///
-    /// This method is designed for **contiguous access patterns** where you need to read
-    /// sequential ranges of field values.
+    /// Creates a reader for accessing individual values or ranges of values in this field.
     ///
     /// # Access Pattern Optimization
     ///
-    /// The range hints enable several optimizations:
+    /// The positions hint enables several optimizations:
     /// - Prefetching: Storage blocks covering the ranges are loaded proactively
     /// - I/O coalescing: Adjacent ranges may be read together to reduce I/O operations
     ///
-    /// # Compared to Position-based Access
-    ///
-    /// Use this method when:
-    /// - Reading contiguous ranges (e.g., rows 1000-2000, 5000-6000)
-    /// - Processing data in sequential order
-    /// - Performing full or partial table scans
-    ///
-    /// Use [`create_reader_with_positions`](Self::create_reader_with_positions) when:
-    /// - Reading sparse, non-contiguous positions (e.g., rows 10, 157, 942)
-    /// - Following index lookups or hash joins
-    /// - Processing filtered result sets
-    ///
     /// # Arguments
     ///
-    /// * `pos_ranges_hint` - An iterator of logical position ranges (`Range<u64>`) that
-    ///   are likely to be accessed. The ranges need to be sorted and non-overlapping.
-    ///   Empty ranges hint (e.g. [`std::iter::empty()`]) is allowed.
+    /// * `positions_hint` - An iterator of non-descending logical positions or ranges that
+    ///   are likely to be accessed. Empty ranges hint (e.g. [`std::iter::empty()`])
+    ///   is allowed.
     ///
     /// # Returns
     ///
     /// A boxed [`FieldReader`] that can access field values within the specified
     /// ranges.
-    pub fn create_reader_with_ranges(
+    pub fn create_reader(
         &self,
-        pos_ranges_hint: impl Iterator<Item = Range<u64>> + Clone,
+        positions_hint: impl PositionSeries<u64> + Clone,
     ) -> Result<Box<dyn FieldReader>> {
         match self {
-            FieldDecoder::Primitive(decoder) => decoder.create_reader_with_ranges(pos_ranges_hint),
-            FieldDecoder::Boolean(decoder) => decoder.create_reader_with_ranges(pos_ranges_hint),
-            FieldDecoder::Bytes(decoder) => decoder.create_reader_with_ranges(pos_ranges_hint),
-            FieldDecoder::Dictionary(decoder) => decoder.create_reader_with_ranges(pos_ranges_hint),
-            FieldDecoder::List(decoder) => decoder.create_reader_with_ranges(pos_ranges_hint),
-            FieldDecoder::Struct(decoder) => decoder.create_reader_with_ranges(pos_ranges_hint),
-        }
-    }
-
-    /// Creates a reader for accessing specific positions in this field.
-    ///
-    /// This method is optimized for **sparse access patterns** where you need to read
-    /// individual values at specific, potentially non-contiguous positions.
-    ///
-    /// # Position Ordering Requirements
-    ///
-    /// **Important**: The positions must be provided in **non-descending order**
-    /// (i.e., sorted). Positions may be duplicated, but they must not decrease.
-    ///
-    /// # Arguments
-    ///
-    /// * `positions_hint` - An iterator of logical positions (0-based row indices) in
-    ///   **non-descending order**. Duplicates are allowed but the sequence must never
-    ///   decrease. Position values must be less than the field's total position count.
-    ///   Empty position hint (e.g. [`std::iter::empty()`]) is allowed.
-    ///
-    /// # Returns
-    ///
-    /// A boxed [`FieldReader`] optimized for accessing the specified positions.
-    /// The reader pre-plans its access strategy based on the position distribution.
-    pub fn create_reader_with_positions(
-        &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
-    ) -> Result<Box<dyn FieldReader>> {
-        match self {
-            FieldDecoder::Primitive(decoder) => {
-                decoder.create_reader_with_positions(positions_hint)
-            }
-            FieldDecoder::Boolean(decoder) => decoder.create_reader_with_positions(positions_hint),
-            FieldDecoder::Bytes(decoder) => decoder.create_reader_with_positions(positions_hint),
-            FieldDecoder::Dictionary(decoder) => {
-                decoder.create_reader_with_positions(positions_hint)
-            }
-            FieldDecoder::List(decoder) => decoder.create_reader_with_positions(positions_hint),
-            FieldDecoder::Struct(decoder) => decoder.create_reader_with_positions(positions_hint),
+            FieldDecoder::Primitive(decoder) => decoder.create_reader(positions_hint),
+            FieldDecoder::Boolean(decoder) => decoder.create_reader(positions_hint),
+            FieldDecoder::Bytes(decoder) => decoder.create_reader(positions_hint),
+            FieldDecoder::Dictionary(decoder) => decoder.create_reader(positions_hint),
+            FieldDecoder::List(decoder) => decoder.create_reader(positions_hint),
+            FieldDecoder::Struct(decoder) => decoder.create_reader(positions_hint),
         }
     }
 
@@ -285,7 +223,7 @@ impl FieldDecoder {
     /// - I/O errors occur during initialization
     pub fn create_bytes_cursor(
         &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
+        positions_hint: impl PositionSeries<u64> + Clone,
     ) -> Result<bytes::BytesFieldCursor> {
         let basic_type = self.basic_type();
         match basic_type.basic_type {
@@ -297,7 +235,7 @@ impl FieldDecoder {
             }
         }
 
-        let reader = self.create_reader_with_positions(positions_hint)?;
+        let reader = self.create_reader(positions_hint)?;
         Ok(bytes::BytesFieldCursor::new(reader, basic_type))
     }
 
@@ -330,13 +268,13 @@ impl FieldDecoder {
     /// - I/O errors occur during initialization
     pub fn create_string_cursor(
         &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
+        positions_hint: impl PositionSeries<u64> + Clone,
     ) -> Result<bytes::StringFieldCursor> {
         let basic_type = self.basic_type();
         if !matches!(basic_type.basic_type, BasicType::String) {
             return Err(Error::invalid_operation("create_string_cursor"));
         }
-        let reader = self.create_reader_with_positions(positions_hint)?;
+        let reader = self.create_reader(positions_hint)?;
         Ok(bytes::StringFieldCursor::new(reader, basic_type))
     }
 
@@ -381,7 +319,7 @@ impl FieldDecoder {
     /// - I/O errors occur during initialization
     pub fn create_primitive_cursor<T>(
         &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
+        positions_hint: impl PositionSeries<u64> + Clone,
     ) -> Result<primitive::PrimitiveFieldCursor<T>> {
         let basic_type = self.basic_type();
         if basic_type.basic_type == BasicType::Boolean {
@@ -400,7 +338,7 @@ impl FieldDecoder {
                 ));
             }
         }
-        let reader = self.create_reader_with_positions(positions_hint)?;
+        let reader = self.create_reader(positions_hint)?;
         Ok(primitive::PrimitiveFieldCursor::new(reader, basic_type))
     }
 
@@ -446,13 +384,13 @@ impl FieldDecoder {
     /// - I/O errors occur during initialization
     pub fn create_list_cursor(
         &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
+        positions_hint: impl PositionSeries<u64> + Clone,
     ) -> Result<list::ListFieldCursor> {
         let basic_type = self.basic_type();
         if !matches!(basic_type.basic_type, BasicType::List | BasicType::Map) {
             return Err(Error::invalid_operation("create_list_cursor"));
         }
-        let reader = self.create_reader_with_positions(positions_hint)?;
+        let reader = self.create_reader(positions_hint)?;
         Ok(list::ListFieldCursor::new(reader, basic_type))
     }
 
@@ -501,7 +439,7 @@ impl FieldDecoder {
     /// - I/O errors occur during initialization
     pub fn create_struct_cursor(
         &self,
-        positions_hint: impl Iterator<Item = u64> + Clone,
+        positions_hint: impl PositionSeries<u64> + Clone,
     ) -> Result<unit::StructFieldCursor> {
         let basic_type = self.basic_type();
         if !matches!(
@@ -510,7 +448,7 @@ impl FieldDecoder {
         ) {
             return Err(Error::invalid_operation("create_struct_cursor"));
         }
-        let reader = self.create_reader_with_positions(positions_hint)?;
+        let reader = self.create_reader(positions_hint)?;
         Ok(unit::StructFieldCursor::new(reader, basic_type))
     }
 }

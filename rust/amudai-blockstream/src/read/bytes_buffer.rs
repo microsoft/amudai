@@ -1,4 +1,4 @@
-use std::{ops::Range, sync::Arc};
+use std::sync::Arc;
 
 use amudai_common::Result;
 use amudai_encodings::{
@@ -7,6 +7,7 @@ use amudai_encodings::{
 };
 use amudai_format::{defs::shard, schema::BasicTypeDescriptor};
 use amudai_io::ReadAt;
+use amudai_ranges::PositionSeries;
 
 use crate::{read::block_stream::BlockStreamDecoder, write::PreparedEncodedBuffer};
 
@@ -98,7 +99,7 @@ impl BytesBufferDecoder {
     /// Creates a reader for accessing specific ranges of values from this buffer.
     ///
     /// This method:
-    /// 1. Translates the requested logical position ranges to block ranges
+    /// 1. Translates the requested logical positions to block ranges
     /// 2. Optimizes those ranges for efficient reading
     /// 3. Creates a reader instance configured to access those blocks
     ///
@@ -107,40 +108,18 @@ impl BytesBufferDecoder {
     ///
     /// # Arguments
     ///
-    /// * `pos_ranges` - Iterator of logical position ranges to read
+    /// * `positions` - Iterator of logical position ranges or positions to read
     /// * `prefetch` - Whether to enable prefetching of blocks for improved performance
     ///
     /// # Returns
     ///
     /// A result containing the initialized reader if successful
-    pub fn create_reader_with_ranges(
+    pub fn create_reader(
         &self,
-        pos_ranges: impl Iterator<Item = Range<u64>> + Clone,
+        positions: impl PositionSeries<u64>,
         prefetch: BlockReaderPrefetch,
     ) -> Result<BytesBufferReader> {
-        let block_reader = self
-            .block_stream
-            .create_reader_with_ranges(pos_ranges, prefetch)?;
-        Ok(BytesBufferReader::new(
-            self.basic_type,
-            block_reader,
-            BinaryBlockDecoder::new(
-                self.encoding_params(),
-                self.basic_type,
-                Arc::new(Default::default()),
-            ),
-        ))
-    }
-
-    /// Creates a reader for accessing values at specific positions from this buffer.
-    pub fn create_reader_with_positions(
-        &self,
-        positions: impl Iterator<Item = u64> + Clone,
-        prefetch: BlockReaderPrefetch,
-    ) -> Result<BytesBufferReader> {
-        let block_reader = self
-            .block_stream
-            .create_reader_with_positions(positions, prefetch)?;
+        let block_reader = self.block_stream.create_reader(positions, prefetch)?;
         Ok(BytesBufferReader::new(
             self.basic_type,
             block_reader,
@@ -217,7 +196,7 @@ mod tests {
 
         let ranges = [10u64..100, 200..300];
         let mut reader = decoder
-            .create_reader_with_ranges(ranges.iter().cloned(), BlockReaderPrefetch::Enabled)
+            .create_reader(ranges.iter().cloned(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         let seq = reader.read_range(25..35).unwrap();
@@ -243,7 +222,7 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Read exactly one block
@@ -276,7 +255,7 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Read across block boundary
@@ -309,7 +288,7 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Get total value count to determine actual buffer size
@@ -347,7 +326,7 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Empty range at the start
@@ -380,7 +359,7 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Read the entire buffer
@@ -409,7 +388,7 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Read range that extends beyond the end
@@ -434,7 +413,7 @@ mod tests {
 
         // Create reader with disjoint block ranges
         let mut reader = decoder
-            .create_reader_with_ranges(
+            .create_reader(
                 vec![0..500, 1000..1500, 1800..2000].into_iter(),
                 BlockReaderPrefetch::Enabled,
             )
@@ -478,7 +457,7 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..2000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader(vec![0..2000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Perform sequential reads
@@ -522,7 +501,7 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader(vec![0..1000].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         // Read overlapping ranges
@@ -557,7 +536,7 @@ mod tests {
         .unwrap();
 
         let mut reader = decoder
-            .create_reader_with_ranges(vec![0..250].into_iter(), BlockReaderPrefetch::Enabled)
+            .create_reader(vec![0..250].into_iter(), BlockReaderPrefetch::Enabled)
             .unwrap();
 
         let seq = reader.read_range(50..100).unwrap();

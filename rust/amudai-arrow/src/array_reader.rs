@@ -161,7 +161,7 @@ impl ArrayReader {
         let struct_reader = amudai_struct_field
             .create_decoder()
             .to_arrow_res()?
-            .create_reader_with_ranges(pos_ranges_hint.clone())
+            .create_reader(pos_ranges_hint.clone())
             .to_arrow_res()?;
 
         Ok(ArrayReader::Struct(StructArrayReader::new(
@@ -202,7 +202,7 @@ impl ArrayReader {
         let list_reader = amudai_list_field
             .create_decoder()
             .to_arrow_res()?
-            .create_reader_with_ranges(pos_ranges_hint.clone())
+            .create_reader(pos_ranges_hint.clone())
             .to_arrow_res()?;
 
         let stripe = amudai_list_field.get_stripe();
@@ -269,7 +269,7 @@ impl ArrayReader {
         let map_reader = amudai_map_field
             .create_decoder()
             .to_arrow_res()?
-            .create_reader_with_ranges(pos_ranges_hint.clone())
+            .create_reader(pos_ranges_hint.clone())
             .to_arrow_res()?;
 
         let stripe = amudai_map_field.get_stripe();
@@ -337,7 +337,7 @@ impl ArrayReader {
         let reader = stripe_field
             .create_decoder()
             .to_arrow_res()?
-            .create_reader_with_ranges(pos_ranges_hint)
+            .create_reader(pos_ranges_hint)
             .to_arrow_res()?;
         Ok(ArrayReader::Simple(SimpleArrayReader::new(
             reader, arrow_type,
@@ -377,7 +377,7 @@ impl ArrayReader {
             _ => panic!("unexpected field decoder variant"),
         };
         let reader = decoder
-            .create_boolean_reader_with_ranges(pos_ranges_hint)
+            .create_boolean_reader(pos_ranges_hint)
             .to_arrow_res()?;
         Ok(ArrayReader::Boolean(BooleanArrayReader::new(reader)))
     }
