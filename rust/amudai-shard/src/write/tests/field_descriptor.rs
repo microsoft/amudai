@@ -2014,7 +2014,7 @@ mod tests {
     }
     #[test]
     fn test_populate_decimal_statistics() {
-        use decimal::d128;
+        use amudai_decimal::d128;
         use std::str::FromStr; // Create test decimal statistics
         let decimal_stats = amudai_data_stats::decimal::DecimalStats {
             min_value: Some(d128::from_str("123.45").unwrap()),
@@ -2054,8 +2054,8 @@ mod tests {
 
     #[test]
     fn test_decimal_statistics_merging_with_binary_representation() -> Result<()> {
+        use amudai_decimal::d128;
         use amudai_format::defs::common::{AnyValue, any_value::Kind};
-        use decimal::d128;
         use std::str::FromStr;
 
         // Create two field descriptors with decimal range statistics
@@ -2140,9 +2140,9 @@ mod tests {
 
     #[test]
     fn test_decimal_comparison_string_vs_binary() {
+        use amudai_decimal::d128;
         use amudai_format::defs::anyvalue_ext::AnyValueExt;
         use amudai_format::defs::common::{AnyValue, any_value::Kind};
-        use decimal::d128;
         use std::str::FromStr;
 
         // Test case: "9.99" vs "10.0"

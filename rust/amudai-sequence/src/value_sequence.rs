@@ -6,6 +6,7 @@ use crate::{
     sequence::Sequence,
     values::Values,
 };
+use amudai_decimal::d128;
 use amudai_format::{
     defs::common::{AnyValue, any_value::Kind},
     schema::{BasicType, BasicTypeDescriptor},
@@ -509,7 +510,7 @@ impl ValueSequence {
                 let mut decimal_bytes = [0u8; 16];
                 decimal_bytes.copy_from_slice(value);
                 // Parse as decimal to validate the encoding
-                let decimal_value = unsafe { decimal::d128::from_raw_bytes(decimal_bytes) };
+                let decimal_value = unsafe { d128::from_raw_bytes(decimal_bytes) };
                 // Check if the decimal value is invalid (NaN indicates invalid encoding)
                 if decimal_value.is_nan() {
                     // Note: This catches true corruption, not legitimate NaN values

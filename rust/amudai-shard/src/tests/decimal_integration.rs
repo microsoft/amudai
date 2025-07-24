@@ -293,9 +293,9 @@ fn test_multiple_stripes_with_decimals() -> Result<()> {
 
 #[test]
 fn test_decimal_field_with_nan_values() -> Result<()> {
+    use amudai_decimal::d128;
     use arrow_array::{RecordBatch, builder::FixedSizeBinaryBuilder};
     use arrow_schema::{DataType, Field, Schema};
-    use decimal::d128;
     use std::sync::Arc;
 
     let shard_store = ShardStore::new(); // Create a decimal field with proper KustoDecimal metadata
@@ -388,9 +388,9 @@ fn test_decimal_field_with_nan_values() -> Result<()> {
 
 #[test]
 fn test_decimal_end_to_end_read_back() -> Result<()> {
+    use amudai_decimal::d128;
     use arrow_array::{RecordBatch, builder::FixedSizeBinaryBuilder};
     use arrow_schema::{DataType, Field, Schema};
-    use decimal::d128;
     use std::sync::Arc;
 
     let shard_store = ShardStore::new();
@@ -481,9 +481,9 @@ fn test_decimal_end_to_end_read_back() -> Result<()> {
 
 #[test]
 fn test_decimal_with_index_end_to_end() -> Result<()> {
+    use amudai_decimal::d128;
     use arrow_array::{RecordBatch, builder::FixedSizeBinaryBuilder};
     use arrow_schema::{DataType, Field, Schema};
-    use decimal::d128;
     use std::sync::Arc;
 
     let shard_store = ShardStore::new();

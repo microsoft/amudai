@@ -870,6 +870,7 @@ mod bytes_tests {
 #[cfg(test)]
 mod decimal_tests {
     use super::*;
+    use amudai_decimal::d128;
     use arrow_array::FixedSizeBinaryArray;
 
     #[test]
@@ -1021,7 +1022,7 @@ mod decimal_tests {
         let mut encoder = DecimalFieldEncoder::create(&params)?;
 
         // Create a constant decimal value
-        let constant_decimal_bytes = decimal::d128::from(42).to_raw_bytes();
+        let constant_decimal_bytes = d128::from(42).to_raw_bytes();
 
         // Add a large amount of constant data - this should be detected early
         // and avoid expensive buffer encoding and index creation

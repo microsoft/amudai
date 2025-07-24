@@ -5,6 +5,7 @@
 
 use crate::defs::common::{AnyValue, any_value::Kind};
 use amudai_common::Result;
+use amudai_decimal::d128;
 
 /// Extension trait for AnyValue providing comparison operations.
 pub trait AnyValueExt {
@@ -90,8 +91,6 @@ impl AnyValueExt for AnyValue {
 /// * `1` if left > right
 /// * An error if the byte arrays are invalid
 fn compare_decimal_bytes(left_bytes: &[u8], right_bytes: &[u8]) -> Result<i32> {
-    use decimal::d128;
-
     // Validate byte array lengths
     if left_bytes.len() != 16 {
         return Err(amudai_common::error::Error::invalid_operation(format!(
@@ -298,7 +297,6 @@ mod tests {
 
     #[test]
     fn test_compare_decimal_values() {
-        use decimal::d128;
         use std::str::FromStr;
 
         // Create decimal AnyValues with binary representation

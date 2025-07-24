@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use amudai_arrow_compat::arrow_to_amudai_schema::FromArrowSchema;
 use amudai_blockstream::read::block_stream::empty_hint;
+use amudai_decimal::d128;
 use amudai_format::{defs::shard::BufferKind, schema::BasicType, schema_builder::SchemaBuilder};
 use amudai_io_impl::temp_file_store;
 use amudai_objectstore::null_store::NullObjectStore;
@@ -10,7 +11,6 @@ use arrow_array::{
     builder::{Int8Builder, StringBuilder},
 };
 use arrow_schema::{DataType, Schema};
-use decimal::d128;
 
 use crate::{
     tests::{

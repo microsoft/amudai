@@ -278,7 +278,7 @@ impl Bytes {
     /// # Arguments
     ///
     /// * `alignment` - The alignment to check for. Must be a power of two and
-    /// no greater than 128.
+    ///   no greater than 128.
     pub fn is_aligned(&self, alignment: usize) -> bool {
         self.0.is_aligned(alignment)
     }

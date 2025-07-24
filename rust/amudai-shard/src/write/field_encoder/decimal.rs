@@ -2,20 +2,22 @@
 
 use std::sync::Arc;
 
-use amudai_arrow_compat::decimal_conversions::{convert_i128_to_decimal, convert_i256_to_decimal};
 use amudai_blockstream::write::{
     bytes_buffer::BytesBufferEncoder, staging_buffer::BytesStagingBuffer,
 };
 use amudai_common::Result;
 use amudai_data_stats::decimal::DecimalStatsCollector;
+use amudai_decimal::d128;
 use amudai_encodings::block_encoder::{
     BlockChecksum, BlockEncodingParameters, BlockEncodingPolicy, PresenceEncoding,
 };
 use amudai_format::defs::schema_ext::{BasicTypeDescriptor, KnownExtendedType};
 use amudai_format::schema::BasicType;
+use amudai_value_conversions::decimal_conversions::{
+    convert_i128_to_decimal, convert_i256_to_decimal,
+};
 use arrow_array::{Array, Decimal128Array, Decimal256Array, FixedSizeBinaryArray};
 use arrow_schema::DataType;
-use decimal::d128;
 
 use super::{EncodedField, EncodedFieldStatistics, FieldEncoderOps, FieldEncoderParams};
 use crate::write::numeric_index::NumericIndexBuilder;

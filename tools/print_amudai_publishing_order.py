@@ -34,13 +34,14 @@ To update the pipeline:
 """
 
 import argparse
+import heapq
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional
-from collections import defaultdict, deque
+from collections import defaultdict
 
 
 class DependencyAnalyzer:
@@ -143,7 +144,7 @@ class DependencyAnalyzer:
             print()
     
     def topological_sort(self) -> List[str]:
-        """Perform topological sort to determine publishing order."""
+        """Perform topological sort to determine publishing order with stable alphabetical ordering."""
         # Calculate in-degrees (number of dependencies)
         in_degree = {crate: 0 for crate in self.amudai_crates}
         
@@ -152,20 +153,27 @@ class DependencyAnalyzer:
                 if dep in in_degree:  # Only count amudai dependencies
                     in_degree[crate] += 1
         
-        # Use Kahn's algorithm for topological sorting
-        queue = deque([crate for crate, degree in in_degree.items() if degree == 0])
+        # Use Kahn's algorithm for topological sorting with stable alphabetical ordering
+        # Use a min-heap to ensure alphabetical processing of nodes with same in-degree
+        heap = [crate for crate, degree in in_degree.items() if degree == 0]
+        heapq.heapify(heap)
         result = []
         
-        while queue:
-            current = queue.popleft()
+        while heap:
+            current = heapq.heappop(heap)
             result.append(current)
             
-            # Update in-degrees for dependents
+            # Find all crates that depend on the current crate
+            dependents_to_add = []
             for crate, deps in self.dependencies.items():
                 if current in deps:
                     in_degree[crate] -= 1
                     if in_degree[crate] == 0:
-                        queue.append(crate)
+                        dependents_to_add.append(crate)
+            
+            # Add dependents in alphabetical order to maintain stability
+            for dependent in sorted(dependents_to_add):
+                heapq.heappush(heap, dependent)
         
         # Check for circular dependencies
         if len(result) != len(self.amudai_crates):

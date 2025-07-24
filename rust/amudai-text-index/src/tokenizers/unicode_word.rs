@@ -75,7 +75,7 @@ impl<'a> Iterator for WordTokenIterator<'a> {
         let mut word_end = None;
 
         // Skip to the start of the next alphanumeric sequence
-        while let Some((pos, ch)) = self.char_indices.next() {
+        for (pos, ch) in self.char_indices.by_ref() {
             if ch.is_alphanumeric() {
                 if word_start.is_none() {
                     word_start = Some(pos);

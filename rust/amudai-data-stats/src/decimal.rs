@@ -3,8 +3,8 @@
 //! This module provides functionality to collect statistics from d128 decimal values
 //! that have been converted from Arrow decimal array types.
 
+use amudai_decimal::d128;
 use amudai_format::defs::common::{AnyValue, UnitValue, any_value::Kind};
-use decimal::d128;
 
 /// Statistics collector for d128 decimal values.
 ///

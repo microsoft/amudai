@@ -22,6 +22,7 @@ use std::mem::size_of;
 use std::sync::Arc;
 
 use amudai_common::{Result, error::Error};
+use amudai_decimal::d128;
 use amudai_encodings::{
     block_decoder::BlockDecoder,
     block_encoder::{BlockChecksum, BlockEncodingParameters, PresenceEncoding},
@@ -35,7 +36,6 @@ use amudai_io::ReadAt;
 use amudai_sequence::values::Values;
 use arrow_array::ArrowPrimitiveType;
 use arrow_buffer::ArrowNativeType;
-use decimal::d128;
 
 // Re-export necessary types from the write module
 use crate::write::numeric_index::{

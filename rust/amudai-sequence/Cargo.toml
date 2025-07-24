@@ -9,8 +9,8 @@ rust-version.workspace = true
 
 [dependencies]
 bytemuck = { workspace = true }
-decimal = { workspace = true }
 
 amudai-bytes = { workspace = true }
 amudai-common = { workspace = true }
+amudai-decimal = { workspace = true }
 amudai-format = { workspace = true }

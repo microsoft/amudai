@@ -146,7 +146,7 @@ pub fn create_tokenizer(name: &str) -> Result<TokenizerType> {
         "unicode-log" => Ok(TokenizerType::UnicodeLog(UnicodeLogTokenizer::new())),
         _ => Err(Error::invalid_arg(
             name,
-            format!("Unrecognized tokenizer: {}", name),
+            format!("Unrecognized tokenizer: {name}"),
         )),
     }
 }

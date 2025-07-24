@@ -25,8 +25,8 @@ use amudai_encodings::{
 use amudai_format::defs::{schema::BasicType, schema_ext::BasicTypeDescriptor, shard};
 use amudai_io::temp_file_store::TemporaryFileStore;
 
+use amudai_decimal::d128;
 use arrow_array::{Array, FixedSizeBinaryArray, cast::AsArray};
-use decimal::d128;
 
 use super::numeric_index::{
     DEFAULT_LOGICAL_BLOCK_SIZE, HEADER_SIZE, NumericIndexBuilder, NumericRangeIndexHeader,

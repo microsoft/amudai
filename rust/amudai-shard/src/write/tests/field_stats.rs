@@ -1,5 +1,6 @@
 use crate::write::stripe_builder::{StripeBuilder, StripeBuilderParams};
 use amudai_common::{Result, error::Error};
+use amudai_decimal::d128;
 use amudai_encodings::block_encoder::BlockEncodingProfile;
 use amudai_format::defs::shard;
 use amudai_format::schema::BasicType;
@@ -1577,7 +1578,7 @@ fn test_empty_batch_statistics() -> Result<()> {
 }
 
 /// Creates a decimal array for testing decimal statistics.
-fn create_decimal_array_from_d128_values(values: &[Option<decimal::d128>]) -> Arc<dyn Array> {
+fn create_decimal_array_from_d128_values(values: &[Option<d128>]) -> Arc<dyn Array> {
     use arrow_array::FixedSizeBinaryArray;
 
     let mut binary_values = Vec::new();
@@ -1608,13 +1609,13 @@ fn create_decimal_array_from_d128_values(values: &[Option<decimal::d128>]) -> Ar
 }
 
 /// Creates a RecordBatch with a single decimal field for testing.
-fn create_decimal_batch_from_d128_values(values: &[Option<decimal::d128>]) -> RecordBatch {
+fn create_decimal_batch_from_d128_values(values: &[Option<d128>]) -> RecordBatch {
     create_decimal_batch_from_d128_values_with_name(values, "test_decimal")
 }
 
 /// Creates a RecordBatch with a single decimal field for testing with a custom field name.
 fn create_decimal_batch_from_d128_values_with_name(
-    values: &[Option<decimal::d128>],
+    values: &[Option<d128>],
     field_name: &str,
 ) -> RecordBatch {
     use arrow_schema::Schema;
@@ -1635,7 +1636,6 @@ fn create_decimal_batch_from_d128_values_with_name(
 #[test]
 fn test_decimal_statistics_integration() -> Result<()> {
     use amudai_format::schema_builder::{DataTypeBuilder, FieldBuilder, SchemaBuilder};
-    use decimal::d128;
     use std::str::FromStr;
 
     // Create test decimal values with various characteristics
@@ -1757,7 +1757,6 @@ fn test_decimal_statistics_all_null() -> Result<()> {
 #[test]
 fn test_decimal_statistics_single_value() -> Result<()> {
     use amudai_format::schema_builder::{DataTypeBuilder, FieldBuilder, SchemaBuilder};
-    use decimal::d128;
     use std::str::FromStr;
 
     // Test edge case: single value
@@ -1811,7 +1810,6 @@ fn test_decimal_statistics_single_value() -> Result<()> {
 #[test]
 fn test_decimal_statistics_mixed_nulls() -> Result<()> {
     use amudai_format::schema_builder::{DataTypeBuilder, FieldBuilder, SchemaBuilder};
-    use decimal::d128;
     use std::str::FromStr;
 
     // Test mixed null and non-null values
@@ -1878,7 +1876,6 @@ fn test_decimal_statistics_mixed_nulls() -> Result<()> {
 #[test]
 fn test_decimal_statistics_aggregation() -> Result<()> {
     use amudai_format::schema_builder::{DataTypeBuilder, FieldBuilder, SchemaBuilder};
-    use decimal::d128;
     use std::str::FromStr;
 
     // Create test schema

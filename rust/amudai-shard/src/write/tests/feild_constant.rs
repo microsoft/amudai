@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
+use amudai_decimal::d128;
 use amudai_format::defs::common::{AnyValue, any_value::Kind};
 use amudai_objectstore::url::ObjectUrl;
 use arrow_array::{BooleanArray, FixedSizeBinaryArray, Int64Array, RecordBatch, StringArray};
 use arrow_buffer::Buffer;
 use arrow_schema::{DataType, Field, Schema as ArrowSchema};
-use decimal::d128;
 
 use crate::read::shard::ShardOptions;
 use amudai_common::Result;

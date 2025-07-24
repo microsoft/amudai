@@ -34,6 +34,7 @@ use std::sync::Arc;
 use amudai_arrow_compat::arrow_to_amudai_schema::FromArrowSchema;
 use amudai_blockstream::read::block_stream::empty_hint;
 use amudai_common::Result;
+use amudai_decimal::d128;
 use amudai_encodings::block_encoder::BlockEncodingProfile;
 use amudai_format::defs::schema::BasicType;
 use amudai_format::defs::schema_ext::BasicTypeDescriptor;
@@ -52,7 +53,6 @@ use arrow_array::{
 use arrow_schema::{
     DataType as ArrowDataType, Field as ArrowField, Schema as ArrowSchema, TimeUnit,
 };
-use decimal::d128;
 use tempfile::TempDir;
 
 use crate::read::numeric_index as read_numeric_index;
@@ -65,9 +65,7 @@ use crate::write::stripe_builder::{StripeBuilder, StripeBuilderParams};
 // ============================================================================
 
 /// Creates a decimal array from d128 values for testing
-fn create_decimal_array_from_d128_values(
-    values: &[Option<decimal::d128>],
-) -> Arc<dyn arrow_array::Array> {
+fn create_decimal_array_from_d128_values(values: &[Option<d128>]) -> Arc<dyn arrow_array::Array> {
     let mut binary_values = Vec::new();
     let mut null_buffer = Vec::new();
 
@@ -96,10 +94,7 @@ fn create_decimal_array_from_d128_values(
 }
 
 /// Creates a RecordBatch with a single decimal field for testing
-fn create_decimal_batch_from_d128_values(
-    values: &[Option<decimal::d128>],
-    field_name: &str,
-) -> RecordBatch {
+fn create_decimal_batch_from_d128_values(values: &[Option<d128>], field_name: &str) -> RecordBatch {
     // Create Arrow field with KustoDecimal metadata
     let arrow_field = ArrowField::new(field_name, ArrowDataType::FixedSizeBinary(16), true)
         .with_metadata(
@@ -1653,8 +1648,8 @@ fn create_decimal_array(values: Vec<Option<d128>>) -> FixedSizeBinaryArray {
 fn test_decimal_index_with_nan_values() -> Result<()> {
     use crate::read::decimal_index::DecimalIndexDecoder;
     use crate::write::decimal_index::DecimalIndexBuilder;
+    use amudai_decimal::d128;
     use amudai_io_impl::temp_file_store;
-    use decimal::d128;
     use std::str::FromStr;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
@@ -1731,8 +1726,8 @@ fn test_decimal_index_with_nan_values() -> Result<()> {
 #[test]
 fn test_decimal_index_all_nan_values() -> Result<()> {
     use crate::write::decimal_index::DecimalIndexBuilder;
+    use amudai_decimal::d128;
     use amudai_io_impl::temp_file_store;
-    use decimal::d128;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
     let mut builder = DecimalIndexBuilder::new(temp_store, Default::default());
@@ -1769,7 +1764,6 @@ fn test_decimal_index_mixed_normal_and_nan() -> Result<()> {
     use crate::read::decimal_index::DecimalIndexDecoder;
     use crate::write::decimal_index::DecimalIndexBuilder;
     use amudai_io_impl::temp_file_store;
-    use decimal::d128;
     use std::str::FromStr;
 
     let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();

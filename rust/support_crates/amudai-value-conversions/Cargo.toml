@@ -8,3 +8,5 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+arrow-buffer = { workspace = true }
+amudai-decimal = { workspace = true }

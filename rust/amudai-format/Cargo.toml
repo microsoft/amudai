@@ -10,7 +10,6 @@ rust-version.workspace = true
 [dependencies]
 ahash = { workspace = true }
 bytemuck = { workspace = true }
-decimal = { workspace = true }
 planus = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true }
@@ -20,4 +19,5 @@ xxhash-rust = { workspace = true }
 amudai-bloom-filters = { workspace = true }
 amudai-bytes = { workspace = true }
 amudai-common = { workspace = true }
+amudai-decimal = { workspace = true }
 amudai-keyed-vector = { workspace = true }

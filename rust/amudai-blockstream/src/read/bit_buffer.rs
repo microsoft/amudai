@@ -376,15 +376,13 @@ where
     const RANGES: bool = P::RANGES;
 
     fn into_ranges(self) -> impl IntoIterator<Item = Range<u64>> + Clone {
-        self.0
-            .into_ranges()
-            .mapped(|it| bit_ranges_to_byte_ranges(it))
+        self.0.into_ranges().mapped(bit_ranges_to_byte_ranges)
     }
 
     fn into_positions(self) -> impl IntoIterator<Item = u64> + Clone {
         self.0
             .into_positions()
-            .mapped(|it| bit_positions_to_byte_positions(it))
+            .mapped(bit_positions_to_byte_positions)
     }
 }
 

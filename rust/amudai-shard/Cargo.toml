@@ -14,7 +14,6 @@ arrow-buffer = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true }
 bytemuck = { workspace = true }
-decimal = { workspace = true }
 fastrand = { workspace = true }
 prost = { workspace = true }
 tempfile = { workspace = true }
@@ -27,6 +26,7 @@ amudai-bloom-filters = { workspace = true }
 amudai-bytes = { workspace = true }
 amudai-common = { workspace = true }
 amudai-data-stats = { workspace = true }
+amudai-decimal = { workspace = true }
 amudai-encodings = { workspace = true }
 amudai-format = { workspace = true }
 amudai-index-core = { workspace = true }
@@ -36,6 +36,7 @@ amudai-keyed-vector = { workspace = true }
 amudai-objectstore = { workspace = true }
 amudai-ranges = { workspace = true }
 amudai-sequence = { workspace = true }
+amudai-value-conversions = { workspace = true }
 
 [dev-dependencies]
 amudai-testkit = { workspace = true }

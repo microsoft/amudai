@@ -17,5 +17,4 @@ pub mod arrow_fields;
 pub mod arrow_to_amudai_schema;
 pub mod buffers;
 pub mod datetime_conversions;
-pub mod decimal_conversions;
 pub mod sequence_to_array;

@@ -3,10 +3,9 @@
 //! This module provides functionality to convert between Arrow decimal types and
 //! the `decimal::d128` type used throughout the Amudai system.
 
-use amudai_common::{Result, error::Error};
+use amudai_decimal::d128;
 use arrow_buffer;
-use decimal::d128;
-use std::str::FromStr;
+use std::{io::Error, str::FromStr};
 
 /// Converts an i128 value from Arrow Decimal128Array to a decimal::d128.
 ///
@@ -16,7 +15,7 @@ use std::str::FromStr;
 ///
 /// # Returns
 /// A `Result` containing the converted `d128` value or an error
-pub fn convert_i128_to_decimal(value: i128, scale: i8) -> Result<d128> {
+pub fn convert_i128_to_decimal(value: i128, scale: i8) -> Result<d128, Error> {
     // For i128, we need to handle the case where it might not fit in d128's range
     // First try to convert directly if it fits in i64 range
     if let Ok(value_i64) = i64::try_from(value) {
@@ -26,7 +25,10 @@ pub fn convert_i128_to_decimal(value: i128, scale: i8) -> Result<d128> {
         // Fall back to string conversion for values outside i64 range
         let value_str = value.to_string();
         let decimal = d128::from_str(&value_str).map_err(|e| {
-            Error::invalid_operation(format!("Failed to parse i128 as decimal: {e:?}"))
+            Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Failed to parse i128 as decimal: {e:?}"),
+            )
         })?;
         apply_decimal_scale(decimal, scale)
     }
@@ -43,11 +45,15 @@ pub fn convert_i128_to_decimal(value: i128, scale: i8) -> Result<d128> {
 ///
 /// # Returns
 /// A `Result` containing the converted `d128` value or an error
-pub fn convert_i256_to_decimal(value: arrow_buffer::i256, scale: i8) -> Result<d128> {
+pub fn convert_i256_to_decimal(value: arrow_buffer::i256, scale: i8) -> Result<d128, Error> {
     // For i256, use string conversion since it's likely to exceed d128's range
     let value_str = value.to_string();
-    let decimal = d128::from_str(&value_str)
-        .map_err(|e| Error::invalid_operation(format!("Failed to parse i256 as decimal: {e:?}")))?;
+    let decimal = d128::from_str(&value_str).map_err(|e| {
+        Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Failed to parse i256 as decimal: {e:?}"),
+        )
+    })?;
 
     apply_decimal_scale(decimal, scale)
 }
@@ -59,7 +65,7 @@ pub fn convert_i256_to_decimal(value: arrow_buffer::i256, scale: i8) -> Result<d
 ///
 /// # Returns
 /// A `Result` containing the scale factor as a `d128` value
-fn create_decimal_scale_factor(scale: i8) -> Result<d128> {
+fn create_decimal_scale_factor(scale: i8) -> Result<d128, Error> {
     if scale == 0 {
         return Ok(d128::from(1));
     }
@@ -71,8 +77,12 @@ fn create_decimal_scale_factor(scale: i8) -> Result<d128> {
     if let Ok(power_i64) = i64::try_from(power_of_10) {
         Ok(d128::from(power_i64))
     } else {
-        d128::from_str(&power_of_10.to_string())
-            .map_err(|e| Error::invalid_operation(format!("Failed to create scale factor: {e:?}")))
+        d128::from_str(&power_of_10.to_string()).map_err(|e| {
+            Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Failed to create scale factor: {e:?}"),
+            )
+        })
     }
 }
 
@@ -84,7 +94,7 @@ fn create_decimal_scale_factor(scale: i8) -> Result<d128> {
 ///
 /// # Returns
 /// A `Result` containing the scaled decimal value
-fn apply_decimal_scale(value: d128, scale: i8) -> Result<d128> {
+fn apply_decimal_scale(value: d128, scale: i8) -> Result<d128, Error> {
     use std::cmp::Ordering;
 
     match scale.cmp(&0) {
