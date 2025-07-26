@@ -52,6 +52,16 @@ amudai-cmd ingest --file data.json --file data2.json output_shard.amudai
    amudai-cmd ingest --schema-file schema.json --file data.csv output_shard.amudai
    ```
 
+**Shard file organization:**
+
+Control how the shard files are organized on disk with `--shard-file-organization`:
+- `single` - All data in a single file
+- `twolevel` (default) - Two-level file organization for better scalability
+
+```bash
+amudai-cmd ingest --file data.csv --shard-file-organization single output_shard.amudai
+```
+
 **Supported file formats:**
 - **CSV** (`.csv`) - Comma-separated values
 - **JSON** (`.json`) - Single JSON object or array
@@ -64,20 +74,21 @@ amudai-cmd ingest --file data.json --file data2.json output_shard.amudai
 - `long`, `int64`, `i64` → 64-bit signed integers  
 - `double`, `float64`, `f64` → 64-bit floating point
 - `datetime` → Nanosecond-precision timestamps
+- `guid`, `uuid` → 128-bit GUIDs/UUIDs (stored as FixedSizeBinary(16))
 
 **Examples:**
 ```bash
 # Ingest multiple CSV files with automatic schema inference
 amudai-cmd ingest --file sales_2023.csv --file sales_2024.csv sales_data.amudai
 
-# Ingest JSON with explicit schema
+# Ingest JSON with explicit schema including GUID fields
 amudai-cmd ingest \
-  --schema "(user_id: long, event_name: string, properties: string, timestamp: datetime)" \
+  --schema "(user_id: guid, event_name: string, properties: string, timestamp: datetime)" \
   --file events.ndjson \
   events_shard.amudai
 
-# Ingest using schema from file
-amudai-cmd ingest --schema-file table_schema.json --file data.csv table.amudai
+# Ingest using schema from file with single-file organization
+amudai-cmd ingest --schema-file table_schema.json --file data.csv --shard-file-organization single table.amudai
 ```
 
 ### `inspect` - Examine shard structure and metadata
@@ -92,28 +103,32 @@ amudai-cmd inspect /path/to/shard.amudai
 
 **Verbosity levels:**
 - Default: Basic shard information (record counts, schema summary)
-- `-v` (verbose): Detailed field information and statistics  
-- `-vv` (very verbose): Complete metadata including encoding details
+- `-v` (verbose): Shard-level field descriptors and stripe field information
+- `-vv` (very verbose): Stripe-level field descriptors and encoding details
+- `-vvv` (most verbose): Block-level encoding statistics and buffer information
 
 **Examples:**
 ```bash
 # Basic inspection
 amudai-cmd inspect data.amudai
 
-# Verbose output with field details
+# Verbose output with shard-level field descriptors
 amudai-cmd inspect -v data.amudai
 
-# Maximum verbosity
+# Very verbose with stripe-level descriptors
 amudai-cmd inspect -vv data.amudai
+
+# Maximum verbosity with block encoding statistics
+amudai-cmd inspect -vvv data.amudai
 ```
 
 **Output includes:**
 - Total record and stripe counts
 - Schema information (field names, types, nested structures)
 - Storage statistics (data size, compression ratios)
-- Field-level metadata and statistics
+- Field-level metadata and statistics (null counts, range stats, etc.)
 - URL lists and references
-- Encoding information (with `-vv`)
+- Encoding information and block statistics (with higher verbosity)
 
 ### `infer-schema` - Analyze files and generate schemas
 
@@ -223,6 +238,18 @@ amudai-cmd ingest \
 
 # Inspect the combined result
 amudai-cmd inspect -v combined_sensors.amudai
+```
+
+### Working with GUID/UUID data:
+
+```bash
+# Ingest data with GUID fields
+amudai-cmd ingest \
+  --schema "(id: guid, user_id: uuid, name: string, created_at: datetime)" \
+  --file users.csv \
+  users_shard.amudai
+
+# GUIDs in CSV/JSON files should be in standard format (e.g., "550e8400-e29b-41d4-a716-446655440000")
 ```
 
 ### Performance testing:

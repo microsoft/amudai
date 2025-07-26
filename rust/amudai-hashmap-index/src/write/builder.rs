@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use amudai_common::Result;
 use amudai_format::{
-    defs::shard::IndexDescriptor,
+    defs::shard::{IndexArtifact, IndexDescriptor},
     schema::{BasicType as AmudaiBasicType, SchemaMessage as AmudaiSchema},
     schema_builder::{DataTypeBuilder, SchemaBuilder},
 };
@@ -577,7 +577,10 @@ impl SealedHashmapIndex {
         let artifacts = self
             .partitions
             .iter()
-            .map(|partition| partition.shard.directory_ref.clone())
+            .map(|partition| IndexArtifact {
+                data_ref: Some(partition.shard.directory_ref.clone()),
+                ..Default::default()
+            })
             .collect::<Vec<_>>();
         IndexDescriptor {
             index_type: HASHMAP_INDEX_TYPE.to_owned(),

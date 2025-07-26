@@ -311,6 +311,7 @@ impl StripeBuilder {
             fields: fields.into(),
             properties: self.properties,
             record_count: logical_pos as u64,
+            shard_position: 0, // Final value is assigned by the shard builder
         })
     }
 }
@@ -332,12 +333,36 @@ impl StripeBuilder {
 
 /// A prepared stripe that is ready to be added to a shard.
 pub struct PreparedStripe {
+    /// Encoded stripe fields mapped to their `SchemaId`.
     pub fields: KeyedVector<SchemaId, PreparedStripeField>,
+
+    /// Stripe property bags.
     pub properties: StripePropertiesBuilder,
+
+    /// Total number of records in this stripe.
     pub record_count: u64,
+
+    /// The logical position of this stripe's first record within the containing
+    /// shard.
+    ///
+    /// This represents the shard-absolute offset where this stripe begins.
+    /// For example, if previous stripes in the shard contain 1000 records total,
+    /// this stripe's `shard_position` would be 1000, and its records would be
+    /// numbered from 1000 to 1000 + `record_count` - 1.
+    ///
+    /// This value is assigned by the shard builder when the stripe is added
+    /// to a shard, and remains 0 until that point.
+    pub shard_position: u64,
 }
 
 impl PreparedStripe {
+    /// Returns the next shard-absolute logical record position after this stripe.
+    pub fn next_record_position(&self) -> u64 {
+        self.shard_position
+            .checked_add(self.record_count)
+            .expect("next record pos")
+    }
+
     /// Creates a field decoder from the prepared stripe field with the given `schema_id`.
     ///
     /// This method constructs a [`FieldDecoder`](crate::read::field_decoder::FieldDecoder)
@@ -376,18 +401,36 @@ impl PreparedStripe {
             properties: self.properties.finish(),
             total_record_count: self.record_count,
             deleted_record_count: 0,
+            shard_position: self.shard_position,
         })
     }
 }
 
 /// A sealed stripe located in the final storage.
 pub struct SealedStripe {
-    /// Sealed stripe fields.
+    /// The collection of sealed fields that comprise this stripe, indexed by their
+    /// schema IDs.
     pub fields: KeyedVector<SchemaId, SealedStripeField>,
-    /// Stripe properties
+
+    /// Additional metadata and configuration properties associated with this stripe.
     pub properties: StripeProperties,
+
+    /// The total number of logical records encoded in this stripe, including any
+    /// soft-deleted records.
     pub total_record_count: u64,
+
+    /// The number of records marked as soft-deleted within this stripe.
+    ///
+    /// This value is always zero for newly encoded stripes and only becomes non-zero
+    /// after deletion operations have been applied.
     pub deleted_record_count: u64,
+
+    /// The starting position of this stripe within its parent shard.
+    ///
+    /// This value represents the zero-based index of the first record in this stripe
+    /// relative to the beginning of the shard. For example, if previous stripes contain
+    /// 1,000 records in total, this stripe's `shard_position` would be 1,000.
+    pub shard_position: u64,
 }
 
 impl SealedStripe {
@@ -412,7 +455,6 @@ impl SealedStripe {
     pub fn into_directory(
         self,
         writer: &mut ArtifactWriter,
-        record_offset: u64,
         shard_url: Option<&ObjectUrl>,
     ) -> Result<shard::StripeDirectory> {
         let mut field_list = defs::common::DataRefArray::default();
@@ -451,7 +493,7 @@ impl SealedStripe {
             total_record_count: self.total_record_count,
             deleted_record_count: self.deleted_record_count,
             raw_data_size: total_raw_data_size,
-            record_offset,
+            shard_position: self.shard_position,
         })
     }
 

@@ -78,7 +78,13 @@ impl ShardBuilder {
     }
 
     /// Adds a prepared stripe to the shard.
-    pub fn add_stripe(&mut self, stripe: PreparedStripe) -> Result<()> {
+    pub fn add_stripe(&mut self, mut stripe: PreparedStripe) -> Result<()> {
+        stripe.shard_position = self
+            .stripes
+            .last()
+            .map(|last| last.next_record_position())
+            .unwrap_or(0);
+
         self.stripes.push(stripe);
         Ok(())
     }
@@ -361,14 +367,8 @@ impl PreparedShard {
         };
 
         let properties = properties.finish();
-
-        let (directory_ref, directory) =
-            Self::write_directory(writer, stripes, properties, &shard_url, &params)?;
-
-        Ok(SealedShard {
-            directory_ref,
-            directory,
-        })
+        let sealed_shard = Self::write_directory(writer, stripes, properties, &shard_url, &params)?;
+        Ok(sealed_shard)
     }
 
     fn write_directory(
@@ -377,11 +377,12 @@ impl PreparedShard {
         properties: ShardProperties,
         shard_url: &ObjectUrl,
         params: &ShardBuilderParams,
-    ) -> Result<(DataRef, shard::ShardDirectory)> {
+    ) -> Result<SealedShard> {
         let directory_start = writer.position();
 
         let mut directory = Self::initialize_directory(&stripes);
 
+        // TODO: need to add all index artifacts to the url list once we have them.
         let url_list = Self::prepare_url_list(&stripes, shard_url);
         let fields = Self::prepare_field_list(&params.schema.schema()?, &stripes)?;
 
@@ -400,7 +401,11 @@ impl PreparedShard {
 
         let directory_end = writer.position();
         let directory_ref = DataRef::new(shard_url.as_str(), directory_start..directory_end);
-        Ok((directory_ref, directory))
+        Ok(SealedShard {
+            directory_ref,
+            directory,
+            url_list,
+        })
     }
 
     fn initialize_directory(stripes: &[SealedStripe]) -> shard::ShardDirectory {
@@ -570,15 +575,16 @@ impl PreparedShard {
         shard_url: &ObjectUrl,
     ) -> Result<DataRef> {
         let mut stripe_list = shard::StripeList::default();
-        let mut record_offset = 0u64;
+        let mut shard_position = 0u64;
         for mut stripe in stripes {
             stripe.compact_data_refs(shard_url);
 
-            let stripe_dir = stripe.into_directory(writer, record_offset, Some(shard_url))?;
+            let stripe_dir = stripe.into_directory(writer, Some(shard_url))?;
 
-            record_offset = record_offset
+            assert_eq!(stripe_dir.shard_position, shard_position);
+            shard_position = shard_position
                 .checked_add(stripe_dir.total_record_count)
-                .expect("add record offset");
+                .expect("next shard position");
 
             stripe_list.stripes.push(stripe_dir);
         }
@@ -671,4 +677,19 @@ pub struct SealedShard {
 
     /// The shard directory containing the complete structural metadata of the shard.
     pub directory: shard::ShardDirectory,
+
+    /// Collection of all object URLs that were written during the shard sealing process.
+    ///
+    /// This list contains references to all artifacts created as part of this shard,
+    /// excluding the root shard directory itself (which is referenced by `directory_ref.url`).
+    ///
+    /// **NOTE**: The URLs are typically relative to the shard directory folder.
+    ///
+    /// # Contents
+    ///
+    /// The URL list includes references to:
+    /// - Individual stripe data files (when using multi-file organization)
+    /// - Index artifacts and metadata files
+    /// - Any auxiliary data structures created during shard construction
+    pub url_list: shard::UrlList,
 }

@@ -3,7 +3,7 @@
 /// which can also be empty.
 /// It can be used for various purposes, such as indicating a range of logical value positions within
 /// an array or specifying a range of byte positions in a storage blob.
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UInt64Range {
     /// Inclusive
     #[prost(fixed64, tag = "1")]
@@ -14,7 +14,7 @@ pub struct UInt64Range {
 }
 /// `UInt32Range` is designed to represent a range of `u32` value with non-negative boundaries,
 /// which can also be empty.
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UInt32Range {
     /// Inclusive
     #[prost(fixed32, tag = "1")]
@@ -24,7 +24,7 @@ pub struct UInt32Range {
     pub end: u32,
 }
 /// `DataRef` provides a generic way to reference any piece of data within an Amudai shard.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DataRef {
     /// Reference to content within the blob specified by `url` (either relative or absolute one).
     /// Empty url means self-reference (data range in the "current" blob).
@@ -37,7 +37,7 @@ pub struct DataRef {
     pub range: ::core::option::Option<UInt64Range>,
 }
 /// `DataRefArray` provides a "shredded" layout of `DataRef` collection for more efficient handling.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DataRefArray {
     #[prost(string, repeated, tag = "2")]
     pub url: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -49,7 +49,7 @@ pub struct DataRefArray {
 /// `BytesList` is designed to efficiently handle sequences of variable-sized buffers
 /// (either string or binary) by reducing the overhead associated with deserialization
 /// and memory allocation.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BytesList {
     /// List of offsets within the data buffer. The first offset, `offsets\[0\]`, is always zero,
     /// and the length of offsets is one more than the number of buffers it represents.
@@ -108,17 +108,17 @@ pub mod any_value {
         DataRef(super::DataRef),
     }
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UnitValue {}
 /// `DateTime` as defined in the `Type System` chapter
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DateTimeUtc {
     /// 100-nansosecond ticks passed since 0001-01-01
     #[prost(fixed64, tag = "1")]
     pub ticks: u64,
 }
 /// `TimeSpan` as defined in the `Type System` chapter
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct TimeSpan {
     /// 100-nansosecond ticks
     #[prost(fixed64, tag = "1")]

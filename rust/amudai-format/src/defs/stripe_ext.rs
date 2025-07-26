@@ -11,14 +11,6 @@ impl StripeProperties {
     /// A stripe properties instance is considered empty when:
     /// - No standard properties are defined
     /// - No custom properties are defined
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use amudai_format::defs::shard::StripeProperties;
-    /// let properties = StripeProperties::default();
-    /// assert!(properties.is_empty());
-    /// ```
     pub fn is_empty(&self) -> bool {
         self.standard_properties.is_empty() && self.custom_properties.is_empty()
     }

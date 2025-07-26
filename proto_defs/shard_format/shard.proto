@@ -73,10 +73,11 @@ message StripeDirectory {
     
     optional fixed64 raw_data_size = 6;
 
-    // The logical offset of the first record in this stripe within the
-    // containing shard.
+    // The logical position of this stripe's first record within the containing
+    // shard. 
+    // This represents the shard-absolute offset where this stripe begins.
     // This value does not account for deleted records in preceding stripes.
-    fixed64 record_offset = 7;
+    fixed64 shard_position = 7;
 }
 
 message StripeProperties {
@@ -400,15 +401,36 @@ message IndexCollection {
     repeated IndexDescriptor index_descriptors = 1;
 }
 
-// Outlines the key characteristics of an index. Most details are specific to the type of index.
+// Describes the key characteristics of an index. Most details depend on the specific index type.
 message IndexDescriptor {
+    // Identifies the type of index
     string index_type = 1;
+    // A flexible key-value property list for custom index settings or metadata
     repeated amudai.common.NameValuePair properties = 2;
+    // The fields of the shard that are indexed.
     repeated IndexedField indexed_fields = 3;
-    repeated amudai.common.DataRef artifacts = 4;
+    // List of objects produced/used by the index
+    repeated IndexArtifact artifacts = 4;
+    // Size of the index in bytes
     optional fixed64 index_size = 5;
 }
 
+// Storage artifact produced or used by the index.
+message IndexArtifact {
+    // Name or ID of the artifact; may be empty.
+    string name = 1;
+    // Artifact properties; specific to the index type and controlled by the index builder.
+    repeated amudai.common.NameValuePair properties = 2;
+    // Data reference for the artifact.
+    amudai.common.DataRef data_ref = 3;
+}
+
 message IndexedField {
+    // A list of schema IDs for shard fields that together form the composite key 
+    // for a single logical indexed value.
+    // In most cases, this list will contain only one shard field, representing 
+    // a straightforward indexing of that field's values.
+    // However, multiple shard fields can be included for cases where a combination
+    // of their values is indexed as a composite key.
     repeated fixed32 schema_ids = 1;
 }

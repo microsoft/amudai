@@ -155,7 +155,7 @@ impl StripeRecordBatchReader {
         let stripe_pos_ranges = shard_pos_ranges
             .clone()
             .into_iter()
-            .shift_down(stripe.directory().record_offset);
+            .shift_down(stripe.directory().shard_position);
 
         let batch_ranges = stripe_pos_ranges.clone().chunk_ranges(batch_size);
         let field_readers = Self::create_field_readers(&stripe, &arrow_schema, stripe_pos_ranges)?;

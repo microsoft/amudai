@@ -2,7 +2,7 @@
 /// Shard Directory serves as the starting point for accessing any shard operation.
 /// It can be saved either in its own file, as part of a larger "shard directory"
 /// file, or within the entire encoded shard blob.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ShardDirectory {
     /// Reference to a `Schema` message.
     #[prost(message, optional, tag = "1")]
@@ -48,7 +48,7 @@ pub struct ShardProperties {
 }
 /// A list of all unique artifact URLs used within this shard, meaning they are referenced
 /// by any of its `DataRef` elements.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UrlList {
     #[prost(string, repeated, tag = "1")]
     pub urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -62,7 +62,7 @@ pub struct StripeList {
     pub stripes: ::prost::alloc::vec::Vec<StripeDirectory>,
 }
 /// A complete directory of a stripe.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct StripeDirectory {
     /// Reference to a `StripeProperties` message.
     #[prost(message, optional, tag = "1")]
@@ -79,11 +79,12 @@ pub struct StripeDirectory {
     pub deleted_record_count: u64,
     #[prost(fixed64, optional, tag = "6")]
     pub raw_data_size: ::core::option::Option<u64>,
-    /// The logical offset of the first record in this stripe within the
-    /// containing shard.
+    /// The logical position of this stripe's first record within the containing
+    /// shard.
+    /// This represents the shard-absolute offset where this stripe begins.
     /// This value does not account for deleted records in preceding stripes.
     #[prost(fixed64, tag = "7")]
-    pub record_offset: u64,
+    pub shard_position: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StripeProperties {
@@ -173,7 +174,7 @@ pub struct FieldDescriptor {
 }
 /// Nested message and enum types in `FieldDescriptor`.
 pub mod field_descriptor {
-    #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum TypeSpecific {
         /// Applicable only for the string type. All sizes are measured in bytes, not code points.
         #[prost(message, tag = "20")]
@@ -213,7 +214,7 @@ pub struct RangeStats {
     pub max_inclusive: bool,
 }
 /// Applicable only for the `string` type. All sizes are measured in bytes, not code points.
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct StringStats {
     /// Indicates the minimum size of the string, in bytes.
     #[prost(fixed64, tag = "1")]
@@ -230,7 +231,7 @@ pub struct StringStats {
     pub ascii_count: ::core::option::Option<u64>,
 }
 /// Statistics specific to boolean fields.
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BooleanStats {
     /// The number of true values in the boolean field.
     #[prost(fixed64, tag = "1")]
@@ -240,7 +241,7 @@ pub struct BooleanStats {
     pub false_count: u64,
 }
 /// Relevant for variable-length List and Map.
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ListStats {
     /// Minimum length of the container (`List`, `Map`).
     #[prost(fixed64, tag = "1")]
@@ -253,7 +254,7 @@ pub struct ListStats {
     pub max_length: u64,
 }
 /// Relevant for Binary stats.
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BinaryStats {
     /// Minimum length of the binary chunk.
     #[prost(fixed64, tag = "1")]
@@ -266,7 +267,7 @@ pub struct BinaryStats {
     pub max_length: u64,
 }
 /// Statistics specific to decimal fields (128-bit precision).
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DecimalStats {
     /// Number of decimal values that are zero.
     #[prost(fixed64, tag = "1")]
@@ -282,7 +283,7 @@ pub struct DecimalStats {
     pub nan_count: u64,
 }
 /// Statistics specific to floating-point fields (f32, f64).
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct FloatingStats {
     /// Number of floating-point values that are zero.
     #[prost(fixed64, tag = "1")]
@@ -377,7 +378,7 @@ pub struct NativeDataEncoding {
     pub packed_group: bool,
 }
 /// Descriptor of a single Encoded Buffer: a stripe-scoped sequence of primitive values.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct EncodedBuffer {
     /// Specifies the type of buffer and its function within the data encoding scheme
     /// for the specified field.
@@ -431,7 +432,7 @@ pub struct ParquetFileColumnRef {
     #[prost(message, repeated, tag = "2")]
     pub column_chunks: ::prost::alloc::vec::Vec<ParquetColumnChunkRef>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ParquetColumnChunkRef {
     #[prost(enumeration = "ParquetStorageType", tag = "1")]
     pub storage_type: i32,
@@ -457,22 +458,46 @@ pub struct IndexCollection {
     #[prost(message, repeated, tag = "1")]
     pub index_descriptors: ::prost::alloc::vec::Vec<IndexDescriptor>,
 }
-/// Outlines the key characteristics of an index. Most details are specific to the type of index.
+/// Describes the key characteristics of an index. Most details depend on the specific index type.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IndexDescriptor {
+    /// Identifies the type of index
     #[prost(string, tag = "1")]
     pub index_type: ::prost::alloc::string::String,
+    /// A flexible key-value property list for custom index settings or metadata
     #[prost(message, repeated, tag = "2")]
     pub properties: ::prost::alloc::vec::Vec<super::common::NameValuePair>,
+    /// The fields of the shard that are indexed.
     #[prost(message, repeated, tag = "3")]
     pub indexed_fields: ::prost::alloc::vec::Vec<IndexedField>,
+    /// List of objects produced/used by the index
     #[prost(message, repeated, tag = "4")]
-    pub artifacts: ::prost::alloc::vec::Vec<super::common::DataRef>,
+    pub artifacts: ::prost::alloc::vec::Vec<IndexArtifact>,
+    /// Size of the index in bytes
     #[prost(fixed64, optional, tag = "5")]
     pub index_size: ::core::option::Option<u64>,
 }
+/// Storage artifact produced or used by the index.
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct IndexArtifact {
+    /// Name or ID of the artifact; may be empty.
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    /// Artifact properties; specific to the index type and controlled by the index builder.
+    #[prost(message, repeated, tag = "2")]
+    pub properties: ::prost::alloc::vec::Vec<super::common::NameValuePair>,
+    /// Data reference for the artifact.
+    #[prost(message, optional, tag = "3")]
+    pub data_ref: ::core::option::Option<super::common::DataRef>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct IndexedField {
+    /// A list of schema IDs for shard fields that together form the composite key
+    /// for a single logical indexed value.
+    /// In most cases, this list will contain only one shard field, representing
+    /// a straightforward indexing of that field's values.
+    /// However, multiple shard fields can be included for cases where a combination
+    /// of their values is indexed as a composite key.
     #[prost(fixed32, repeated, tag = "1")]
     pub schema_ids: ::prost::alloc::vec::Vec<u32>,
 }

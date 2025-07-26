@@ -126,7 +126,10 @@ impl HashmapIndexOptions {
 
         let mut partitions = Vec::with_capacity(partitions_count);
         for artifact in &descriptor.artifacts {
-            let shard_url = ObjectUrl::parse(&artifact.url)?;
+            let data_ref = artifact.data_ref.as_ref().ok_or_else(|| {
+                amudai_common::error::Error::invalid_format("index artifact data_ref")
+            })?;
+            let shard_url = ObjectUrl::parse(&data_ref.url)?;
             let mut shard_options = ShardOptions::new(self.object_store.clone());
             if let Some(ref resolver) = self.reference_resolver {
                 shard_options = shard_options.reference_resolver(resolver.clone());

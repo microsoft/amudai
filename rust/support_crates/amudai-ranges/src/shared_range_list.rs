@@ -237,6 +237,88 @@ impl<T: PartialOrd> SharedRangeList<T> {
     pub fn contains_position(&self, pos: T) -> bool {
         self.search_position(pos).is_ok()
     }
+
+    /// Returns the total number of positions covered by all logical ranges in the list.
+    ///
+    /// This method sums up the sizes of all logical ranges to calculate the total count
+    /// of positions represented by this `SharedRangeList`.
+    ///
+    /// # Returns
+    ///
+    /// The total count of positions across all ranges. For an empty list, returns `T::default()`
+    /// (typically 0 for numeric types).
+    ///
+    /// # Relationship to `position_at_count`
+    ///
+    /// This method is the inverse operation of [`position_at_count`](Self::position_at_count).
+    /// If `count_positions()` returns `n`, then `position_at_count(i)` will return `Some(_)`
+    /// for all `i` in `0..n` and `None` for `i >= n`.
+    pub fn count_positions(&self) -> T
+    where
+        T: Default + std::ops::Sub<Output = T> + std::ops::Add<Output = T> + Clone,
+    {
+        self.iter()
+            .map(|range| range.end.clone() - range.start.clone())
+            .fold(T::default(), |acc, size| acc + size)
+    }
+
+    /// Finds the range index and position corresponding to the given count of positions.
+    ///
+    /// This method performs the inverse operation of `count_positions()`. Given a count representing
+    /// the number of positions from the start of the list, it returns the range containing that
+    /// position and the actual position value at that count.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - The number of positions from the start of the list.
+    ///
+    /// # Returns
+    ///
+    /// * `Some((range_index, position))` where:
+    ///   - `range_index` is the index of the range containing the position
+    ///   - `position` is the actual position value at that count. If that value is passed to
+    ///     [`split_at_position`](Self::split_at_position), the left range would contain exactly
+    ///     `count` positions.
+    /// * `None` if `count` equals or exceeds the total count of positions in the list
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use amudai_ranges::SharedRangeList;
+    /// let list = SharedRangeList::from(vec![10..15, 20..25, 30..35]);
+    /// // Total positions: 5 + 5 + 5 = 15
+    ///
+    /// assert_eq!(list.position_at_count(0), Some((0, 10)));   // First position
+    /// assert_eq!(list.position_at_count(3), Some((0, 13)));   // Position 13 in first range
+    /// assert_eq!(list.position_at_count(5), Some((1, 20)));   // First position of second range
+    /// assert_eq!(list.position_at_count(7), Some((1, 22)));   // Position 22 in second range
+    /// assert_eq!(list.position_at_count(10), Some((2, 30)));  // First position of third range
+    /// assert_eq!(list.position_at_count(14), Some((2, 34)));  // Last position
+    /// assert_eq!(list.position_at_count(15), None);           // Out of bounds
+    /// ```
+    pub fn position_at_count(&self, count: T) -> Option<(usize, T)>
+    where
+        T: Default + std::ops::Sub<Output = T> + std::ops::Add<Output = T> + Clone,
+    {
+        let mut accumulated = T::default();
+
+        for (index, range) in self.iter().enumerate() {
+            let range_size = range.end.clone() - range.start.clone();
+            let next_accumulated = accumulated.clone() + range_size.clone();
+
+            if count < next_accumulated {
+                // The position is in this range
+                let offset = count - accumulated;
+                let position = range.start.clone() + offset;
+                return Some((index, position));
+            }
+
+            accumulated = next_accumulated;
+        }
+
+        // count is equal to or exceeds total positions
+        None
+    }
 }
 
 impl<T: Default + Clone + PartialOrd> SharedRangeList<T> {
@@ -259,10 +341,65 @@ impl<T: Default + Clone + PartialOrd> SharedRangeList<T> {
     /// - `left` contains all elements strictly before `pos`
     /// - `right` contains all elements at or after `pos`
     pub fn split_at_position(&self, pos: T) -> (Self, Self) {
-        let bounds = self.bounds();
-        let left = self.clamp(bounds.start..pos.clone());
-        let right = self.clamp(pos..bounds.end);
-        (left, right)
+        self.split_at_position_with_range_hint(pos, None)
+    }
+
+    /// Splits the range list into two parts at the position corresponding to the given count.
+    ///
+    /// This method finds the position that would be at the given count (using `position_at_count`)
+    /// and then splits the list at that position. The first returned `SharedRangeList` contains
+    /// exactly `count` positions, and the second contains the remaining positions.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - The number of positions that should be in the first (left) part.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(left, right)` where:
+    /// - `left` contains exactly `count` positions (or all positions if `count` exceeds the total)
+    /// - `right` contains the remaining positions
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use amudai_ranges::SharedRangeList;
+    /// let list = SharedRangeList::from(vec![10..15, 20..25, 30..35]);
+    /// // Total positions: 5 + 5 + 5 = 15
+    ///
+    /// let (left, right) = list.split_at_position_count(7);
+    /// assert_eq!(left.count_positions(), 7);
+    /// assert_eq!(right.count_positions(), 8);
+    /// // The split happens at position 22 (which is at count 7)
+    /// ```
+    ///
+    /// # Behavior
+    ///
+    /// - If `count` is 0, returns `(empty, self.clone())`
+    /// - If `count` equals or exceeds the total number of positions, returns
+    ///   `(self.clone(), empty)`
+    /// - Otherwise, splits at the position corresponding to the given count
+    pub fn split_at_position_count(&self, count: T) -> (Self, Self)
+    where
+        T: std::ops::Sub<Output = T> + std::ops::Add<Output = T>,
+    {
+        // Handle edge cases
+        if count == T::default() {
+            // count is 0, return (empty, self)
+            return (Self::empty(), self.clone());
+        }
+
+        // Check if we have a position at this count
+        match self.position_at_count(count.clone()) {
+            Some((range_idx, position)) => {
+                // Split at the found position
+                self.split_at_position_with_range_hint(position, Some(range_idx))
+            }
+            None => {
+                // count equals or exceeds total positions, return (self, empty)
+                (self.clone(), Self::empty())
+            }
+        }
     }
 
     /// Returns a new `SharedRangeList<T>` containing only the portions of ranges within
@@ -375,6 +512,101 @@ impl<T: Default + Clone + PartialOrd> SharedRangeList<T> {
             Self { inner, first, last }
         }
     }
+
+    /// Splits the range list into two `SharedRangeList`s at the specified position.
+    ///
+    /// The first returned `SharedRangeList` contains all portions of ranges strictly
+    /// before `pos`.
+    /// The second contains all portions of ranges starting at or after `pos`.
+    ///
+    /// If `pos` falls within a range, that range is split between the two outputs.
+    /// If `pos` is outside the bounds of the list, one of the outputs will be empty.
+    ///
+    /// # Arguments
+    ///
+    /// * `pos` - The position at which to split the range list.
+    /// * `range_idx` - The index of the first range that contains at least some positions
+    ///   that are equal to or greater than `pos` (optional hint).
+    pub fn split_at_position_with_range_hint(
+        &self,
+        pos: T,
+        range_idx: Option<usize>,
+    ) -> (Self, Self) {
+        if self.is_empty() {
+            return (self.clone(), self.clone());
+        }
+
+        let bounds = self.bounds();
+        if pos <= bounds.start {
+            return (Self::empty(), self.clone());
+        }
+        if pos >= bounds.end {
+            return (self.clone(), Self::empty());
+        }
+
+        // Find the range containing or after pos
+        let idx = match range_idx {
+            Some(idx) if self.range_covers_or_follows_position(idx, pos.clone()) => idx,
+            _ => {
+                // No hint or invalid hint provided, use search
+                self.search_position(pos.clone()).unwrap_or_else(identity)
+            }
+        };
+
+        let range = self.get(idx).expect("range");
+        if pos <= range.start {
+            // Split index is between the ranges (before idx)
+            let first = self.slice(0..idx);
+            let second = self.slice(idx..);
+            (first, second)
+        } else {
+            // Split index is on the range
+            let first = Self::new_trimmed(self.slice(0..idx + 1).inner, bounds.start, pos.clone());
+            let second = Self::new_trimmed(self.slice(idx..).inner, pos, bounds.end);
+            (first, second)
+        }
+    }
+
+    /// Checks if a given range index covers the position or if the position falls in the gap
+    /// immediately before it.
+    ///
+    /// This method is used as a hint validator for split operations. It determines whether
+    /// the range at `range_idx` is the correct range to use when splitting at `pos`.
+    ///
+    /// # Arguments
+    ///
+    /// * `range_idx` - The index of the range to check. Can be equal to `self.len()` to check
+    ///   if the position is at or after the end of all ranges.
+    /// * `pos` - The position to check.
+    ///
+    /// # Returns
+    ///
+    /// * `true` if:
+    ///   - The range at `range_idx` contains `pos`, or
+    ///   - `pos` falls in the gap between the previous range and the range at `range_idx`, or
+    ///   - `range_idx == 0` and `pos` is before the first range, or
+    ///   - `range_idx == self.len()` and `pos` is at or after the end of the last range
+    /// * `false` otherwise
+    ///
+    /// # Panics
+    ///
+    /// Panics if `range_idx > self.len()`.
+    pub fn range_covers_or_follows_position(&self, range_idx: usize, pos: T) -> bool {
+        assert!(range_idx <= self.len());
+        let bounds = self.bounds();
+        if range_idx == self.len() {
+            return self.is_empty() || pos >= bounds.end;
+        }
+        let range = self.get(range_idx).expect("range");
+        if range.contains(&pos) {
+            true
+        } else if range_idx != 0 {
+            let prev_range = self.get(range_idx).expect("prev_range");
+            pos < range.start && pos >= prev_range.end
+        } else {
+            pos < range.start
+        }
+    }
 }
 
 impl<T> SharedRangeList<T> {
@@ -383,6 +615,7 @@ impl<T> SharedRangeList<T> {
     /// # Returns
     ///
     /// The count of logical ranges.
+    #[inline]
     pub fn len(&self) -> usize {
         self.inner.len()
     }
@@ -392,6 +625,7 @@ impl<T> SharedRangeList<T> {
     /// # Returns
     ///
     /// `true` if empty, `false` otherwise.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
@@ -405,6 +639,7 @@ impl<T> SharedRangeList<T> {
     /// # Returns
     ///
     /// `Some(&Range<T>)` if the index is valid, `None` otherwise.
+    #[inline]
     pub fn get(&self, index: usize) -> Option<&Range<T>> {
         let len = self.len();
         if len == 0 {
@@ -466,21 +701,28 @@ impl<T: Default + Clone> SharedRangeList<T> {
 
         let new_inner = self.inner.slice(start..end);
 
-        let new_first = if start == 0 {
-            self.first.clone()
-        } else {
-            self.inner[start].clone()
-        };
-        let new_last = if end == len {
-            self.last.clone()
-        } else {
-            self.inner[end - 1].clone()
-        };
-
+        let new_first = self.get(start).expect("start").clone();
+        let new_last = self.get(end - 1).expect("end").clone();
         Self {
             inner: new_inner,
             first: new_first,
             last: new_last,
+        }
+    }
+}
+
+impl<T> std::ops::Index<usize> for SharedRangeList<T> {
+    type Output = Range<T>;
+
+    #[inline]
+    fn index(&self, index: usize) -> &Self::Output {
+        match self.get(index) {
+            Some(range) => range,
+            None => panic!(
+                "index out of bounds: the len is {} but the index is {}",
+                self.len(),
+                index
+            ),
         }
     }
 }
@@ -528,6 +770,7 @@ pub struct SharedRangeListIter<'a, T> {
 impl<'a, T> Iterator for SharedRangeListIter<'a, T> {
     type Item = &'a Range<T>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.list.len() {
             let item = self.list.get(self.index);
@@ -1159,5 +1402,593 @@ mod tests {
             borrowed, owned,
             "Owned iterator did not match borrowed for trimmed list"
         );
+    }
+
+    #[test]
+    fn test_count_positions_empty() {
+        let rl = SharedRangeList::<usize>::empty();
+        assert_eq!(rl.count_positions(), 0);
+    }
+
+    #[test]
+    fn test_count_positions_single_range() {
+        let range_list = rl(&[10..20]);
+        assert_eq!(range_list.count_positions(), 10); // 20 - 10 = 10 positions
+
+        let single_pos = rl(&[5..6]);
+        assert_eq!(single_pos.count_positions(), 1); // 6 - 5 = 1 position
+    }
+
+    #[test]
+    fn test_count_positions_multiple_ranges() {
+        let range_list = rl(&[10..15, 20..25, 30..35]);
+        // Range sizes: 5 + 5 + 5 = 15 total positions
+        assert_eq!(range_list.count_positions(), 15);
+
+        let smaller_ranges = rl(&[1..3, 5..7, 10..12]);
+        // Range sizes: 2 + 2 + 2 = 6 total positions
+        assert_eq!(smaller_ranges.count_positions(), 6);
+    }
+
+    #[test]
+    fn test_count_positions_trimmed() {
+        let base = rl(&[10..20, 30..40]);
+        let trimmed = SharedRangeList::new_trimmed(base.inner().clone(), 12, 38);
+        // First range: 12..20 (8 positions), Second range: 30..38 (8 positions)
+        assert_eq!(trimmed.count_positions(), 16);
+    }
+
+    #[test]
+    fn test_position_at_count_empty() {
+        let rl = SharedRangeList::<usize>::empty();
+        assert_eq!(rl.position_at_count(0), None);
+        assert_eq!(rl.position_at_count(5), None);
+    }
+
+    #[test]
+    fn test_position_at_count_single_range() {
+        let rl = rl(&[10..15]); // 5 positions: 10, 11, 12, 13, 14
+
+        assert_eq!(rl.position_at_count(0), Some((0, 10)));
+        assert_eq!(rl.position_at_count(1), Some((0, 11)));
+        assert_eq!(rl.position_at_count(2), Some((0, 12)));
+        assert_eq!(rl.position_at_count(3), Some((0, 13)));
+        assert_eq!(rl.position_at_count(4), Some((0, 14)));
+        assert_eq!(rl.position_at_count(5), None); // Out of bounds
+    }
+
+    #[test]
+    fn test_position_at_count_multiple_ranges() {
+        let rl = rl(&[10..15, 20..25, 30..35]);
+        // Range 0: positions 10-14 (counts 0-4)
+        // Range 1: positions 20-24 (counts 5-9)
+        // Range 2: positions 30-34 (counts 10-14)
+        // Total: 15 positions
+
+        // First range
+        assert_eq!(rl.position_at_count(0), Some((0, 10)));
+        assert_eq!(rl.position_at_count(3), Some((0, 13)));
+        assert_eq!(rl.position_at_count(4), Some((0, 14)));
+
+        // Second range
+        assert_eq!(rl.position_at_count(5), Some((1, 20)));
+        assert_eq!(rl.position_at_count(7), Some((1, 22)));
+        assert_eq!(rl.position_at_count(9), Some((1, 24)));
+
+        // Third range
+        assert_eq!(rl.position_at_count(10), Some((2, 30)));
+        assert_eq!(rl.position_at_count(12), Some((2, 32)));
+        assert_eq!(rl.position_at_count(14), Some((2, 34)));
+
+        // Out of bounds
+        assert_eq!(rl.position_at_count(15), None);
+        assert_eq!(rl.position_at_count(100), None);
+    }
+
+    #[test]
+    fn test_position_at_count_single_position_ranges() {
+        let rl = rl(&[5..6, 10..11, 15..16]);
+        // Each range has 1 position
+
+        assert_eq!(rl.position_at_count(0), Some((0, 5)));
+        assert_eq!(rl.position_at_count(1), Some((1, 10)));
+        assert_eq!(rl.position_at_count(2), Some((2, 15)));
+        assert_eq!(rl.position_at_count(3), None);
+    }
+
+    #[test]
+    fn test_count_and_position_consistency() {
+        let test_cases = vec![
+            vec![10..15],
+            vec![10..15, 20..25, 30..35],
+            vec![1..3, 5..7, 10..12, 20..22],
+            vec![0..1, 2..3, 4..5],
+        ];
+
+        for ranges in test_cases {
+            let rl = rl(&ranges);
+            let total_count = rl.count_positions();
+
+            // Test that all valid counts return valid positions
+            for count in 0..total_count {
+                let result = rl.position_at_count(count);
+                assert!(
+                    result.is_some(),
+                    "count {} should be valid for ranges {:?}",
+                    count,
+                    ranges
+                );
+
+                let (range_idx, position) = result.unwrap();
+                assert!(
+                    range_idx < rl.len(),
+                    "range index {} out of bounds",
+                    range_idx
+                );
+
+                let range = rl.get(range_idx).unwrap();
+                assert!(
+                    position >= range.start && position < range.end,
+                    "position {} not in range {:?}",
+                    position,
+                    range
+                );
+            }
+
+            // Test that count == total_count returns None
+            assert_eq!(rl.position_at_count(total_count), None);
+            assert_eq!(rl.position_at_count(total_count + 10), None);
+        }
+    }
+
+    #[test]
+    fn test_split_at_position_edge_cases() {
+        let r = SharedRangeList::<usize>::empty();
+        let (left, right) = r.split_at_position(0);
+        assert!(left.is_empty());
+        assert!(right.is_empty());
+
+        let (left, right) = r.split_at_position(1);
+        assert!(left.is_empty());
+        assert!(right.is_empty());
+
+        let (left, right) = r.split_at_position(100);
+        assert!(left.is_empty());
+        assert!(right.is_empty());
+
+        let r = rl(&[10..20]);
+        let (left, right) = r.split_at_position(0);
+        assert!(left.is_empty());
+        assert_eq!(right.bounds(), 10..20);
+        let (left, right) = r.split_at_position(10);
+        assert!(left.is_empty());
+        assert_eq!(right.bounds(), 10..20);
+        let (left, right) = r.split_at_position(11);
+        assert_eq!(left.bounds(), 10..11);
+        assert_eq!(right.bounds(), 11..20);
+
+        let r = rl(&[0..20]);
+        let (left, right) = r.split_at_position(0);
+        assert!(left.is_empty());
+        assert_eq!(right.bounds(), 0..20);
+        let (left, right) = r.split_at_position(1);
+        assert_eq!(left.bounds(), 0..1);
+        assert_eq!(right.bounds(), 1..20);
+        let (left, right) = r.split_at_position(19);
+        assert_eq!(left.bounds(), 0..19);
+        assert_eq!(right.bounds(), 19..20);
+        let (left, right) = r.split_at_position(20);
+        assert_eq!(left.bounds(), 0..20);
+        assert!(right.is_empty());
+    }
+
+    #[test]
+    fn test_split_at_position_with_count_positions() {
+        let rl = rl(&[10..15, 20..25, 30..35]);
+        let total_positions = rl.count_positions(); // 15 positions
+
+        // Test splitting at various positions and verify counts
+        for count in 0..=total_positions {
+            if count == total_positions {
+                // At the end, split should give (full_list, empty)
+                let bounds = rl.bounds();
+                let (left, right) = rl.split_at_position(bounds.end);
+                assert_eq!(left.count_positions(), total_positions);
+                assert_eq!(right.count_positions(), 0);
+                assert!(right.is_empty());
+            } else {
+                // Find the position for this count
+                let (_, position) = rl.position_at_count(count).unwrap();
+
+                // Split at that position
+                let (left, right) = rl.split_at_position(position);
+
+                // Verify counts
+                let left_count = left.count_positions();
+                let right_count = right.count_positions();
+
+                // The left part contains positions strictly before 'position'
+                // The right part contains positions at or after 'position'
+                // Since position_at_count(count) returns the position of the count-th element,
+                // left should have exactly 'count' positions, and right should have the rest
+                assert_eq!(
+                    left_count, count,
+                    "left count mismatch at position {} (count {})",
+                    position, count
+                );
+                assert_eq!(
+                    left_count + right_count,
+                    total_positions,
+                    "total count mismatch after split at position {} (count {})",
+                    position,
+                    count
+                );
+
+                // Verify that right part starts at or after the split position
+                if !right.is_empty() {
+                    let right_bounds = right.bounds();
+                    assert!(
+                        right_bounds.start >= position,
+                        "right part should start at or after split position {} but starts at {}",
+                        position,
+                        right_bounds.start
+                    );
+                }
+
+                // Verify that left part ends before or at the split position
+                if !left.is_empty() {
+                    let left_bounds = left.bounds();
+                    assert!(
+                        left_bounds.end <= position,
+                        "left part should end before or at split position {} but ends at {}",
+                        position,
+                        left_bounds.end
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_split_count_roundtrip() {
+        let rl = rl(&[10..15, 20..25, 30..35]);
+
+        // Test that splitting and then counting gives us the expected results
+        for count in 0..rl.count_positions() {
+            let (_, split_pos) = rl.position_at_count(count).unwrap();
+            let (left, right) = rl.split_at_position(split_pos);
+
+            // The left part should have exactly 'count' positions
+            assert_eq!(left.count_positions(), count);
+
+            // The right part should have the remaining positions
+            assert_eq!(right.count_positions(), rl.count_positions() - count);
+
+            // If we have a non-empty right part, its first position should be split_pos
+            if !right.is_empty() {
+                let right_bounds = right.bounds();
+                assert_eq!(right_bounds.start, split_pos);
+            }
+        }
+    }
+
+    #[test]
+    fn test_position_at_count_with_gaps() {
+        let rl = rl(&[1..3, 10..12, 100..103]);
+        // Range 0: positions 1,2 (counts 0,1)
+        // Range 1: positions 10,11 (counts 2,3)
+        // Range 2: positions 100,101,102 (counts 4,5,6)
+
+        assert_eq!(rl.position_at_count(0), Some((0, 1)));
+        assert_eq!(rl.position_at_count(1), Some((0, 2)));
+        assert_eq!(rl.position_at_count(2), Some((1, 10)));
+        assert_eq!(rl.position_at_count(3), Some((1, 11)));
+        assert_eq!(rl.position_at_count(4), Some((2, 100)));
+        assert_eq!(rl.position_at_count(5), Some((2, 101)));
+        assert_eq!(rl.position_at_count(6), Some((2, 102)));
+        assert_eq!(rl.position_at_count(7), None);
+
+        assert_eq!(rl.count_positions(), 7);
+    }
+
+    #[test]
+    fn test_split_at_position_count_empty() {
+        let rl = SharedRangeList::<usize>::empty();
+
+        // Split at count 0 on empty list
+        let (left, right) = rl.split_at_position_count(0);
+        assert!(left.is_empty());
+        assert!(right.is_empty());
+
+        // Split at count > 0 on empty list
+        let (left, right) = rl.split_at_position_count(5);
+        assert!(left.is_empty());
+        assert!(right.is_empty());
+    }
+
+    #[test]
+    fn test_split_at_position_count_single_range() {
+        let rl = rl(&[10..15]); // 5 positions: 10, 11, 12, 13, 14
+
+        // Split at count 0 (beginning)
+        let (left, right) = rl.split_at_position_count(0);
+        assert!(left.is_empty());
+        assert_eq!(right.count_positions(), 5);
+        assert_eq!(right.bounds(), 10..15);
+
+        // Split at count 1 (after first position)
+        let (left, right) = rl.split_at_position_count(1);
+        assert_eq!(left.count_positions(), 1);
+        assert_eq!(right.count_positions(), 4);
+        assert_eq!(left.bounds(), 10..11);
+        assert_eq!(right.bounds(), 11..15);
+
+        // Split at count 3 (middle)
+        let (left, right) = rl.split_at_position_count(3);
+        assert_eq!(left.count_positions(), 3);
+        assert_eq!(right.count_positions(), 2);
+        assert_eq!(left.bounds(), 10..13);
+        assert_eq!(right.bounds(), 13..15);
+
+        // Split at count 5 (end)
+        let (left, right) = rl.split_at_position_count(5);
+        assert_eq!(left.count_positions(), 5);
+        assert!(right.is_empty());
+        assert_eq!(left.bounds(), 10..15);
+
+        // Split at count > total
+        let (left, right) = rl.split_at_position_count(10);
+        assert_eq!(left.count_positions(), 5);
+        assert!(right.is_empty());
+        assert_eq!(left.bounds(), 10..15);
+    }
+
+    #[test]
+    fn test_split_at_position_count_multiple_ranges() {
+        let rl = rl(&[10..15, 20..25, 30..35]);
+        // Range sizes: 5 + 5 + 5 = 15 total positions
+        // Range 0: positions 10-14 (counts 0-4)
+        // Range 1: positions 20-24 (counts 5-9)
+        // Range 2: positions 30-34 (counts 10-14)
+
+        // Split at beginning of first range
+        let (left, right) = rl.split_at_position_count(0);
+        assert!(left.is_empty());
+        assert_eq!(right.count_positions(), 15);
+        assert_eq!(right.bounds(), 10..35);
+
+        // Split in middle of first range
+        let (left, right) = rl.split_at_position_count(3);
+        assert_eq!(left.count_positions(), 3);
+        assert_eq!(right.count_positions(), 12);
+        assert_eq!(left.bounds(), 10..13);
+        assert_eq!(right.bounds(), 13..35);
+
+        // Split at beginning of second range
+        let (left, right) = rl.split_at_position_count(5);
+        assert_eq!(left.count_positions(), 5);
+        assert_eq!(right.count_positions(), 10);
+        assert_eq!(left.bounds(), 10..15);
+        assert_eq!(right.bounds(), 20..35);
+
+        // Split in middle of second range
+        let (left, right) = rl.split_at_position_count(7);
+        assert_eq!(left.count_positions(), 7);
+        assert_eq!(right.count_positions(), 8);
+        assert_eq!(left.bounds(), 10..22);
+        assert_eq!(right.bounds(), 22..35);
+
+        // Split at beginning of third range
+        let (left, right) = rl.split_at_position_count(10);
+        assert_eq!(left.count_positions(), 10);
+        assert_eq!(right.count_positions(), 5);
+        assert_eq!(left.bounds(), 10..25);
+        assert_eq!(right.bounds(), 30..35);
+
+        // Split in middle of third range
+        let (left, right) = rl.split_at_position_count(12);
+        assert_eq!(left.count_positions(), 12);
+        assert_eq!(right.count_positions(), 3);
+        assert_eq!(left.bounds(), 10..32);
+        assert_eq!(right.bounds(), 32..35);
+
+        // Split at end
+        let (left, right) = rl.split_at_position_count(15);
+        assert_eq!(left.count_positions(), 15);
+        assert!(right.is_empty());
+        assert_eq!(left.bounds(), 10..35);
+
+        // Split beyond end
+        let (left, right) = rl.split_at_position_count(20);
+        assert_eq!(left.count_positions(), 15);
+        assert!(right.is_empty());
+        assert_eq!(left.bounds(), 10..35);
+    }
+
+    #[test]
+    fn test_split_at_position_count_with_gaps() {
+        let rl = rl(&[1..3, 10..12, 100..103]);
+        // Range 0: positions 1,2 (counts 0,1) - 2 positions
+        // Range 1: positions 10,11 (counts 2,3) - 2 positions
+        // Range 2: positions 100,101,102 (counts 4,5,6) - 3 positions
+        // Total: 7 positions
+
+        let (left, right) = rl.split_at_position_count(0);
+        assert!(left.is_empty());
+        assert_eq!(right.count_positions(), 7);
+
+        let (left, right) = rl.split_at_position_count(1);
+        assert_eq!(left.count_positions(), 1);
+        assert_eq!(right.count_positions(), 6);
+        assert_eq!(left.bounds(), 1..2);
+        assert_eq!(right.bounds(), 2..103);
+
+        let (left, right) = rl.split_at_position_count(2);
+        assert_eq!(left.count_positions(), 2);
+        assert_eq!(right.count_positions(), 5);
+        assert_eq!(left.bounds(), 1..3);
+        assert_eq!(right.bounds(), 10..103);
+
+        let (left, right) = rl.split_at_position_count(4);
+        assert_eq!(left.count_positions(), 4);
+        assert_eq!(right.count_positions(), 3);
+        assert_eq!(left.bounds(), 1..12);
+        assert_eq!(right.bounds(), 100..103);
+
+        let (left, right) = rl.split_at_position_count(6);
+        assert_eq!(left.count_positions(), 6);
+        assert_eq!(right.count_positions(), 1);
+        assert_eq!(left.bounds(), 1..102);
+        assert_eq!(right.bounds(), 102..103);
+
+        let (left, right) = rl.split_at_position_count(7);
+        assert_eq!(left.count_positions(), 7);
+        assert!(right.is_empty());
+        assert_eq!(left.bounds(), 1..103);
+    }
+
+    #[test]
+    fn test_split_at_position_count_trimmed_ranges() {
+        let base = rl(&[10..20, 30..40]);
+        let trimmed = SharedRangeList::new_trimmed(base.inner().clone(), 12, 38);
+        // First range: 12..20 (8 positions), Second range: 30..38 (8 positions)
+        // Total: 16 positions
+        assert_eq!(trimmed.count_positions(), 16);
+
+        let (left, right) = trimmed.split_at_position_count(0);
+        assert!(left.is_empty());
+        assert_eq!(right.count_positions(), 16);
+        assert_eq!(right.bounds(), 12..38);
+
+        let (left, right) = trimmed.split_at_position_count(4);
+        assert_eq!(left.count_positions(), 4);
+        assert_eq!(right.count_positions(), 12);
+        assert_eq!(left.bounds(), 12..16);
+        assert_eq!(right.bounds(), 16..38);
+
+        let (left, right) = trimmed.split_at_position_count(8);
+        assert_eq!(left.count_positions(), 8);
+        assert_eq!(right.count_positions(), 8);
+        assert_eq!(left.bounds(), 12..20);
+        assert_eq!(right.bounds(), 30..38);
+
+        let (left, right) = trimmed.split_at_position_count(12);
+        assert_eq!(left.count_positions(), 12);
+        assert_eq!(right.count_positions(), 4);
+        assert_eq!(left.bounds(), 12..34);
+        assert_eq!(right.bounds(), 34..38);
+
+        let (left, right) = trimmed.split_at_position_count(16);
+        assert_eq!(left.count_positions(), 16);
+        assert!(right.is_empty());
+        assert_eq!(left.bounds(), 12..38);
+    }
+
+    #[test]
+    fn test_split_at_position_count_consistency_with_position_at_count() {
+        let test_cases = vec![
+            vec![10..15],
+            vec![10..15, 20..25, 30..35],
+            vec![1..3, 5..7, 10..12, 20..22],
+            vec![0..1, 2..3, 4..5],
+            vec![5..6, 10..11, 15..16],
+        ];
+
+        for ranges in test_cases {
+            let rl = rl(&ranges);
+            let total_count = rl.count_positions();
+
+            for count in 0..=total_count {
+                let (left, right) = rl.split_at_position_count(count);
+
+                // Left should have exactly 'count' positions
+                assert_eq!(
+                    left.count_positions(),
+                    count,
+                    "Left count mismatch for ranges {:?} at count {}",
+                    ranges,
+                    count
+                );
+
+                // Left + right should equal original
+                assert_eq!(
+                    left.count_positions() + right.count_positions(),
+                    total_count,
+                    "Total count mismatch for ranges {:?} at count {}",
+                    ranges,
+                    count
+                );
+
+                // If count < total_count, the split position should match position_at_count
+                if count < total_count {
+                    let (_, expected_position) = rl.position_at_count(count).unwrap();
+                    if !right.is_empty() {
+                        assert_eq!(
+                            right.bounds().start,
+                            expected_position,
+                            "Right start mismatch for ranges {:?} at count {}",
+                            ranges,
+                            count
+                        );
+                    }
+                }
+
+                // Edge cases
+                if count == 0 {
+                    assert!(left.is_empty(), "Left should be empty at count 0");
+                    if !rl.is_empty() {
+                        assert_eq!(
+                            right.bounds(),
+                            rl.bounds(),
+                            "Right should equal original at count 0"
+                        );
+                    }
+                } else if count == total_count {
+                    assert!(right.is_empty(), "Right should be empty at count == total");
+                    if !rl.is_empty() {
+                        assert_eq!(
+                            left.bounds(),
+                            rl.bounds(),
+                            "Left should equal original at count == total"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_split_at_position_count_large_ranges() {
+        let mut ranges = Vec::new();
+        for i in 0..10 {
+            ranges.push((i * 100)..(i * 100 + 50)); // Each range has 50 positions
+        }
+        let rl = rl(&ranges); // Total: 500 positions
+
+        // Test various split points
+        let (left, right) = rl.split_at_position_count(0);
+        assert!(left.is_empty());
+        assert_eq!(right.count_positions(), 500);
+
+        let (left, right) = rl.split_at_position_count(25); // Middle of first range
+        assert_eq!(left.count_positions(), 25);
+        assert_eq!(right.count_positions(), 475);
+        assert_eq!(left.bounds(), 0..25);
+        assert_eq!(right.bounds(), 25..950);
+
+        let (left, right) = rl.split_at_position_count(50); // End of first range
+        assert_eq!(left.count_positions(), 50);
+        assert_eq!(right.count_positions(), 450);
+        assert_eq!(left.bounds(), 0..50); // Includes gap
+        assert_eq!(right.bounds(), 100..950);
+
+        let (left, right) = rl.split_at_position_count(250); // Middle overall
+        assert_eq!(left.count_positions(), 250);
+        assert_eq!(right.count_positions(), 250);
+
+        let (left, right) = rl.split_at_position_count(500); // End
+        assert_eq!(left.count_positions(), 500);
+        assert!(right.is_empty());
+        assert_eq!(left.bounds(), 0..950);
     }
 }

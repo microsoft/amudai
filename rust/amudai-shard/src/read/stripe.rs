@@ -57,7 +57,7 @@ impl Stripe {
 
     /// Returns a range of logical record positions of this stripe within the shard.
     pub fn shard_position_range(&self) -> Range<u64> {
-        let start = self.directory().record_offset;
+        let start = self.directory().shard_position;
         let end = start
             .checked_add(self.record_count())
             .expect("shard pos range end");

@@ -2141,7 +2141,6 @@ mod tests {
     #[test]
     fn test_decimal_comparison_string_vs_binary() {
         use amudai_decimal::d128;
-        use amudai_format::defs::anyvalue_ext::AnyValueExt;
         use amudai_format::defs::common::{AnyValue, any_value::Kind};
         use std::str::FromStr;
 

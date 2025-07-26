@@ -98,7 +98,7 @@ pub fn allocate_large_pages(size: usize) -> std::io::Result<(*mut std::ffi::c_vo
 /// - The memory has not already been freed
 /// - No other references to the memory exist
 pub unsafe fn free_large_pages(ptr: *mut std::ffi::c_void, size: usize) -> std::io::Result<()> {
-    free(ptr, size)
+    unsafe { free(ptr, size) }
 }
 
 /// Attempts to enable large page support for the current process.
