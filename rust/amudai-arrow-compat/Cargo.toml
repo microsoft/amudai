@@ -14,6 +14,7 @@ arrow-cast = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true }
 
+amudai-bits = { workspace = true }
 amudai-bytes = { workspace = true }
 amudai-common = { workspace = true }
 amudai-format = { workspace = true }

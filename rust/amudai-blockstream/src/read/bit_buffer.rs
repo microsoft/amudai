@@ -7,7 +7,7 @@
 
 use std::{ops::Range, sync::Arc};
 
-use amudai_bytes::buffer::AlignedByteVec;
+use amudai_bits::bitpacking;
 use amudai_common::Result;
 use amudai_format::{
     defs::shard,
@@ -250,8 +250,8 @@ impl BitBufferReader {
                 let byte_pos = position / 8;
                 let mut block = reader.read_containing_block(byte_pos)?;
                 let unpacked_len = block.descriptor.logical_size() * 8;
-                let mut unpacked = AlignedByteVec::zeroed(unpacked_len);
-                unpack_bits(block.values.as_slice(), 0, unpacked_len, &mut unpacked);
+                let unpacked =
+                    bitpacking::unpack_bits_to_bytes(block.values.as_slice(), 0, unpacked_len);
                 block.values.values = Values::from_vec(unpacked);
                 block.values.type_desc.basic_type = BasicType::Boolean;
                 block.descriptor.logical_range.start *= 8;
@@ -286,8 +286,7 @@ impl BitBufferReader {
                 let byte_range = bit_range.start / 8..bit_range.end.div_ceil(8);
                 let offset = (bit_range.start - byte_range.start * 8) as usize;
                 let bits = reader.read_range(byte_range)?.values.into_inner();
-                let mut presence = AlignedByteVec::zeroed(len);
-                unpack_bits(&bits, offset, len, &mut presence);
+                let presence = bitpacking::unpack_bits_to_bytes(&bits, offset, len);
                 Ok(Presence::Bytes(presence))
             }
             BitBufferReader::Constant(value) => {
@@ -347,23 +346,6 @@ pub fn create_constant_bool_value_sequence(value: bool, len: usize) -> ValueSequ
             ..Default::default()
         },
     )
-}
-
-pub fn unpack_bits(bits: &[u8], offset: usize, len: usize, bytes: &mut [u8]) {
-    assert!(len <= bytes.len());
-    assert!(offset + len <= bits.len() * 8);
-
-    // TODO: replace with optimized implementation (e.g. SIMD on suitable architectures)
-    for (i, byte) in bytes[..len].iter_mut().enumerate() {
-        *byte = extract_bit(bits, i + offset);
-    }
-}
-
-#[inline]
-fn extract_bit(bits: &[u8], index: usize) -> u8 {
-    let byte_idx = index / 8;
-    let bit_pos = index % 8;
-    (bits[byte_idx] >> bit_pos) & 1
 }
 
 /// Turns the bit-level `PositionSeries` into a byte-level `PositionSeries`.

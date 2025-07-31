@@ -8,7 +8,6 @@
 //! - Buffer utilities for Arrow interop.
 //! - Zero-copy conversion of the Amudai sequences to basic Arrow arrays.
 //! - Amudai/Arrow error conversion
-//! - Decimal conversion utilities for Arrow decimal types.
 
 pub mod amudai_to_arrow_error;
 pub mod amudai_to_arrow_schema;

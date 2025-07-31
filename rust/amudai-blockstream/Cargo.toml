@@ -18,6 +18,7 @@ itertools = { workspace = true }
 
 amudai-arrow-compat = { workspace = true }
 amudai-arrow-processing = { workspace = true }
+amudai-bits = { workspace = true }
 amudai-bytes = { workspace = true }
 amudai-common = { workspace = true }
 amudai-encodings = { workspace = true }

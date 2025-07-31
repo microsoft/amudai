@@ -6,6 +6,7 @@
 //! It supports various primitive, string, and binary types, bridging the gap between
 //! Amudai's internal data representation and Arrow's columnar format.
 
+use amudai_bits::bitpacking;
 use amudai_common::{Result, error::Error};
 use amudai_sequence::{offsets::Offsets, presence::Presence, sequence::ValueSequence};
 use arrow_array::{
@@ -119,7 +120,10 @@ impl IntoArrowArray for ValueSequence {
                     .map(|arr| Arc::new(arr) as ArrayRef)
                     .map_err(|e| Error::arrow("new string array", e))
             }
-            BasicType::DateTime => todo!(),
+            BasicType::DateTime => {
+                // This should never be reached because DateTime is handled early in the function
+                unreachable!("DateTime should be handled by the early check above")
+            }
             BasicType::List => todo!(),
             BasicType::FixedSizeList => todo!(),
             BasicType::Struct => todo!(),
@@ -192,17 +196,26 @@ impl IntoArrowNullBuffer for Presence {
     ///
     /// # Performance Notes
     ///
-    /// The `Bytes` variant conversion currently uses an iterator approach which is
-    /// straightforward but not optimal. There's a TODO to implement bit-packing
-    /// optimization that would directly convert the byte array to a packed bit array,
-    /// which would be significantly faster for large arrays.
+    /// The `Bytes` variant conversion uses an optimized direct bit-packing
+    /// approach that allocates the final Arrow buffer once and writes directly into it.
+    /// This provides zero memory copies beyond the initial allocation.
     fn into_arrow_null_buffer(self) -> Result<Option<NullBuffer>> {
         match self {
             Presence::Trivial(_) => Ok(None),
             Presence::Nulls(len) => Ok(Some(NullBuffer::new_null(len))),
             Presence::Bytes(bytes) => {
-                // TODO: optimize (bit-pack from presence 0/1 bytes)
-                Ok(Some(NullBuffer::from_iter(bytes.iter().map(|&b| b != 0))))
+                let len = bytes.len();
+                let byte_count = len.div_ceil(8);
+
+                // Allocate Arrow buffer directly - no intermediate allocations
+                let mut buffer = MutableBuffer::with_capacity(byte_count);
+                buffer.resize(byte_count, 0); // Initialize with zeros
+                let buffer_slice = buffer.as_slice_mut();
+                bitpacking::pack_bytes_to_bits(&bytes, buffer_slice);
+
+                // Convert to BooleanBuffer then wrap in NullBuffer
+                let boolean_buffer = arrow_buffer::BooleanBuffer::new(buffer.into(), 0, len);
+                Ok(Some(NullBuffer::new(boolean_buffer)))
             }
         }
     }
@@ -304,7 +317,8 @@ fn make_primitive_array<T: ArrowPrimitiveType>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use amudai_sequence::{offsets::Offsets, values::Values};
+    use amudai_bytes::buffer::AlignedByteVec;
+    use amudai_sequence::{offsets::Offsets, presence::Presence, values::Values};
 
     fn create_offsets_from_slice(offsets: &[u64]) -> Offsets {
         let mut values = Values::new();
@@ -325,6 +339,81 @@ mod tests {
         assert_eq!(buffer.len(), expected.len());
         for (i, &expected_val) in expected.iter().enumerate() {
             assert_eq!(buffer[i], expected_val);
+        }
+    }
+
+    #[test]
+    fn test_presence_bytes_to_null_buffer() {
+        // Test the optimized bit-packing implementation
+        let mut presence_bytes = AlignedByteVec::new();
+        // Pattern: true, false, true, true, false, false, true, false
+        presence_bytes.extend_from_slice(&[1, 0, 1, 1, 0, 0, 1, 0]);
+
+        let presence = Presence::Bytes(presence_bytes);
+        let null_buffer = presence.into_arrow_null_buffer().unwrap().unwrap();
+
+        // Verify the null buffer has correct length
+        assert_eq!(null_buffer.len(), 8);
+
+        // Verify the bit pattern matches our input
+        assert_eq!(null_buffer.is_valid(0), true); // 1 -> valid
+        assert_eq!(null_buffer.is_valid(1), false); // 0 -> null
+        assert_eq!(null_buffer.is_valid(2), true); // 1 -> valid
+        assert_eq!(null_buffer.is_valid(3), true); // 1 -> valid
+        assert_eq!(null_buffer.is_valid(4), false); // 0 -> null
+        assert_eq!(null_buffer.is_valid(5), false); // 0 -> null
+        assert_eq!(null_buffer.is_valid(6), true); // 1 -> valid
+        assert_eq!(null_buffer.is_valid(7), false); // 0 -> null
+    }
+
+    #[test]
+    fn test_presence_bytes_large_array() {
+        // Test with a larger array that spans multiple bytes in the bit-packed format
+        let mut presence_data = Vec::new();
+
+        // Create a pattern of 17 values (spans 3 bytes in bit-packed format)
+        for i in 0..17 {
+            presence_data.push(if i % 3 == 0 { 1 } else { 0 });
+        }
+
+        let presence_bytes = AlignedByteVec::copy_from_slice(&presence_data);
+        let presence = Presence::Bytes(presence_bytes);
+        let null_buffer = presence.into_arrow_null_buffer().unwrap().unwrap();
+
+        assert_eq!(null_buffer.len(), 17);
+
+        // Verify the pattern
+        for i in 0..17 {
+            let expected_valid = i % 3 == 0;
+            assert_eq!(
+                null_buffer.is_valid(i),
+                expected_valid,
+                "Mismatch at index {}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_presence_trivial_returns_none() {
+        let presence = Presence::Trivial(100);
+        let result = presence.into_arrow_null_buffer().unwrap();
+        assert!(
+            result.is_none(),
+            "Trivial presence should return None for optimization"
+        );
+    }
+
+    #[test]
+    fn test_presence_nulls_all_false() {
+        let presence = Presence::Nulls(10);
+        let null_buffer = presence.into_arrow_null_buffer().unwrap().unwrap();
+
+        assert_eq!(null_buffer.len(), 10);
+
+        // All values should be null (false)
+        for i in 0..10 {
+            assert_eq!(null_buffer.is_valid(i), false, "All values should be null");
         }
     }
 
