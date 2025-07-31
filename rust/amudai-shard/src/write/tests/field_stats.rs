@@ -2077,6 +2077,7 @@ fn test_string_constant_detection() -> Result<()> {
         bloom_filter: None,
         min_value: Some("hello".as_bytes().to_vec()),
         max_value: Some("hello".as_bytes().to_vec()), // Same as min - constant
+        cardinality_info: None,
     };
 
     let stats = EncodedFieldStatistics::String(string_stats_constant);
@@ -2102,6 +2103,7 @@ fn test_string_constant_detection() -> Result<()> {
         bloom_filter: None,
         min_value: None,
         max_value: None,
+        cardinality_info: None,
     };
 
     let stats = EncodedFieldStatistics::String(string_stats_all_null);
@@ -2123,6 +2125,7 @@ fn test_string_constant_detection() -> Result<()> {
         bloom_filter: None,
         min_value: Some("cat".as_bytes().to_vec()),
         max_value: Some("hello".as_bytes().to_vec()), // Different from min
+        cardinality_info: None,
     };
 
     let stats = EncodedFieldStatistics::String(string_stats_mixed);
@@ -2149,6 +2152,7 @@ fn test_binary_constant_detection() -> Result<()> {
         bloom_filter: None,
         min_value: Some(vec![0x01, 0x02, 0x03, 0x04]),
         max_value: Some(vec![0x01, 0x02, 0x03, 0x04]), // Same as min - constant
+        cardinality_info: None,
     };
 
     let stats = EncodedFieldStatistics::Binary(binary_stats_constant);
@@ -2173,6 +2177,7 @@ fn test_binary_constant_detection() -> Result<()> {
         bloom_filter: None,
         min_value: None,
         max_value: None,
+        cardinality_info: None,
     };
 
     let stats = EncodedFieldStatistics::Binary(binary_stats_all_null);
@@ -2193,6 +2198,7 @@ fn test_binary_constant_detection() -> Result<()> {
         bloom_filter: None,
         min_value: Some(vec![0x01, 0x02]),
         max_value: Some(vec![0x03, 0x04, 0x05, 0x06]), // Different from min
+        cardinality_info: None,
     };
 
     let stats = EncodedFieldStatistics::Binary(binary_stats_mixed);

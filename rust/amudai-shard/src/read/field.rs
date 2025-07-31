@@ -78,6 +78,17 @@ impl Field {
         self.0.try_get_constant()
     }
 
+    /// Returns the cardinality information for this field, if available.
+    ///
+    /// This includes estimated distinct value counts and HLL sketches for
+    /// approximate cardinality queries without scanning the actual data.
+    pub fn cardinality(&self) -> Option<&shard::CardinalityInfo> {
+        self.descriptor()
+            .field
+            .as_ref()
+            .and_then(|descriptor| descriptor.cardinality.as_ref())
+    }
+
     /// Returns the stripe that contains this field.
     pub fn get_stripe(&self) -> Stripe {
         Stripe::from_ctx(self.0.stripe().clone())

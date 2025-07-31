@@ -3,10 +3,12 @@
 //! This module provides functionality to collect statistics from Arrow binary array types
 //! including `BinaryArray`, `LargeBinaryArray`, and `FixedSizeBinaryArray`.
 
+use crate::sketch_ext::SketchBuilderExt;
 use amudai_bloom_filters::{BloomFilterCollector, BloomFilterConfig};
 use amudai_common::{Result, error::Error};
 use amudai_encodings::block_encoder::BlockEncodingProfile;
 use amudai_format::defs::schema::BasicType;
+use amudai_hll::HllSketch;
 use arrow_array::{Array, BinaryArray, FixedSizeBinaryArray, LargeBinaryArray};
 use arrow_schema::DataType;
 
@@ -36,6 +38,8 @@ pub struct BinaryStatsCollector {
     max_value: Option<Vec<u8>>,
     // Flag to control whether we track min_value and max_value for constant detection
     value_tracking_enabled: bool,
+    // HyperLogLog for cardinality estimation
+    sketch_builder: HllSketch,
 }
 
 impl BinaryStatsCollector {
@@ -77,6 +81,7 @@ impl BinaryStatsCollector {
             min_value: None,
             max_value: None,
             value_tracking_enabled: true,
+            sketch_builder: HllSketch::new_default(),
         }
     }
 
@@ -251,6 +256,10 @@ impl BinaryStatsCollector {
                 collector.process_value(value);
             }
         }
+
+        // Update HLL for cardinality estimation
+        self.sketch_builder.add(value);
+
         Ok(())
     }
 
@@ -286,6 +295,9 @@ impl BinaryStatsCollector {
 
         // Update raw_data_size (sum of lengths of all non-null values)
         self.raw_data_size += length * count;
+
+        // Update HLL for cardinality estimation
+        self.sketch_builder.add(value);
 
         // Update min/max values for constant detection (optimized tracking)
         if self.value_tracking_enabled {
@@ -366,6 +378,14 @@ impl BinaryStatsCollector {
                 })
             });
 
+        // Generate cardinality information from HLL builder if we have non-null values
+        let cardinality_info = if self.null_count == self.total_count {
+            // All values are null - no cardinality information available
+            None
+        } else {
+            Some(self.sketch_builder.to_cardinality_info())
+        };
+
         Ok(BinaryStats {
             min_length,
             max_length,
@@ -376,6 +396,7 @@ impl BinaryStatsCollector {
             bloom_filter,
             min_value: self.min_value,
             max_value: self.max_value,
+            cardinality_info,
         })
     }
 }
@@ -405,6 +426,8 @@ pub struct BinaryStats {
     /// Maximum binary value (lexicographically, byte-wise comparison).
     /// Only tracked if value size <= MAX_CONSTANT_BINARY_SIZE.
     pub max_value: Option<Vec<u8>>,
+    /// Cardinality information from HLL collector if available.
+    pub cardinality_info: Option<amudai_format::defs::shard::CardinalityInfo>,
 }
 
 impl BinaryStats {
@@ -423,6 +446,7 @@ impl BinaryStats {
             bloom_filter: None,
             min_value: None,
             max_value: None,
+            cardinality_info: None,
         }
     }
 

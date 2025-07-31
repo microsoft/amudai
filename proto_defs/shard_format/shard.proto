@@ -250,7 +250,7 @@ message FloatingStats {
 message CardinalityInfo {
     optional fixed64 count = 1;
     bool is_estimate = 2;
-    optional amudai.common.AnyValue hll_sketch = 3;
+    optional HllSketchV1 hll_sketch = 3;
 }
 
 message MembershipFilters {
@@ -258,6 +258,20 @@ message MembershipFilters {
     // Note: These filters exist only at the stripe level. To determine if a value
     // exists in a shard, queries must probe all stripe-level filters across all stripes.
     optional SplitBlockBloomFilter sbbf = 1;
+}
+
+message HllSketchV1 {
+    // Hash algorithm used (e.g., "xxh3_64")
+    string hash_algorithm = 1;
+
+    // Hash function seed
+    fixed64 hash_seed = 2;
+
+    /// Number of bits for indexing HLL sub-streams; the number of counters is `pow(2, bits_per_index)`.
+    fixed32 bits_per_index = 3;
+
+    /// Lookup table.
+    bytes counters = 4;
 }
 
 // Split-Block Bloom Filter (SBBF) for efficient approximate membership queries.
@@ -276,6 +290,8 @@ message SplitBlockBloomFilter {
     // Hash algorithm used (e.g., "xxh3_64")
     string hash_algorithm = 4;
 
+    // TODO: add here :
+    // fixed64 hash_seed = 5;
     // The filter data as a sequence of 256-bit blocks
     bytes data = 5;
 }

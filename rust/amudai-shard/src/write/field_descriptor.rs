@@ -7,6 +7,7 @@
 use crate::write::field_encoder::{EncodedField, EncodedFieldStatistics};
 use amudai_common::Result;
 use amudai_format::defs::{anyvalue_ext::compare_any_values, shard};
+use amudai_hll::{HllSketch, HllSketchConfig};
 
 /// Creates a new field descriptor with the specified position count and
 /// populates it with statistics from the encoded field if available.
@@ -210,6 +211,20 @@ pub fn merge(
         }
     }
 
+    // Merge cardinality information using HLL merging if both are present
+    match (&mut accumulated.cardinality, &current.cardinality) {
+        (Some(accumulated_cardinality), Some(current_cardinality)) => {
+            merge_cardinality_info(accumulated_cardinality, current_cardinality)?;
+        }
+        _ => {
+            // All other cases: disable cardinality (sticky None behavior)
+            // - (None, Some(_)): Accumulated is None (sticky None situation)
+            // - (Some(_), None): Current has no cardinality info, disable it
+            // - (None, None): Neither has cardinality info
+            accumulated.cardinality = None;
+        }
+    }
+
     Ok(())
 }
 
@@ -251,6 +266,11 @@ fn populate_string_statistics(
 
     // Map raw data size
     descriptor.raw_data_size = Some(string_stats.raw_data_size);
+
+    // Set cardinality information from HLL builder if available
+    if let Some(ref cardinality_info) = string_stats.cardinality_info {
+        descriptor.cardinality = Some(cardinality_info.clone());
+    }
 
     // Set string-specific statistics in type_specific field
     descriptor.type_specific = Some(shard::field_descriptor::TypeSpecific::StringStats(
@@ -310,6 +330,11 @@ fn populate_binary_statistics(
 
     // Map raw data size
     descriptor.raw_data_size = Some(binary_stats.raw_data_size);
+
+    // Set cardinality information from HLL builder if available
+    if let Some(ref cardinality_info) = binary_stats.cardinality_info {
+        descriptor.cardinality = Some(cardinality_info.clone());
+    }
 
     // Set binary-specific statistics in type_specific field using BinaryStats
     // which is appropriate for binary data (tracks byte lengths)
@@ -743,4 +768,70 @@ where
     }
 
     Ok(result)
+}
+
+/// Merges cardinality information from two field descriptors.
+///
+/// This function attempts to merge HLL sketches if both cardinality infos contain them.
+/// If either cardinality info lacks an HLL sketch, the merge cannot be performed accurately
+/// and the result will have no HLL sketch but may still preserve count information.
+///
+/// # Arguments
+///
+/// * `accumulated` - The accumulated cardinality info (modified in-place)
+/// * `current` - The current cardinality info to merge
+///
+/// # Returns
+///
+/// A `Result` indicating success or failure of the merge operation
+fn merge_cardinality_info(
+    accumulated: &mut shard::CardinalityInfo,
+    current: &shard::CardinalityInfo,
+) -> Result<()> {
+    // Early return for success path: only if both have HLL sketches and merge succeeds
+    if let (Some(accumulated_hll), Some(current_hll)) =
+        (&accumulated.hll_sketch, &current.hll_sketch)
+    {
+        if let (Some(mut acc_sketch), Some(cur_sketch)) = (
+            create_hll_sketch_from_proto(accumulated_hll),
+            create_hll_sketch_from_proto(current_hll),
+        ) {
+            if acc_sketch.merge_from(&cur_sketch).is_ok() {
+                // Successfully merged - update cardinality info and return
+                accumulated.hll_sketch = Some(convert_hll_sketch_to_proto(&acc_sketch));
+                accumulated.is_estimate = true;
+                accumulated.count = Some(acc_sketch.estimate_count() as u64);
+                return Ok(());
+            }
+        }
+    }
+
+    // All invalid cases lead here - clear cardinality info
+    accumulated.hll_sketch = None;
+    accumulated.count = None;
+    accumulated.is_estimate = false;
+    Ok(())
+}
+
+/// Helper function to create an HLL sketch from a protobuf HllSketchV1.
+fn create_hll_sketch_from_proto(hll_proto: &shard::HllSketchV1) -> Option<HllSketch> {
+    let config = HllSketchConfig::with_all_parameters(
+        hll_proto.bits_per_index,
+        hll_proto.hash_algorithm.clone(),
+        hll_proto.hash_seed,
+    )
+    .ok()?;
+
+    HllSketch::from_config_and_counters(config, hll_proto.counters.clone()).ok()
+}
+
+/// Helper function to convert an HLL sketch back to protobuf format.
+fn convert_hll_sketch_to_proto(sketch: &HllSketch) -> shard::HllSketchV1 {
+    let config = sketch.get_config();
+    shard::HllSketchV1 {
+        hash_algorithm: config.hash_algorithm,
+        hash_seed: config.hash_seed,
+        bits_per_index: config.bits_per_index,
+        counters: sketch.get_counters().to_vec(),
+    }
 }

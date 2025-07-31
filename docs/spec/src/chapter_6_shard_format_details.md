@@ -487,7 +487,14 @@ message FloatingStats {
 message CardinalityInfo {
     optional fixed64 count = 1;
     bool is_estimate = 2;
-    optional AnyValue hll_sketch = 3;
+    optional HllSketchV1 hll_sketch = 3;
+}
+
+message HllSketchV1 {
+    string hash_algorithm = 1;
+    fixed64 hash_seed = 2;
+    fixed32 bits_per_index = 3;
+    bytes counters = 4;
 }
 
 message MembershipFilters {
@@ -506,7 +513,13 @@ message SplitBlockBloomFilter {
 **CardinalityInfo properties:**
 - `count`: If present, provides the exact or estimated number of distinct values
 - `is_estimate`: Boolean flag indicating whether the `count` field contains an estimate (`true`) or exact count (`false`)
-- `hll_sketch`: Optional HyperLogLog sketch data for cardinality estimation, stored as an `AnyValue`
+- `hll_sketch`: Optional HyperLogLog sketch data for cardinality estimation, stored as an `HllSketchV1` message
+
+**HllSketchV1 properties:**
+- `hash_algorithm`: Hash algorithm used for the HyperLogLog sketch (e.g., "xxh3_64")
+- `hash_seed`: Seed value used by the hash function for HyperLogLog calculations
+- `bits_per_index`: Number of bits for indexing HLL sub-streams; the number of counters is `2^bits_per_index`
+- `counters`: The HyperLogLog counter data as a byte array containing the lookup table
 
 **MembershipFilters properties:**
 - `sbbf`: A Split-Block Bloom Filter for efficient approximate membership queries with excellent cache locality.

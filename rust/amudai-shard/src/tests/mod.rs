@@ -20,6 +20,9 @@ mod field_cursors;
 mod floating_integration;
 
 #[cfg(test)]
+mod hll_sketch;
+
+#[cfg(test)]
 mod numeric_index;
 
 #[cfg(test)]

@@ -1,0 +1,15 @@
+[package]
+name = "amudai-hll"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+byteorder = { workspace = true }
+xxhash-rust = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }

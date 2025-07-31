@@ -1,7 +1,9 @@
+use crate::sketch_ext::SketchBuilderExt;
 use amudai_bloom_filters::{BloomFilterCollector, BloomFilterConfig};
 use amudai_common::Result;
 use amudai_encodings::block_encoder::BlockEncodingProfile;
 use amudai_format::defs::shard::StringStats as ProtoStringStats;
+use amudai_hll::HllSketch;
 use arrow_array::{Array, LargeStringArray, StringArray, StringViewArray, cast::AsArray};
 use std::cmp;
 
@@ -25,6 +27,8 @@ pub struct StringStatsCollector {
     min_value: Option<Vec<u8>>,
     max_value: Option<Vec<u8>>,
     value_tracking_enabled: bool,
+    // HyperLogLog for cardinality estimation
+    sketch_builder: HllSketch,
 }
 
 impl StringStatsCollector {
@@ -65,6 +69,7 @@ impl StringStatsCollector {
             min_value: None,
             max_value: None,
             value_tracking_enabled: true,
+            sketch_builder: HllSketch::new_default(),
         }
     }
 
@@ -190,6 +195,13 @@ impl StringStatsCollector {
                 })
             });
 
+        // Create cardinality info if we have non-null values
+        let cardinality_info = if self.count > self.null_count {
+            Some(self.sketch_builder.to_cardinality_info())
+        } else {
+            None
+        };
+
         Ok(StringStats {
             min_size,
             min_non_empty_size: self.min_non_empty_size,
@@ -201,6 +213,7 @@ impl StringStatsCollector {
             bloom_filter,
             min_value: self.min_value,
             max_value: self.max_value,
+            cardinality_info,
         })
     }
 
@@ -290,6 +303,8 @@ impl StringStatsCollector {
         if let Some(ref mut collector) = self.bloom_filter_collector {
             collector.process_value(string_val.as_bytes());
         }
+
+        self.sketch_builder.add(string_val.as_bytes());
     }
 }
 
@@ -324,6 +339,8 @@ pub struct StringStats {
     /// Maximum string value (lexicographically, byte-wise comparison).
     /// Only tracked if value size <= MAX_CONSTANT_STRING_SIZE.
     pub max_value: Option<Vec<u8>>,
+    /// Cardinality information including HLL sketch
+    pub cardinality_info: Option<amudai_format::defs::shard::CardinalityInfo>,
 }
 
 impl StringStats {
@@ -343,6 +360,7 @@ impl StringStats {
             bloom_filter: None,
             min_value: None,
             max_value: None,
+            cardinality_info: None,
         }
     }
 
@@ -562,6 +580,7 @@ mod tests {
             bloom_filter: None,
             min_value: None,
             max_value: None,
+            cardinality_info: None,
         };
 
         let proto_stats = stats.to_proto();
@@ -1022,5 +1041,118 @@ mod tests {
         let stats = collector.finalize().unwrap();
         let constant = stats.try_get_constant();
         assert!(constant.is_none());
+    }
+
+    #[test]
+    fn test_string_hll_cardinality_estimation() {
+        let mut collector = StringStatsCollector::default();
+
+        // Add some unique values
+        let array = StringArray::from(vec!["apple", "banana", "cherry", "date", "elderberry"]);
+        collector.process_array(&array).unwrap();
+
+        let stats = collector.finalize().unwrap();
+
+        // Should have cardinality info since we have non-null values
+        assert!(stats.cardinality_info.is_some());
+
+        let cardinality_info = stats.cardinality_info.unwrap();
+        assert!(cardinality_info.count.is_some());
+        assert!(cardinality_info.is_estimate);
+        assert!(cardinality_info.hll_sketch.is_some());
+
+        // Estimated count should be around 5 (with wider tolerance for HLL estimation error)
+        let estimated_count = cardinality_info.count.unwrap();
+        assert!(
+            estimated_count >= 3 && estimated_count <= 8,
+            "Expected count around 5, got {}",
+            estimated_count
+        );
+
+        // Check HLL sketch is present and has expected structure
+        let hll_sketch = cardinality_info.hll_sketch.unwrap();
+        assert_eq!(hll_sketch.hash_algorithm, "xxh3_64");
+        assert!(hll_sketch.bits_per_index > 0);
+        assert!(!hll_sketch.counters.is_empty());
+    }
+
+    #[test]
+    fn test_string_hll_with_duplicates() {
+        let mut collector = StringStatsCollector::default();
+
+        // Add values with duplicates
+        let array = StringArray::from(vec![
+            "apple", "banana", "apple", "cherry", "banana", "apple",
+        ]);
+        collector.process_array(&array).unwrap();
+
+        let stats = collector.finalize().unwrap();
+
+        // Should have cardinality info
+        assert!(stats.cardinality_info.is_some());
+
+        let cardinality_info = stats.cardinality_info.unwrap();
+        let estimated_count = cardinality_info.count.unwrap();
+
+        // Should estimate around 3 unique values despite 6 total values (wider tolerance)
+        assert!(
+            estimated_count >= 2 && estimated_count <= 5,
+            "Expected count around 3, got {}",
+            estimated_count
+        );
+    }
+
+    #[test]
+    fn test_string_hll_all_nulls() {
+        let mut collector = StringStatsCollector::default();
+
+        // Add only null values
+        let array = StringArray::from(vec![None::<&str>; 5]);
+        collector.process_array(&array).unwrap();
+
+        let stats = collector.finalize().unwrap();
+
+        // Should NOT have cardinality info for all-null data
+        assert!(stats.cardinality_info.is_none());
+    }
+
+    #[test]
+    fn test_string_hll_large_dataset() {
+        let mut collector = StringStatsCollector::default();
+
+        // Generate a large dataset with known cardinality
+        let mut values = Vec::new();
+        for i in 0..1000 {
+            values.push(format!("value_{}", i));
+        }
+        // Add some duplicates to test cardinality estimation with larger datasets
+        for i in 0..100 {
+            values.push(format!("value_{}", i)); // Duplicate first 100 values
+        }
+
+        let string_refs: Vec<&str> = values.iter().map(|s| s.as_str()).collect();
+        let array = StringArray::from(string_refs);
+        collector.process_array(&array).unwrap();
+
+        let stats = collector.finalize().unwrap();
+
+        // Should have cardinality info
+        assert!(stats.cardinality_info.is_some());
+
+        let cardinality_info = stats.cardinality_info.unwrap();
+        let estimated_count = cardinality_info.count.unwrap();
+
+        // For 1000 unique values, HLL estimation error can be significant
+        // Standard error is approximately 1.04/sqrt(2^bits_per_index)
+        // With default bits (likely 12), error is about 1.04/sqrt(4096) ≈ 1.6%
+        // But in practice, we should allow for wider tolerance
+        assert!(
+            estimated_count >= 800 && estimated_count <= 1200,
+            "Expected count around 1000, got {}",
+            estimated_count
+        );
+
+        assert_eq!(stats.count, 1100); // Total count including duplicates
+        assert!(cardinality_info.is_estimate);
     }
 }

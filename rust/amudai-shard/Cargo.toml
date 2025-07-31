@@ -29,6 +29,7 @@ amudai-data-stats = { workspace = true }
 amudai-decimal = { workspace = true }
 amudai-encodings = { workspace = true }
 amudai-format = { workspace = true }
+amudai-hll = { workspace = true }
 amudai-index-core = { workspace = true }
 amudai-io = { workspace = true }
 amudai-io-impl = { workspace = true }

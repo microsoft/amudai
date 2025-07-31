@@ -216,6 +216,7 @@ mod tests {
             bloom_filter: None,
             min_value: None,
             max_value: None,
+            cardinality_info: None,
         };
 
         let encoded_field = EncodedField {
@@ -256,6 +257,7 @@ mod tests {
             bloom_filter: None,
             min_value: None,
             max_value: None,
+            cardinality_info: None,
         };
 
         let encoded_field = EncodedField {
@@ -1668,6 +1670,7 @@ mod tests {
             bloom_filter: None,
             min_value: None,
             max_value: None,
+            cardinality_info: None,
         };
 
         let encoded_field = EncodedField {
@@ -1850,6 +1853,7 @@ mod tests {
             bloom_filter: None,
             min_value: None,
             max_value: None,
+            cardinality_info: None,
         };
 
         let encoded_field = EncodedField {
@@ -2261,6 +2265,7 @@ mod tests {
             bloom_filter: None,
             min_value: None,
             max_value: None,
+            cardinality_info: None,
         };
 
         let encoded_field2 = EncodedField {
@@ -2328,6 +2333,7 @@ mod tests {
             bloom_filter: None,
             min_value: None,
             max_value: None,
+            cardinality_info: None,
         };
 
         let encoded_field5 = EncodedField {

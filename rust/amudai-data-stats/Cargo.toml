@@ -22,4 +22,5 @@ amudai-common = { workspace = true }
 amudai-decimal = { workspace = true }
 amudai-encodings = { workspace = true }
 amudai-format = { workspace = true }
+amudai-hll = { workspace = true }
 amudai-io = { workspace = true }

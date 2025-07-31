@@ -304,14 +304,14 @@ pub struct FloatingStats {
     #[prost(fixed64, tag = "6")]
     pub negative_infinity_count: u64,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CardinalityInfo {
     #[prost(fixed64, optional, tag = "1")]
     pub count: ::core::option::Option<u64>,
     #[prost(bool, tag = "2")]
     pub is_estimate: bool,
     #[prost(message, optional, tag = "3")]
-    pub hll_sketch: ::core::option::Option<super::common::AnyValue>,
+    pub hll_sketch: ::core::option::Option<HllSketchV1>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MembershipFilters {
@@ -320,6 +320,21 @@ pub struct MembershipFilters {
     /// exists in a shard, queries must probe all stripe-level filters across all stripes.
     #[prost(message, optional, tag = "1")]
     pub sbbf: ::core::option::Option<SplitBlockBloomFilter>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct HllSketchV1 {
+    /// Hash algorithm used (e.g., "xxh3_64")
+    #[prost(string, tag = "1")]
+    pub hash_algorithm: ::prost::alloc::string::String,
+    /// Hash function seed
+    #[prost(fixed64, tag = "2")]
+    pub hash_seed: u64,
+    /// / Number of bits for indexing HLL sub-streams; the number of counters is `pow(2, bits_per_index)`.
+    #[prost(fixed32, tag = "3")]
+    pub bits_per_index: u32,
+    /// / Lookup table.
+    #[prost(bytes = "vec", tag = "4")]
+    pub counters: ::prost::alloc::vec::Vec<u8>,
 }
 /// Split-Block Bloom Filter (SBBF) for efficient approximate membership queries.
 /// Provides cache-efficient membership testing with configurable false positive rates.
@@ -338,6 +353,8 @@ pub struct SplitBlockBloomFilter {
     /// Hash algorithm used (e.g., "xxh3_64")
     #[prost(string, tag = "4")]
     pub hash_algorithm: ::prost::alloc::string::String,
+    /// TODO: add here :
+    /// fixed64 hash_seed = 5;
     /// The filter data as a sequence of 256-bit blocks
     #[prost(bytes = "vec", tag = "5")]
     pub data: ::prost::alloc::vec::Vec<u8>,
