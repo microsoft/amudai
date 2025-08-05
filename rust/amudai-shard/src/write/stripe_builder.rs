@@ -7,12 +7,15 @@ use amudai_encodings::block_encoder::BlockEncodingProfile;
 use amudai_format::defs::common::DataRef;
 use amudai_format::defs::shard::StripeProperties;
 use amudai_format::defs::{self, shard};
+use amudai_format::projection::SchemaProjection;
 use amudai_format::schema::{DataType, FieldLocator, Schema, SchemaId};
 use amudai_io::temp_file_store::TemporaryFileStore;
 use amudai_keyed_vector::KeyedVector;
 use amudai_objectstore::url::ObjectUrl;
+use amudai_ranges::SharedRangeList;
 use arrow_array::RecordBatch;
 
+use crate::read::frame_reader::FrameReader;
 use crate::write::properties::StripePropertiesBuilder;
 
 use super::format_elements_ext::{CompactDataRefs, DataRefExt};
@@ -308,6 +311,7 @@ impl StripeBuilder {
         let mut fields = Vec::new();
         self.fields.finish(Some(logical_pos), &mut fields)?;
         Ok(PreparedStripe {
+            schema: self.params.schema,
             fields: fields.into(),
             properties: self.properties,
             record_count: logical_pos as u64,
@@ -333,6 +337,9 @@ impl StripeBuilder {
 
 /// A prepared stripe that is ready to be added to a shard.
 pub struct PreparedStripe {
+    /// Shard schema
+    pub schema: Schema,
+
     /// Encoded stripe fields mapped to their `SchemaId`.
     pub fields: KeyedVector<SchemaId, PreparedStripeField>,
 
@@ -375,6 +382,51 @@ impl PreparedStripe {
             Error::invalid_arg("schema_id", format!("field {schema_id:?} not found"))
         })?;
         field.create_decoder()
+    }
+
+    /// Creates a [`FrameReader`] for reading record frames from this prepared stripe.
+    ///
+    /// This reader will:
+    /// - Decode frames of up to 1024 records each.
+    /// - Apply an optional schema projection to include only the desired fields.
+    /// - Restrict reading to the specified shard-absolute record ranges.
+    ///
+    /// # Parameters
+    /// - `projection`: Optional [`SchemaProjection`] to select a subset of fields.
+    ///   If `None`, the full stripe schema is used.
+    /// - `shard_ranges`: Optional [`SharedRangeList<u64>`] of shard-absolute record
+    ///   position ranges to read. If `None`, all records in the stripe are read.
+    ///
+    /// # Returns
+    /// A [`FrameReader`] configured to decode the requested frames according to the
+    /// provided projection and record ranges.
+    ///
+    /// # Errors
+    /// Returns an error if initializing any field decoder fails.
+    ///
+    /// # See Also
+    /// - [`PreparedStripe::decode_field`]
+    /// - [`FrameReader::new`]
+    pub fn create_frame_reader(
+        &self,
+        projection: Option<SchemaProjection>,
+        shard_ranges: Option<SharedRangeList<u64>>,
+    ) -> Result<FrameReader> {
+        let projection = projection.unwrap_or_else(|| SchemaProjection::full(self.schema.clone()));
+
+        let range_in_shard = self.shard_position..self.shard_position + self.record_count;
+        let shard_ranges =
+            shard_ranges.unwrap_or_else(|| SharedRangeList::from_elem(range_in_shard.clone()));
+
+        let stripe_ranges = FrameReader::translate_shard_ranges_to_stripe_ranges(
+            shard_ranges,
+            range_in_shard,
+            1024,
+        );
+
+        FrameReader::new(projection, stripe_ranges, |data_type| {
+            self.decode_field(data_type.schema_id()?)
+        })
     }
 
     /// Finalizes this prepared stripe by sealing all its fields and writing their data

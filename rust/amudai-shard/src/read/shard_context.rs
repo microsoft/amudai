@@ -10,12 +10,11 @@ use amudai_format::{
         common::{self, DataRef},
         shard,
     },
+    property_bag::PropertyBag,
     schema::{Schema, SchemaId, SchemaMessage},
 };
 use amudai_io::PrecachedReadAt;
 use amudai_objectstore::{ObjectStore, ReferenceResolver, url::ObjectUrl};
-
-use crate::read::properties::PropertyBag;
 
 use super::{
     anchored_element::AnchoredElement, artifact_reader::ArtifactReader, element_memo::Memo,

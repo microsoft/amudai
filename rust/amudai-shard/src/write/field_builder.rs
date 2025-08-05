@@ -427,22 +427,6 @@ impl PreparedStripeField {
     pub fn create_decoder(&self) -> Result<crate::read::field_decoder::FieldDecoder> {
         let basic_type = self.data_type.describe()?;
         let descriptor = &self.descriptor;
-
-        // TODO: handle constant and null fields.
-
-        if descriptor.null_count == Some(descriptor.position_count)
-            || descriptor
-                .constant_value
-                .as_ref()
-                .is_some_and(|c| c.is_null())
-        {
-            return Err(Error::not_implemented("null field decoder"));
-        }
-
-        if descriptor.constant_value.is_some() {
-            return Err(Error::not_implemented("constant field decoder"));
-        }
-
         let encoding = self
             .encodings
             .first()

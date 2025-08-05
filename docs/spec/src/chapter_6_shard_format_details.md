@@ -510,30 +510,6 @@ message SplitBlockBloomFilter {
 }
 ```
 
-**CardinalityInfo properties:**
-- `count`: If present, provides the exact or estimated number of distinct values
-- `is_estimate`: Boolean flag indicating whether the `count` field contains an estimate (`true`) or exact count (`false`)
-- `hll_sketch`: Optional HyperLogLog sketch data for cardinality estimation, stored as an `HllSketchV1` message
-
-**HllSketchV1 properties:**
-- `hash_algorithm`: Hash algorithm used for the HyperLogLog sketch (e.g., "xxh3_64")
-- `hash_seed`: Seed value used by the hash function for HyperLogLog calculations
-- `bits_per_index`: Number of bits for indexing HLL sub-streams; the number of counters is `2^bits_per_index`
-- `counters`: The HyperLogLog counter data as a byte array containing the lookup table
-
-**MembershipFilters properties:**
-- `sbbf`: A Split-Block Bloom Filter for efficient approximate membership queries with excellent cache locality.
-
-**Important Note**: `MembershipFilters` are only populated at the stripe level within `StripeFieldDescriptor`, not at the shard level in `FieldDescriptor`.
-
-**SplitBlockBloomFilter properties:**
-- `num_blocks`: The number of 256-bit (32-byte) blocks in the filter. Must be a power of 2
-- `target_fpp`: The target false positive probability used when sizing the filter (e.g., 0.01 for 1%)
-- `num_values`: The number of distinct values that were inserted into the filter during construction
-- `data`: The raw filter data as a sequence of 256-bit blocks stored in little-endian byte order
-- `hash_algorithm`: Identifier for the hash algorithm used (e.g., "xxh3_64"). Must produce consistent results across architectures
-```
-
 - The only mandatory property is `position_count`, which indicates the number of logical "value slots" (logical positions) in this field's stored sequence. The other properties are optional and are primarily relevant to primitive data types.
 
 - `null_count`: If present, this specifies the number of logical value slots containing `null` values.
@@ -601,6 +577,30 @@ message SplitBlockBloomFilter {
   This metric is useful for compression ratio calculations (compressed_size / raw_data_size), memory usage estimation for uncompressed data processing, understanding the effectiveness of encoding schemes, and query planning and resource allocation decisions.
 
 *Note*: All the value statistics mentioned above are calculated for the entire stored sequence of values at the corresponding scope (shard or stripe) and do not account for logically deleted records.
+
+**CardinalityInfo properties:**
+- `count`: If present, provides the exact or estimated number of distinct values
+- `is_estimate`: Boolean flag indicating whether the `count` field contains an estimate (`true`) or exact count (`false`)
+- `hll_sketch`: Optional HyperLogLog sketch data for cardinality estimation, stored as an `HllSketchV1` message
+
+**HllSketchV1 properties:**
+- `hash_algorithm`: Hash algorithm used for the HyperLogLog sketch (e.g., "xxh3_64")
+- `hash_seed`: Seed value used by the hash function for HyperLogLog calculations
+- `bits_per_index`: Number of bits for indexing HLL sub-streams; the number of counters is `2^bits_per_index`
+- `counters`: The HyperLogLog counter data as a byte array containing the lookup table
+
+**MembershipFilters properties:**
+- `sbbf`: A Split-Block Bloom Filter for efficient approximate membership queries with excellent cache locality.
+
+**Important Note**: `MembershipFilters` are only populated at the stripe level within `StripeFieldDescriptor`, not at the shard level in `FieldDescriptor`.
+
+**SplitBlockBloomFilter properties:**
+- `num_blocks`: The number of 256-bit (32-byte) blocks in the filter. Must be a power of 2
+- `target_fpp`: The target false positive probability used when sizing the filter (e.g., 0.01 for 1%)
+- `num_values`: The number of distinct values that were inserted into the filter during construction
+- `data`: The raw filter data as a sequence of 256-bit blocks stored in little-endian byte order
+- `hash_algorithm`: Identifier for the hash algorithm used (e.g., "xxh3_64"). Must produce consistent results across architectures
+
 
 ## Stripe Field Descriptor
 

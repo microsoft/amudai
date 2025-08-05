@@ -1,75 +1,10 @@
-use ahash::AHashMap;
-use amudai_format::defs::{
-    common::{AnyValue, DateTimeUtc, NameValuePair},
-    shard::{FieldDescriptor, ShardProperties, StripeProperties},
+use amudai_format::{
+    defs::{
+        common::DateTimeUtc,
+        shard::{FieldDescriptor, ShardProperties, StripeProperties},
+    },
+    property_bag::PropertyBagBuilder,
 };
-
-/// A builder for constructing collections of name-value property pairs.
-///
-/// `PropertyBagBuilder` provides a convenient way to build collections of properties
-/// with type safety and efficient storage. It accepts various value types that can
-/// be converted to `AnyValue` and produces a vector of `NameValuePair` entries
-/// suitable for serialization.
-#[derive(Debug, Clone, Default)]
-pub struct PropertyBagBuilder(AHashMap<String, AnyValue>);
-
-impl PropertyBagBuilder {
-    /// Creates a new empty `PropertyBagBuilder`.
-    ///
-    /// # Returns
-    ///
-    /// A new builder instance ready to accept property assignments.
-    pub fn new() -> PropertyBagBuilder {
-        PropertyBagBuilder(Default::default())
-    }
-
-    /// Sets a property with the given name and value.
-    ///
-    /// If a property with the same name already exists, it will be replaced.
-    /// The value can be any type that implements `Into<AnyValue>`.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The property name (must implement `Into<String>`)
-    /// * `value` - The property value (must implement `Into<AnyValue>`)
-    pub fn set(&mut self, name: impl Into<String>, value: impl Into<AnyValue>) {
-        self.0.insert(name.into(), value.into());
-    }
-
-    /// Retrieves a property value by name.
-    ///
-    /// Returns a reference to the `AnyValue` if the property exists,
-    /// or `None` if no property with the given name is found.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the property to retrieve
-    ///
-    /// # Returns
-    ///
-    /// `Some(&AnyValue)` if the property exists, `None` otherwise.
-    pub fn get(&self, name: impl AsRef<str>) -> Option<&AnyValue> {
-        self.0.get(name.as_ref())
-    }
-
-    /// Consumes the builder and returns the constructed property collection.
-    ///
-    /// This method converts all stored properties into a vector of `NameValuePair`
-    /// entries suitable for inclusion in the shard metadata messages.
-    ///
-    /// # Returns
-    ///
-    /// A vector of `NameValuePair` entries containing all properties.
-    pub fn finish(self) -> Vec<NameValuePair> {
-        self.0
-            .into_iter()
-            .map(|(name, value)| NameValuePair {
-                name,
-                value: Some(value),
-            })
-            .collect()
-    }
-}
 
 /// A builder for constructing shard-level properties and metadata.
 ///

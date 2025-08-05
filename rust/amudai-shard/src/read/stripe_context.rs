@@ -3,10 +3,9 @@ use std::sync::{Arc, OnceLock};
 use amudai_common::{Result, error::Error, verify_arg, verify_data};
 use amudai_format::{
     defs::shard,
+    property_bag::PropertyBag,
     schema::{DataType, SchemaId},
 };
-
-use crate::read::properties::PropertyBag;
 
 use super::{
     anchored_element::AnchoredElement,

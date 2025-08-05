@@ -15,61 +15,62 @@
 //! Both functions use highly optimized algorithms:
 //! - **Packing**: AVX2-accelerated SIMD operations with scalar fallback, branchless bit manipulation
 //! - **Unpacking**: AVX2-optimized processing with lookup table fallback, unified 3-step algorithm
-//! - **Runtime Detection**: Automatic AVX2 feature detection for optimal performance on all CPUs
-//! - **Memory Efficiency**: Direct memory operations with minimal copying
+//! - **Runtime Detection**: Automatic AVX2 feature detection
 //! - **Universal Performance**: Consistent speed across aligned and unaligned data
 //!
 //! # Usage Examples
 //!
 //! ```rust
 //! use amudai_bits::bitpacking::{pack_bytes_to_bits, unpack_bits_to_bytes};
-//! use amudai_bytes::buffer::AlignedByteVec;
 //!
 //! // Pack boolean bytes to bits
-//! let input = AlignedByteVec::copy_from_slice(&[1, 0, 1, 1, 0, 0, 1, 0]);
+//! let input = vec![1u8, 0, 1, 1, 0, 0, 1, 0];
 //! let mut output = vec![0u8; 1];
 //! pack_bytes_to_bits(&input, &mut output);
 //! assert_eq!(output[0], 0b01001101); // LSB first: 1,0,1,1,0,0,1,0
 //!
 //! // Unpack bits to boolean bytes
 //! let bits = vec![0b01001101u8];
-//! let bytes = unpack_bits_to_bytes(&bits, 0, 8);
+//! let mut bytes = vec![0u8; 8];
+//! unpack_bits_to_bytes(&bits, 0, &mut bytes);
 //! assert_eq!(bytes.as_slice(), [1, 0, 1, 1, 0, 0, 1, 0]);
 //! ```
 
-use amudai_bytes::buffer::AlignedByteVec;
-
 /// Converts byte-expanded boolean data to bit-packed format.
 ///
-/// Takes an array where each byte represents a boolean value (0=false, non-zero=true)
+/// Takes an array where each byte represents a boolean value (0 = false, non-zero = true)
 /// and packs them into bits, storing 8 boolean values per output byte.
 ///
 /// # Arguments
-/// * `input_bytes` - Byte array where each byte is a boolean (0 or non-zero)
+/// * `input_bytes` - Input slice where each byte represents a boolean (0 or non-zero)
 /// * `output_buffer` - Output buffer to write packed bits to
 ///
+/// # Panics
+/// Panics if `output_buffer` is too small to hold the packed result. The required size is
+/// `input_bytes.len().div_ceil(8)` bytes.
+///
 /// # Bit Order
-/// Uses LSB-first bit ordering where the first input byte becomes the least significant bit.
+/// Uses LSB-first bit ordering where the first input byte becomes the least significant bit
+/// of the first output byte.
 ///
 /// # Performance
 /// Uses AVX2-optimized implementation when available at runtime, falling back to scalar:
 /// - **AVX2**: SIMD processing with 256-byte and 32-byte block operations for high throughput
 /// - **Scalar**: Branchless bit manipulation for optimal performance on all CPUs
 /// - **Runtime Detection**: Automatic feature detection ensures compatibility
-/// - **Achieves**: ~3-11x speedup with AVX2, consistent performance across data sizes
+/// - **Performance Gain**: ~3-11x speedup with AVX2, consistent performance across data sizes
 ///
 /// # Example
 /// ```rust
 /// use amudai_bits::bitpacking::pack_bytes_to_bits;
-/// use amudai_bytes::buffer::AlignedByteVec;
 ///
-/// let input = AlignedByteVec::copy_from_slice(&[0, 1, 0, 1, 0, 1, 0, 1]);
+/// let input = vec![0u8, 1, 0, 1, 0, 1, 0, 1];
 /// let mut output = vec![0u8; 1];
 /// pack_bytes_to_bits(&input, &mut output);
 /// assert_eq!(output[0], 0b10101010); // alternating pattern: 0xAA
 /// ```
 #[inline]
-pub fn pack_bytes_to_bits(input_bytes: &AlignedByteVec, output_buffer: &mut [u8]) {
+pub fn pack_bytes_to_bits(input_bytes: &[u8], output_buffer: &mut [u8]) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         if is_x86_feature_detected!("avx2") {
@@ -87,81 +88,93 @@ pub fn pack_bytes_to_bits(input_bytes: &AlignedByteVec, output_buffer: &mut [u8]
 /// where each output byte is either 0 (false) or 1 (true).
 ///
 /// # Arguments
-/// * `bits` - Input bit-packed data
-/// * `offset` - Bit offset within the first byte
-/// * `len` - Number of bits to unpack
+/// * `bits` - Input bit-packed data slice
+/// * `offset` - **Bit** offset within the input data (not byte offset)
+/// * `bytes` - Output byte slice to fill with expanded bits. The length of this
+///   slice determines how many bits will be unpacked.
 ///
-/// # Returns
-/// An `AlignedByteVec` containing the unpacked bytes
+/// # Panics
+/// Panics if `offset + bytes.len()` exceeds the total number of bits available
+/// in the input (`bits.len() * 8`).
 ///
 /// # Bit Order
-/// Uses LSB-first bit ordering where the least significant bit becomes the first output byte.
+/// Uses LSB-first bit ordering where the least significant bit of each input byte
+/// becomes the first output byte.
 ///
 /// # Performance
-/// Uses AVX2-optimized implementation when available at runtime, falling back to scalar:
-/// - **AVX2**: SIMD processing for high throughput on large data (4.6x faster on medium datasets)
-/// - **Scalar**: Lookup table-based processing for compatibility (highly optimized)
-/// - **Unified Algorithm**: 3-step approach handles alignment efficiently (alignment, SIMD blocks, scalar remainder)
-/// - **Memory Efficient**: Direct memory operations with minimal copying
-/// - **Runtime Detection**: Automatic feature detection ensures optimal performance on all CPUs
+/// Uses runtime feature detection to select the optimal implementation:
+/// - **AVX2**: SIMD processing with high throughput on large datasets (up to 4.6x faster)
+/// - **Scalar**: Lookup table-based processing optimized for all CPU architectures
+/// - **Unified Algorithm**: 3-step approach efficiently handles bit alignment, SIMD blocks, and scalar remainder
+/// - **Memory Efficient**: Direct memory operations with minimal copying overhead
+/// - **Cross-platform**: Automatic feature detection ensures optimal performance on all supported CPUs
 ///
-/// # Example
+/// # Examples
 /// ```rust
 /// use amudai_bits::bitpacking::unpack_bits_to_bytes;
 ///
+/// // Basic usage: unpack a full byte
 /// let bits = vec![0b01010101u8]; // alternating pattern
-/// let output = unpack_bits_to_bytes(&bits, 0, 8);
+/// let mut output = vec![0u8; 8];
+/// unpack_bits_to_bytes(&bits, 0, &mut output);
 /// assert_eq!(output.as_slice(), [1, 0, 1, 0, 1, 0, 1, 0]);
+///
+/// // With bit offset: extract middle 4 bits
+/// let bits = vec![0b11010110u8]; // bit pattern: 0,1,1,0,1,0,1,1 (LSB first)
+/// let mut output = vec![0u8; 4];
+/// unpack_bits_to_bytes(&bits, 2, &mut output); // Extract bits 2-5
+/// assert_eq!(output.as_slice(), [1, 0, 1, 0]);
 /// ```
 #[inline]
-pub fn unpack_bits_to_bytes(
-    bits: &[u8],
-    offset: usize,
-    len: usize,
-) -> amudai_bytes::buffer::AlignedByteVec {
+pub fn unpack_bits_to_bytes(bits: &[u8], offset: usize, bytes: &mut [u8]) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         if is_x86_feature_detected!("avx2") {
-            return unsafe { unpack_bits_to_bytes_avx2_optimized(bits, offset, len) };
+            return unsafe { unpack_bits_to_bytes_avx2_optimized(bits, offset, bytes) };
         }
     }
 
     // Fallback implementation for non-AVX2 systems
-    unpack_bits_to_bytes_scalar(bits, offset, len)
+    unpack_bits_to_bytes_scalar(bits, offset, bytes);
 }
 
 /// Scalar (non-SIMD) implementation of bit-to-byte unpacking.
 ///
-/// This function contains the core bit-unpacking logic used as:
-/// - Fallback for non-AVX2 systems in the main `unpack_bits_to_bytes` function
-/// - Reference implementation for testing correctness
+/// This function contains the core bit-unpacking logic and serves multiple purposes:
+/// - Fallback implementation for non-AVX2 systems in [`unpack_bits_to_bytes`]
+/// - Reference implementation for correctness testing
 /// - Direct access for performance comparison and benchmarking
 ///
 /// # Arguments
-/// * `bits` - Input bit-packed data
-/// * `offset` - Bit offset within the first byte
-/// * `len` - Number of bits to unpack
+/// * `bits` - Input bit-packed data slice
+/// * `offset` - **Bit** offset within the input data (not byte offset)
+/// * `bytes` - Output byte slice to fill with unpacked bits. The length of this
+///   slice determines how many bits will be unpacked.
 ///
-/// # Returns
-/// An `AlignedByteVec` containing the unpacked bytes
+/// # Panics
+/// Panics if `offset + bytes.len()` exceeds the total number of bits available
+/// in the input (`bits.len() * 8`).
+///
+/// # Bit Order
+/// Uses LSB-first bit ordering where the least significant bit of each input byte
+/// becomes the first output byte.
+///
+/// # Performance
+/// Optimized scalar implementation using:
+/// - Lookup table-based bit expansion
+/// - Unified 2-step algorithm handling bit alignment and byte processing
+/// - Branchless loops with pre-calculated bounds checking
 #[inline]
-fn unpack_bits_to_bytes_scalar(
-    bits: &[u8],
-    offset: usize,
-    len: usize,
-) -> amudai_bytes::buffer::AlignedByteVec {
-    // Create and initialize output buffer with zeros
-    let mut output = amudai_bytes::buffer::AlignedByteVec::zeroed(len);
+fn unpack_bits_to_bytes_scalar(bits: &[u8], offset: usize, bytes: &mut [u8]) {
+    let len = bytes.len();
 
     // Pre-calculate bits length to avoid repeated calls
     let bits_len = bits.len();
     assert!(offset + len <= bits_len * 8);
 
     if len == 0 {
-        return output;
+        return;
     }
-
-    let bytes = output.as_mut_slice();
 
     // Unified optimized bit unpacking implementation
     // Uses a simple and efficient 2-step approach:
@@ -219,8 +232,6 @@ fn unpack_bits_to_bytes_scalar(
         let output_range = output_idx..output_idx + final_bits;
         bytes[output_range].copy_from_slice(&BIT_UNPACK_LOOKUP_TABLE[byte_val][0..final_bits]);
     }
-
-    output
 }
 
 /// AVX2-optimized unpacking implementation.
@@ -232,30 +243,21 @@ fn unpack_bits_to_bytes_scalar(
 /// # Arguments
 /// * `bits` - Input bit-packed data
 /// * `offset` - Bit offset within the first byte
-/// * `len` - Number of bits to unpack
-///
-/// # Returns
-/// An `AlignedByteVec` containing the unpacked bytes
+/// * `bytes` - Output byte slice.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
 #[inline]
-unsafe fn unpack_bits_to_bytes_avx2_optimized(
-    bits: &[u8],
-    offset: usize,
-    len: usize,
-) -> amudai_bytes::buffer::AlignedByteVec {
-    // Create and initialize output buffer with zeros
-    let mut output = amudai_bytes::buffer::AlignedByteVec::zeroed(len);
+unsafe fn unpack_bits_to_bytes_avx2_optimized(bits: &[u8], offset: usize, bytes: &mut [u8]) {
+    let len = bytes.len();
 
     // Pre-calculate bits length to avoid repeated calls
     let bits_len = bits.len();
     assert!(offset + len <= bits_len * 8);
 
     if len == 0 {
-        return output;
+        return;
     }
 
-    let bytes = output.as_mut_slice();
     let mut output_idx = 0;
     let mut remaining_len = len;
     let mut current_offset = offset;
@@ -352,8 +354,6 @@ unsafe fn unpack_bits_to_bytes_avx2_optimized(
         let output_range = output_idx..output_idx + final_bits;
         bytes[output_range].copy_from_slice(&BIT_UNPACK_LOOKUP_TABLE[byte_val][0..final_bits]);
     }
-
-    output
 }
 
 static BIT_UNPACK_LOOKUP_TABLE: [[u8; 8]; 256] = {
@@ -380,7 +380,7 @@ static BIT_UNPACK_LOOKUP_TABLE: [[u8; 8]; 256] = {
 /// Keeping this private ensures a single source of truth for the scalar algorithm
 /// while allowing direct access for benchmarking purposes.
 #[inline]
-fn pack_bytes_to_bits_scalar(input_bytes: &AlignedByteVec, output_buffer: &mut [u8]) {
+fn pack_bytes_to_bits_scalar(input_bytes: &[u8], output_buffer: &mut [u8]) {
     // Pre-calculate expected output size and verify buffer capacity
     let expected_output_bytes = input_bytes.len().div_ceil(8);
     assert!(
@@ -413,7 +413,7 @@ fn pack_bytes_to_bits_scalar(input_bytes: &AlignedByteVec, output_buffer: &mut [
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
 #[inline]
-fn pack_bytes_to_bits_avx2_optimized(input_bytes: &AlignedByteVec, output_buffer: &mut [u8]) {
+fn pack_bytes_to_bits_avx2_optimized(input_bytes: &[u8], output_buffer: &mut [u8]) {
     let mut input_offset = 0;
     let mut output_offset = 0;
 
@@ -547,7 +547,7 @@ unsafe fn avx_pack_u1_x32(input: *const u8, output: *mut u8, blocks: usize) {
                 _mm256_cmpeq_epi8(_mm256_loadu_si256(input.add(i)), vec_zeros),
                 vec_ones,
             );
-            std::ptr::write(output.add(i), _mm256_movemask_epi8(mask) as u32);
+            std::ptr::write_unaligned(output.add(i), _mm256_movemask_epi8(mask) as u32);
         }
     }
 }
@@ -685,10 +685,21 @@ mod tests {
         data
     }
 
-    fn create_test_byte_data(size: usize) -> AlignedByteVec {
+    fn create_test_byte_data(size: usize) -> Vec<u8> {
         // Create alternating boolean pattern: true, false, true, false...
-        let data: Vec<u8> = (0..size).map(|i| (i % 2) as u8).collect();
-        AlignedByteVec::copy_from_slice(&data)
+        (0..size).map(|i| (i % 2) as u8).collect()
+    }
+
+    fn unpack_bits_to_bytes_vec(bits: &[u8], offset: usize, len: usize) -> Vec<u8> {
+        let mut v = vec![0u8; len];
+        unpack_bits_to_bytes(bits, offset, &mut v);
+        v
+    }
+
+    fn unpack_bits_to_bytes_scalar_vec(bits: &[u8], offset: usize, len: usize) -> Vec<u8> {
+        let mut v = vec![0u8; len];
+        unpack_bits_to_bytes_scalar(bits, offset, &mut v);
+        v
     }
 
     // === FUNCTIONAL TESTS ===
@@ -710,7 +721,7 @@ mod tests {
     #[test]
     fn test_unpack_bits_to_bytes_correctness() {
         let input = vec![0x55u8, 0xAA]; // 01010101, 10101010
-        let output = unpack_bits_to_bytes(&input, 0, 16);
+        let output = unpack_bits_to_bytes_vec(&input, 0, 16);
 
         // 0x55 = 0b01010101: bit 0=1, bit 1=0, bit 2=1, bit 3=0, etc.
         // So first 8 bytes should be [1, 0, 1, 0, 1, 0, 1, 0]
@@ -725,7 +736,7 @@ mod tests {
         let bits = vec![0b11010110u8]; // bit pattern: 0,1,1,0,1,0,1,1 (LSB first)
 
         // Test offset=2, length=4 -> extract bits 2,3,4,5 = 1,0,1,0
-        let bytes = unpack_bits_to_bytes(&bits, 2, 4);
+        let bytes = unpack_bits_to_bytes_vec(&bits, 2, 4);
         assert_eq!(bytes.as_slice(), [1, 0, 1, 0]);
     }
 
@@ -733,9 +744,9 @@ mod tests {
     fn test_pack_mixed_values() {
         // Test with 0, 1, and other non-zero values
         let input_data = vec![0, 1, 2, 0, 255, 0, 42, 0];
-        let input = AlignedByteVec::copy_from_slice(&input_data);
+        let input = input_data.as_slice();
         let mut output = vec![0u8; 1];
-        pack_bytes_to_bits(&input, &mut output);
+        pack_bytes_to_bits(input, &mut output);
 
         // Expected bits: bit0=0, bit1=1, bit2=1, bit3=0, bit4=1, bit5=0, bit6=1, bit7=0
         // Reading MSB to LSB: 0b01010110 = 0x56
@@ -752,7 +763,7 @@ mod tests {
         pack_bytes_to_bits(&original_bytes, &mut packed_bits);
 
         // Unpack bits back to bytes
-        let unpacked_bytes = unpack_bits_to_bytes(&packed_bits, 0, original_bytes.len());
+        let unpacked_bytes = unpack_bits_to_bytes_vec(&packed_bits, 0, original_bytes.len());
 
         // Verify round-trip
         for (i, (&original, &result)) in original_bytes
@@ -767,27 +778,25 @@ mod tests {
     #[test]
     fn test_empty_input() {
         // Test empty unpack
-        let empty_output = unpack_bits_to_bytes(&[], 0, 0);
+        let empty_output = unpack_bits_to_bytes_vec(&[], 0, 0);
         assert_eq!(empty_output.len(), 0);
 
         // Test empty pack
-        let empty_input = AlignedByteVec::copy_from_slice(&[]);
         let mut output = vec![0u8; 0];
-        pack_bytes_to_bits(&empty_input, &mut output);
+        pack_bytes_to_bits(&[], &mut output);
         assert_eq!(output.len(), 0);
     }
 
     #[test]
     fn test_single_bit_operations() {
         // Test single bit unpack
-        let bits = vec![0b00000001u8]; // Only bit 0 set
-        let output = unpack_bits_to_bytes(&bits, 0, 1);
+        let bits = [0b00000001u8]; // Only bit 0 set
+        let output = unpack_bits_to_bytes_vec(&bits, 0, 1);
         assert_eq!(output.as_slice(), [1]);
 
         // Test single bit pack
-        let input = AlignedByteVec::copy_from_slice(&[1]);
         let mut output = vec![0u8; 1];
-        pack_bytes_to_bits(&input, &mut output);
+        pack_bytes_to_bits(&[1], &mut output);
         assert_eq!(output[0], 0b00000001);
     }
 
@@ -796,16 +805,15 @@ mod tests {
         // Test AVX2 implementation correctness with large data that exercises SIMD paths
         const SIZE: usize = 512; // Large enough to trigger AVX2 optimizations
         let input_data: Vec<u8> = (0..SIZE).map(|i| (i % 3) as u8).collect(); // 0,1,2,0,1,2,... pattern
-        let input_bytes = AlignedByteVec::copy_from_slice(&input_data);
 
         // Pack with AVX2
-        let bit_len = input_bytes.len().div_ceil(8);
+        let bit_len = input_data.len().div_ceil(8);
         let mut packed_bits = vec![0u8; bit_len];
-        pack_bytes_to_bits(&input_bytes, &mut packed_bits);
+        pack_bytes_to_bits(&input_data, &mut packed_bits);
 
         // Unpack with AVX2 and compare with scalar
-        let avx2_output = unpack_bits_to_bytes(&packed_bits, 0, SIZE);
-        let scalar_output = unpack_bits_to_bytes_scalar(&packed_bits, 0, SIZE);
+        let avx2_output = unpack_bits_to_bytes_vec(&packed_bits, 0, SIZE);
+        let scalar_output = unpack_bits_to_bytes_scalar_vec(&packed_bits, 0, SIZE);
 
         // Verify both implementations produce identical results
         assert_eq!(
@@ -815,7 +823,7 @@ mod tests {
         );
 
         // Verify round-trip correctness
-        for (i, (&original, &result)) in input_bytes
+        for (i, (&original, &result)) in input_data
             .iter()
             .zip(avx2_output.as_slice().iter())
             .enumerate()
@@ -834,12 +842,11 @@ mod tests {
     fn benchmark_pack_performance() {
         const ELEMENTS: usize = 1_000_000; // 1M elements
         let test_data: Vec<u8> = (0..ELEMENTS).map(|i| (i % 2) as u8).collect();
-        let input_bytes = AlignedByteVec::copy_from_slice(&test_data);
         let mut output = vec![0u8; ELEMENTS.div_ceil(8)];
 
         // Extended warmup
         for _ in 0..50 {
-            pack_bytes_to_bits(&input_bytes, &mut output);
+            pack_bytes_to_bits(&test_data, &mut output);
             std::hint::black_box(&output);
         }
 
@@ -847,10 +854,10 @@ mod tests {
         let iterations = 500; // Increased from 100
         let start = Instant::now();
         for _ in 0..iterations {
-            pack_bytes_to_bits(&input_bytes, &mut output);
+            pack_bytes_to_bits(&test_data, &mut output);
             // Multiple compiler hints to prevent optimization
             std::hint::black_box(&output);
-            std::hint::black_box(&input_bytes);
+            std::hint::black_box(&test_data);
         }
         let pack_time = start.elapsed();
 
@@ -873,7 +880,7 @@ mod tests {
 
         // Extended warmup
         for _ in 0..50 {
-            let _output = unpack_bits_to_bytes(&bit_data, 0, ELEMENTS);
+            let _output = unpack_bits_to_bytes_vec(&bit_data, 0, ELEMENTS);
             std::hint::black_box(_output);
         }
 
@@ -881,7 +888,7 @@ mod tests {
         let iterations = 500; // Increased from 100
         let start = Instant::now();
         for _ in 0..iterations {
-            let output = unpack_bits_to_bytes(&bit_data, 0, ELEMENTS);
+            let output = unpack_bits_to_bytes_vec(&bit_data, 0, ELEMENTS);
             // Multiple compiler hints to prevent optimization
             std::hint::black_box(output);
             std::hint::black_box(&bit_data);
@@ -889,7 +896,7 @@ mod tests {
         let unpack_time = start.elapsed();
 
         // Calculate checksum after timing to prevent optimization (use last iteration result)
-        let final_output = unpack_bits_to_bytes(&bit_data, 0, ELEMENTS);
+        let final_output = unpack_bits_to_bytes_vec(&bit_data, 0, ELEMENTS);
         let checksum: u64 = final_output.iter().map(|&b| b as u64).sum();
 
         let avg_time = unpack_time / iterations;
@@ -914,14 +921,14 @@ mod tests {
 
             // Extended warmup
             for _ in 0..50 {
-                let _output = unpack_bits_to_bytes(&bit_data, offset, actual_len);
+                let _output = unpack_bits_to_bytes_vec(&bit_data, offset, actual_len);
                 std::hint::black_box(_output);
             }
 
             let iterations = 500; // Increased from 100
             let start = Instant::now();
             for _ in 0..iterations {
-                let output = unpack_bits_to_bytes(&bit_data, offset, actual_len);
+                let output = unpack_bits_to_bytes_vec(&bit_data, offset, actual_len);
                 // Multiple compiler hints to prevent optimization
                 std::hint::black_box(output);
                 std::hint::black_box(&bit_data);
@@ -929,7 +936,7 @@ mod tests {
             let time = start.elapsed();
 
             // Calculate checksum after timing to prevent optimization (use last iteration result)
-            let final_output = unpack_bits_to_bytes(&bit_data, offset, actual_len);
+            let final_output = unpack_bits_to_bytes_vec(&bit_data, offset, actual_len);
             let checksum: u64 = final_output.iter().map(|&b| b as u64).sum();
 
             let avg_time = time / iterations;
@@ -951,20 +958,20 @@ mod tests {
         for &size in &test_sizes {
             // Warm up
             for _ in 0..1000 {
-                let _output = unpack_bits_to_bytes(&bit_data, 0, size);
+                let _output = unpack_bits_to_bytes_vec(&bit_data, 0, size);
             }
 
             // Benchmark with more iterations for small data
             let start = Instant::now();
             for _ in 0..10000 {
-                let output = unpack_bits_to_bytes(&bit_data, 0, size);
+                let output = unpack_bits_to_bytes_vec(&bit_data, 0, size);
                 // Prevent compiler optimization
                 std::hint::black_box(output);
             }
             let time = start.elapsed();
 
             // Calculate checksum after timing
-            let final_output = unpack_bits_to_bytes(&bit_data, 0, size);
+            let final_output = unpack_bits_to_bytes_vec(&bit_data, 0, size);
             let checksum: u64 = final_output.iter().map(|&b| b as u64).sum();
 
             let avg_time = time / 10000;
@@ -998,16 +1005,16 @@ mod tests {
 
             // Benchmark scalar implementation
             for _ in 0..10 {
-                let _output = unpack_bits_to_bytes_scalar(&bit_data, 0, elements);
+                let _output = unpack_bits_to_bytes_scalar_vec(&bit_data, 0, elements);
             }
 
             let start = Instant::now();
             for _ in 0..iterations {
-                let output = unpack_bits_to_bytes_scalar(&bit_data, 0, elements);
+                let output = unpack_bits_to_bytes_scalar_vec(&bit_data, 0, elements);
                 std::hint::black_box(output);
             }
             let scalar_time = start.elapsed();
-            let scalar_output = unpack_bits_to_bytes_scalar(&bit_data, 0, elements);
+            let scalar_output = unpack_bits_to_bytes_scalar_vec(&bit_data, 0, elements);
             let scalar_checksum: u64 = scalar_output.iter().map(|&b| b as u64).sum();
 
             let scalar_avg_time = scalar_time / iterations;
@@ -1018,16 +1025,16 @@ mod tests {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 for _ in 0..10 {
-                    let _output = unpack_bits_to_bytes(&bit_data, 0, elements);
+                    let _output = unpack_bits_to_bytes_vec(&bit_data, 0, elements);
                 }
 
                 let start = Instant::now();
                 for _ in 0..iterations {
-                    let output = unpack_bits_to_bytes(&bit_data, 0, elements);
+                    let output = unpack_bits_to_bytes_vec(&bit_data, 0, elements);
                     std::hint::black_box(output);
                 }
                 let avx2_time = start.elapsed();
-                let avx2_output = unpack_bits_to_bytes(&bit_data, 0, elements);
+                let avx2_output = unpack_bits_to_bytes_vec(&bit_data, 0, elements);
                 let avx2_checksum: u64 = avx2_output.iter().map(|&b| b as u64).sum();
 
                 let avx2_avg_time = avx2_time / iterations;
@@ -1070,7 +1077,6 @@ mod tests {
             println!("\nTesting with {} elements", elements);
 
             let test_data: Vec<u8> = (0..elements).map(|i| (i % 2) as u8).collect();
-            let input_bytes = AlignedByteVec::copy_from_slice(&test_data);
             let mut output = vec![0u8; elements.div_ceil(8)];
 
             // Adjust iterations based on data size for reasonable test time
@@ -1083,13 +1089,13 @@ mod tests {
 
             // Benchmark scalar implementation
             for _ in 0..10 {
-                pack_bytes_to_bits_scalar(&input_bytes, &mut output);
+                pack_bytes_to_bits_scalar(&test_data, &mut output);
                 std::hint::black_box(&output);
             }
 
             let start = Instant::now();
             for _ in 0..iterations {
-                pack_bytes_to_bits_scalar(&input_bytes, &mut output);
+                pack_bytes_to_bits_scalar(&test_data, &mut output);
                 std::hint::black_box(&output);
             }
             let scalar_time = start.elapsed();
@@ -1103,13 +1109,13 @@ mod tests {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             {
                 for _ in 0..10 {
-                    pack_bytes_to_bits(&input_bytes, &mut output);
+                    pack_bytes_to_bits(&test_data, &mut output);
                     std::hint::black_box(&output);
                 }
 
                 let start = Instant::now();
                 for _ in 0..iterations {
-                    pack_bytes_to_bits(&input_bytes, &mut output);
+                    pack_bytes_to_bits(&test_data, &mut output);
                     std::hint::black_box(&output);
                 }
                 let avx2_time = start.elapsed();
@@ -1164,7 +1170,6 @@ mod tests {
             println!("============================================================");
 
             let test_data: Vec<u8> = (0..elements).map(|i| (i % 2) as u8).collect();
-            let input_bytes = AlignedByteVec::copy_from_slice(&test_data);
             let mut pack_output = vec![0u8; elements.div_ceil(8)];
             let bit_data = create_test_bit_data(elements / 8);
 
@@ -1189,15 +1194,15 @@ mod tests {
                 for run in 0..50 {
                     // Warmup for each run
                     for _ in 0..10 {
-                        pack_bytes_to_bits(&input_bytes, &mut pack_output);
+                        pack_bytes_to_bits(&test_data, &mut pack_output);
                         std::hint::black_box(&pack_output);
                     }
 
                     let start = Instant::now();
                     for _ in 0..iterations {
-                        pack_bytes_to_bits(&input_bytes, &mut pack_output);
+                        pack_bytes_to_bits(&test_data, &mut pack_output);
                         std::hint::black_box(&pack_output);
-                        std::hint::black_box(&input_bytes);
+                        std::hint::black_box(&test_data);
                     }
                     let time = start.elapsed();
                     let avg_time = time / iterations;
@@ -1242,12 +1247,12 @@ mod tests {
 
                 for run in 0..50 {
                     for _ in 0..10 {
-                        let _ = unpack_bits_to_bytes(&bit_data, 0, elements);
+                        let _ = unpack_bits_to_bytes_vec(&bit_data, 0, elements);
                     }
 
                     let start = Instant::now();
                     for _ in 0..iterations {
-                        let output = unpack_bits_to_bytes(&bit_data, 0, elements);
+                        let output = unpack_bits_to_bytes_vec(&bit_data, 0, elements);
                         std::hint::black_box(output);
                         std::hint::black_box(&bit_data);
                     }
@@ -1276,7 +1281,7 @@ mod tests {
                     avg_throughput, min, max
                 );
 
-                let final_output = unpack_bits_to_bytes(&bit_data, 0, elements);
+                let final_output = unpack_bits_to_bytes_vec(&bit_data, 0, elements);
                 let checksum: u64 = final_output.iter().map(|&b| b as u64).sum();
                 println!("  (checksum: {})", checksum);
             }

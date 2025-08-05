@@ -17,6 +17,7 @@ use amudai_format::{
     },
     schema::{DataType, Schema, SchemaId, SchemaMessage},
 };
+use amudai_index_core::shard_markers;
 use amudai_io::temp_file_store::TemporaryFileStore;
 use amudai_objectstore::{
     ObjectStore,
@@ -242,6 +243,55 @@ pub struct ShardBuilderParams {
 }
 
 /// A prepared shard that is ready to be sealed.
+///
+/// `PreparedShard` represents the intermediate stage between building a shard with
+/// [`ShardBuilder`] and creating a [`SealedShard`] that is committed to persistent storage.
+/// It contains all the prepared stripe data and metadata needed to finalize the shard,
+/// but hasn't yet been written to the object store.
+///
+/// # Purpose
+///
+/// This struct serves as a transition point in the shard building pipeline:
+/// 1. Created by calling [`ShardBuilder::finish()`]
+/// 2. Contains fully prepared but not yet persisted stripe data
+/// 3. Can be sealed to create the final immutable shard on storage
+///
+/// # Lifecycle
+///
+/// ```rust,ignore
+/// // Build stripes and add them to the shard
+/// let mut shard_builder = ShardBuilder::new(params)?;
+/// let stripe = shard_builder.build_stripe()?;
+/// // ... populate stripe with data ...
+/// let prepared_stripe = stripe.finish()?;
+/// shard_builder.add_stripe(prepared_stripe)?;
+///
+/// // Create PreparedShard
+/// let prepared_shard = shard_builder.finish()?;
+///
+/// // Seal to persistent storage
+/// let sealed_shard = prepared_shard.seal("s3://bucket/path/data.amudai.shard")?;
+/// ```
+///
+/// # Storage Options
+///
+/// A `PreparedShard` can be sealed in two ways:
+///
+/// - [`seal()`](PreparedShard::seal): Writes to a new location in the object store
+/// - [`seal_to_writer()`](PreparedShard::seal_to_writer): Writes to an existing
+///   [`ArtifactWriter`](super::artifact_writer::ArtifactWriter), useful for custom
+///   storage layouts or embedding shards within larger artifacts
+///
+/// # Contents
+///
+/// The prepared shard contains:
+/// - Configuration parameters from the original [`ShardBuilderParams`]
+/// - A collection of [`PreparedStripe`] instances with encoded columnar data
+/// - Shard-level properties and metadata via [`ShardPropertiesBuilder`](crate::write::properties::ShardPropertiesBuilder)
+///
+/// All stripe data at this stage is stored in temporary files managed by the
+/// [`TemporaryFileStore`](amudai_io::temp_file_store::TemporaryFileStore) specified
+/// in the builder parameters. These temporary files are cleaned up after sealing.
 pub struct PreparedShard {
     params: ShardBuilderParams,
     stripes: Vec<PreparedStripe>,
@@ -625,6 +675,38 @@ impl PreparedShard {
     fn get_stripe_url(shard_url: &ObjectUrl) -> Result<ObjectUrl> {
         let stripe_name = format!("{:x}.amudai.stripe", fastrand::u64(..));
         shard_url.resolve_relative(RelativePath::new(&stripe_name)?)
+    }
+}
+
+impl shard_markers::DynPreparedShard for PreparedShard {
+    fn type_id(&self) -> std::any::TypeId {
+        std::any::TypeId::of::<Self>()
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any + Send + Sync + 'static> {
+        self
+    }
+}
+
+impl From<PreparedShard> for Box<dyn shard_markers::DynPreparedShard> {
+    fn from(value: PreparedShard) -> Self {
+        Box::new(value)
+    }
+}
+
+impl TryFrom<Box<dyn shard_markers::DynPreparedShard>> for PreparedShard {
+    type Error = Box<dyn shard_markers::DynPreparedShard>;
+
+    fn try_from(
+        value: Box<dyn shard_markers::DynPreparedShard>,
+    ) -> std::result::Result<Self, Box<dyn shard_markers::DynPreparedShard>> {
+        if value.type_id() != std::any::TypeId::of::<PreparedShard>() {
+            return Err(value);
+        }
+        Ok(*value
+            .into_any()
+            .downcast::<PreparedShard>()
+            .expect("downcast PreparedShard"))
     }
 }
 

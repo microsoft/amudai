@@ -104,6 +104,13 @@ impl Offsets {
         OffsetsIter::new(self)
     }
 
+    /// Returns a range at a given logical index.
+    #[inline]
+    pub fn range_at(&self, index: usize) -> Range<u64> {
+        let offsets = self.as_slice();
+        offsets[index]..offsets[index + 1]
+    }
+
     /// Adds a new offset to the end of the collection.
     ///
     /// # Panics

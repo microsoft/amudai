@@ -3,8 +3,12 @@ use std::{ops::Range, sync::Arc};
 use amudai_common::{Result, error::Error};
 use amudai_format::{
     defs::shard,
+    projection::SchemaProjection,
     schema::{DataType, Schema, SchemaId},
 };
+use amudai_ranges::SharedRangeList;
+
+use crate::read::frame_reader::FrameReader;
 
 use super::{
     field::Field, shard::Shard, shard_context::ShardContext, stripe_context::StripeContext,
@@ -62,6 +66,52 @@ impl Stripe {
             .checked_add(self.record_count())
             .expect("shard pos range end");
         start..end
+    }
+
+    /// Creates a [`FrameReader`] for this stripe, allowing iteration over frames of row
+    /// data.
+    ///
+    /// If `projection` is `None`, the full stripe schema is used. If `shard_ranges` is
+    /// `None`, the entire shard position range for this stripe is read.
+    ///
+    /// The reader partitions the requested shard record positions into stripe-relative
+    /// frame ranges, using a default frame size of 1024 records per frame.
+    ///
+    /// # Arguments
+    ///
+    /// * `projection` – Optional [`SchemaProjection`] selecting which fields to materialize.
+    /// * `shard_ranges` – Optional [`SharedRangeList<u64>`] of global shard record positions to include.
+    ///
+    /// # Returns
+    ///
+    /// A [`FrameReader`] configured to decode the requested fields and ranges.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the schema cannot be fetched, if a field cannot be opened,
+    /// or if the underlying `FrameReader` cannot be created.
+    pub fn create_frame_reader(
+        &self,
+        projection: Option<SchemaProjection>,
+        shard_ranges: Option<SharedRangeList<u64>>,
+    ) -> Result<FrameReader> {
+        let projection = projection.map(Ok).unwrap_or_else(|| {
+            self.fetch_schema()
+                .map(|schema| SchemaProjection::full(schema.clone()))
+        })?;
+
+        let shard_ranges =
+            shard_ranges.unwrap_or_else(|| SharedRangeList::from_elem(self.shard_position_range()));
+
+        let stripe_ranges = FrameReader::translate_shard_ranges_to_stripe_ranges(
+            shard_ranges,
+            self.shard_position_range(),
+            1024,
+        );
+
+        FrameReader::new(projection, stripe_ranges, |data_type| {
+            self.open_field(data_type)?.create_decoder()
+        })
     }
 
     /// Opens a field within this stripe using the provided `data_type` identifying the

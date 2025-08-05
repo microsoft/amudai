@@ -8,3 +8,10 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+ahash = { workspace = true }
+amudai-common = { workspace = true }
+amudai-format = { workspace = true }
+amudai-io = { workspace = true }
+amudai-objectstore = { workspace = true }
+amudai-position-set = { workspace = true }
+amudai-sequence = { workspace = true }

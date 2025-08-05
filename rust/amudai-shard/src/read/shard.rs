@@ -5,6 +5,7 @@ use amudai_format::{
     defs::{common::DataRef, shard},
     schema::{Schema, SchemaId},
 };
+use amudai_index_core::shard_markers;
 use amudai_objectstore::{ObjectStore, ReferenceResolver, url::ObjectUrl};
 
 use super::{shard_context::ShardContext, stripe::Stripe};
@@ -133,6 +134,32 @@ impl std::fmt::Debug for Shard {
             .field("url", &self.url().as_str())
             .field("directory", self.directory())
             .finish_non_exhaustive()
+    }
+}
+
+impl shard_markers::DynShard for Shard {
+    fn type_id(&self) -> std::any::TypeId {
+        std::any::TypeId::of::<Self>()
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any + Send + Sync + 'static> {
+        self
+    }
+}
+
+impl TryFrom<Box<dyn shard_markers::DynShard>> for Shard {
+    type Error = Box<dyn shard_markers::DynShard>;
+
+    fn try_from(
+        value: Box<dyn shard_markers::DynShard>,
+    ) -> std::result::Result<Self, Box<dyn shard_markers::DynShard>> {
+        if value.type_id() != std::any::TypeId::of::<Shard>() {
+            return Err(value);
+        }
+        Ok(*value
+            .into_any()
+            .downcast::<Shard>()
+            .expect("downcast Shard"))
     }
 }
 

@@ -333,6 +333,15 @@ impl Presence {
             }
         }
     }
+
+    /// Truncates this `Presence` to the specified length.
+    pub fn truncate(&mut self, new_len: usize) {
+        match self {
+            Presence::Trivial(len) => *len = std::cmp::min(*len, new_len),
+            Presence::Nulls(len) => *len = std::cmp::min(*len, new_len),
+            Presence::Bytes(vec) => vec.truncate(new_len),
+        }
+    }
 }
 
 impl Presence {

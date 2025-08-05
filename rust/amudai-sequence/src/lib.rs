@@ -1,66 +1,61 @@
+//! # amudai-sequence
+//!
 //! Sequence abstractions for columnar data retrieval in the Amudai format.
+//! This crate provides both abstract interfaces and concrete implementations
+//! for efficiently accessing, manipulating, and streaming columnar data with
+//! full support for nulls, variable-length values, and runtime type safety.
 //!
-//! This crate provides the foundational components for working with sequences of
-//! typed values in Amudai's columnar storage format. It offers both abstract interfaces
-//! and concrete implementations for efficiently accessing, and manipulating columnar
-//! data with support for null values, variable-length data, and type safety.
+//! ## Core Traits & Types
 //!
-//! # Core Concepts
+//! - [`crate::sequence::Sequence`]:
+//!   A type‐erased sequence interface exposing:
+//!   - `basic_type()` – the underlying `BasicType` descriptor
+//!   - `len()` – number of elements
+//!   - `.into_value_sequence()` – convert to a `ValueSequence`
 //!
-//! ## Sequences
+//! - [`crate::value_sequence::ValueSequence`]:
+//!   Primary owned sequence implementation holding:
+//!   - **Values** in an aligned byte buffer
+//!   - **Offsets** for variable‐length elements
+//!   - **Presence** for null tracking (trivial/all‐nulls/bitset)
+//!   - **Type descriptor** metadata
 //!
-//! A sequence represents an owned slice of data containing values of a single storage
-//! type.
+//! ## Container Sequences
 //!
-//! ## Type Safety
+//! - [`crate::list_sequence::ListSequence`][]: nested lists
+//! - [`crate::struct_sequence::StructSequence`][]: struct‐of‐arrays
+//! - [`crate::map_sequence::MapSequence`][]: key/value maps
+//! - [`crate::fixed_list_sequence::FixedListSequence`][]: fixed‐length lists
 //!
-//! The crate provides type-safe abstractions through the [`crate::sequence::Sequence`] trait,
-//! which allows working with sequences in a type-erased manner while maintaining runtime type
-//! information through [`amudai_format::defs::schema_ext::BasicTypeDescriptor`].
+//! ## Supporting Utilities
 //!
-//! ## Memory Efficiency
+//! - [`crate::values::Values`]: alignment‐guaranteed raw storage
+//! - [`crate::offsets::Offsets`]: offset arrays
+//! - [`crate::presence::Presence`]: nulls representation
+//! - [`crate::sequence_reader`]: sequences reader trait
+//! - [`crate::json_printer`]: JSON serialization helpers
 //!
-//! The implementation is designed for memory efficiency and performance:
-//! - Values are stored in contiguous, aligned byte buffers
-//! - Null value tracking uses optimized representations (trivial, all-nulls, or bitset)
-//! - Variable-length data uses offset arrays for efficient access
+//! ## Supported Types
 //!
-//! # Main Components
+//! All types listed in [`amudai_format::defs::schema::BasicType`]:
+//! - Primitives: `Int8`, `Int16`, `Int32`, `Int64`, `Float32`, `Float64`
+//! - Variable-length: `String`, `Binary`
+//! - Fixed-size: `FixedSizeBinary`, `Guid`
+//! - Temporal: `DateTime`
+//! - Logical: `Boolean`
+//! - Containers: `Struct`, `List`, `Map`, `FixedSizeList`, `Union`
 //!
-//! ## [`crate::sequence::Sequence`] Trait
-//!
-//! The core abstraction representing a sequence of values. It provides:
-//! - Type introspection through [`basic_type()`](crate::sequence::Sequence::basic_type)
-//! - Length information via [`len()`](crate::sequence::Sequence::len)
-//! - Conversion to the concrete [`crate::value_sequence::ValueSequence`] representation
-//!
-//! ## [`crate::value_sequence::ValueSequence`]
-//!
-//! The primary concrete implementation of [`crate::sequence::Sequence`]. It stores:
-//! - **Values**: Raw data in an aligned byte buffer
-//! - **Offsets**: For variable-length data like strings and binary
-//! - **Presence**: Null/non-null information
-//! - **Type descriptor**: Metadata about the stored data type
-//!
-//! ## Supporting Types
-//!
-//! - [`crate::values::Values`]: Type-safe storage for raw data with alignment guarantees
-//! - [`crate::offsets::Offsets`]: Management of offset arrays for variable-length data
-//! - [`crate::presence::Presence`]: Efficient tracking of null values with multiple storage strategies
-//!
-//! # Supported Data Types
-//!
-//! The crate supports various data types through [`amudai_format::defs::schema::BasicType`]:
-//!
-//! - **Primitive types**: `Int8`, `Int16`, `Int32`, `Int64`, `Float32`, `Float64`
-//! - **Variable-length**: `String`, `Binary`
-//! - **Fixed-size**: `FixedSizeBinary`, `Guid`
-//! - **Temporal**: `DateTime`
-//! - **Logical**: `Boolean`
-//! - **Containers**: `Struct`, `List`, `Map` and `Union`.
+//! For more details, see the individual module docs below.
 
+pub mod fixed_list_sequence;
+pub mod frame;
+pub mod json_printer;
+pub mod list_sequence;
+pub mod map_sequence;
 pub mod offsets;
 pub mod presence;
 pub mod sequence;
+pub mod sequence_reader;
+pub mod struct_sequence;
 pub mod value_sequence;
 pub mod values;

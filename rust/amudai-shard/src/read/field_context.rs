@@ -9,10 +9,9 @@ use amudai_format::{
         common::{AnyValue, UnitValue, any_value::Kind},
         shard,
     },
+    property_bag::PropertyBag,
     schema::{self, BasicType, SchemaId},
 };
-
-use crate::read::properties::PropertyBag;
 
 use super::{
     artifact_reader::ArtifactReader,

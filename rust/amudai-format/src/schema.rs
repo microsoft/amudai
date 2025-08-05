@@ -145,6 +145,118 @@ impl Schema {
         Ok(self.establish_schema_id_map()?.get(schema_id))
     }
 
+    /// Resolves a field path from the top level of the schema through nested structures.
+    ///
+    /// This method traverses the schema structure following a sequence of field names,
+    /// starting from the top-level fields and continuing through nested data types.
+    /// It returns all `DataType` nodes encountered along the path, providing a complete
+    /// view of the data structure hierarchy.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - An iterator of string references representing the field names to traverse.
+    ///   The first element must be a top-level field name in the schema. Subsequent
+    ///   elements navigate through the nested structure of that field.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Vec<DataType>` containing all the data type nodes encountered during
+    /// the traversal, in order from the top-level field to the final nested field.
+    ///
+    /// - If the path is empty, returns an empty vector.
+    /// - If the first field name doesn't match any top-level field, returns an error.
+    /// - If any subsequent field name cannot be resolved within the nested structure,
+    ///   returns an error.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Given a schema with structure:
+    /// // orders: List<Struct {
+    /// //   id: Int64,
+    /// //   customer: Struct {
+    /// //     name: String,
+    /// //     email: String
+    /// //   },
+    /// //   items: List<Struct {
+    /// //     product_id: Int64,
+    /// //     quantity: Int32
+    /// //   }>
+    /// // }>
+    ///
+    /// // Resolve a simple nested field
+    /// let path = vec!["orders", "item", "id"];
+    /// let types = schema.resolve_field_path(path)?;
+    /// // types[0] = orders (List type)
+    /// // types[1] = order item (Struct type)
+    /// // types[2] = id (Int64 type)
+    ///
+    /// // Resolve a deeply nested field
+    /// let path = vec!["orders", "item", "customer", "email"];
+    /// let types = schema.resolve_field_path(path)?;
+    /// // types[0] = orders (List type)
+    /// // types[1] = order item (Struct type)
+    /// // types[2] = customer (Struct type)
+    /// // types[3] = email (String type)
+    ///
+    /// // Resolve through multiple list levels
+    /// let path = vec!["orders", "item", "items", "item", "product_id"];
+    /// let types = schema.resolve_field_path(path)?;
+    /// // types[0] = orders (List type)
+    /// // types[1] = order item (Struct type)
+    /// // types[2] = items (List type)
+    /// // types[3] = item (Struct type)
+    /// // types[4] = product_id (Int64 type)
+    /// ```
+    ///
+    /// # Special Handling
+    ///
+    /// This method leverages the special handling provided by [`DataType::resolve_field_path`]:
+    ///
+    /// - **List traversal**: When navigating through `List` or `FixedSizeList` types,
+    ///   the actual item field name can be ignored. Common conventions like "item" will
+    ///   work regardless of the actual field name.
+    ///
+    /// - **Map traversal**: For `Map` types, special accessor names "key"/"keys" and
+    ///   "value"/"values" can be used to access the key and value data types.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Any field access fails due to corrupted schema data
+    /// - The underlying data type resolution encounters an error
+    pub fn resolve_field_path(
+        &self,
+        path: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Result<Vec<DataType>> {
+        let mut result = Vec::new();
+        let mut path_iter = path.into_iter().peekable();
+
+        // Get the first name in the path to find the top-level field
+        let Some(first_name) = path_iter.next() else {
+            return Ok(result);
+        };
+        let first_name = first_name.as_ref();
+
+        // Find the top-level field by name
+        let (_, field) = self.find_field(first_name)?.ok_or_else(|| {
+            Error::invalid_arg(
+                "path",
+                format!("Failed to resolve top-level field '{first_name}'"),
+            )
+        })?;
+        let data_type = field.data_type()?;
+        result.push(data_type.clone());
+
+        // Continue resolving the remaining path using the DataType method
+        if path_iter.peek().is_some() {
+            let mut sub_result = data_type.resolve_field_path(path_iter)?;
+            result.append(&mut sub_result);
+        }
+
+        Ok(result)
+    }
+
     /// Retrieves the top-level field at the specified index within the schema.
     ///
     /// # Arguments
@@ -575,6 +687,78 @@ impl DataType {
         Ok(None)
     }
 
+    /// Resolves a nested field path starting from this `DataType` node.
+    ///
+    /// This method traverses the data type tree following a sequence of field names,
+    /// returning all intermediate `DataType` nodes encountered along the path.
+    /// It handles various data structures including structs, lists, and maps,
+    /// with special handling for list-like structures where item names can be ignored.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - An iterator of string references representing the field names to traverse.
+    ///   Each name corresponds to a child field of the current node in the traversal.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Vec<DataType>` containing all the data type nodes encountered
+    /// during the traversal, in order. If the path is empty, returns an empty vector.
+    /// If a field name in the path cannot be resolved, the traversal stops with an error.
+    ///
+    /// # Special Cases
+    ///
+    /// - **List structures**: When traversing through `List` or `FixedSizeList` types,
+    ///   the method can ignore the actual item name and access the single child element.
+    ///   This allows paths like `"orders.item.id"` to work even if the list item
+    ///   is named differently or has no name.
+    ///
+    /// - **Map structures**: For `Map` types, special accessor names are supported:
+    ///   - `"key"` or `"keys"` - accesses the key data type (first child)
+    ///   - `"value"` or `"values"` - accesses the value data type (second child)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Given a schema with nested structure:
+    /// // person: Struct {
+    /// //   name: String,
+    /// //   addresses: List<Struct {
+    /// //     street: String,
+    /// //     city: String
+    /// //   }>
+    /// // }
+    ///
+    /// let person_type = // ... get the person DataType
+    /// let path = vec!["addresses", "item", "street"];
+    /// let types = person_type.resolve_field_path(path)?;
+    /// // types[0] = addresses (List type)
+    /// // types[1] = 'address' (Struct type)
+    /// // types[2] = street (String type)
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - A field name in the path cannot be found in the current data type
+    /// - The current data type doesn't support child traversal (e.g., primitive types)
+    /// - Any underlying data access fails due to corrupted schema data
+    pub fn resolve_field_path(
+        &self,
+        path: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Result<Vec<DataType>> {
+        let mut result = Vec::new();
+        let mut current_node = self.clone();
+
+        for name in path {
+            let name = name.as_ref();
+            let child = current_node.resolve_child_field(name)?;
+            result.push(child.clone());
+            current_node = child;
+        }
+
+        Ok(result)
+    }
+
     /// Retrieves the schema ID associated with this data type node.
     ///
     ///
@@ -675,6 +859,73 @@ impl DataType {
     }
 }
 
+impl DataType {
+    /// Resolves a child field by name from the current `DataType` node.
+    ///
+    /// This method handles different types of data structures:
+    /// - Direct child lookup by name
+    /// - List structures where item names can be ignored
+    /// - Map structures with special "key"/"keys" and "value"/"values" accessors
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the child field to resolve
+    ///
+    /// # Returns
+    ///
+    /// Returns the `DataType` of the resolved child field.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the field cannot be found or accessed.
+    fn resolve_child_field(&self, name: &str) -> Result<DataType> {
+        // Try to find the child by name
+        if let Some((_, child)) = self.find_child(name)? {
+            return Ok(child);
+        }
+
+        // Check if current node is a list-like structure where item names can be ignored
+        let basic_type = self.basic_type()?;
+        if matches!(basic_type, BasicType::List | BasicType::FixedSizeList)
+            && self.child_count()? == 1
+        {
+            // For lists, try to access the first (and typically only) child
+            // ignoring the name since list items don't have mandatory names
+            return self.child_at(0);
+        } else if basic_type == BasicType::Map && self.child_count()? == 2 {
+            // For maps, handle special "key"/"keys" and "value"/"values" accessors
+            let child = if matches!(name, "key" | "keys") {
+                let key = self.child_at(0)?;
+                // Only resolve if the key child has an empty name
+                if key.name()?.is_empty() {
+                    Some(key)
+                } else {
+                    None
+                }
+            } else if matches!(name, "value" | "values") && self.child_count()? == 2 {
+                let value = self.child_at(1)?;
+                // Only resolve if the key child has an empty name
+                if value.name()?.is_empty() {
+                    Some(value)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(child) = child {
+                return Ok(child);
+            }
+        }
+
+        Err(Error::invalid_arg(
+            "name",
+            format!("child field '{name}' not found"),
+        ))
+    }
+}
+
 impl std::fmt::Debug for DataType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DataType")
@@ -693,12 +944,21 @@ impl std::fmt::Display for DataType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let basic_type = self.describe().unwrap_or_default();
         if basic_type.basic_type.is_composite() {
-            write!(
-                f,
-                "{}<{}>",
-                basic_type,
-                self.field_list().unwrap_or_default()
-            )
+            if basic_type.basic_type != BasicType::FixedSizeList {
+                write!(
+                    f,
+                    "{}<{}>",
+                    basic_type,
+                    self.field_list().unwrap_or_default()
+                )
+            } else {
+                write!(
+                    f,
+                    "fixed_list<{}, {}>",
+                    basic_type.fixed_size,
+                    self.field_list().unwrap_or_default()
+                )
+            }
         } else {
             basic_type.fmt(f)
         }

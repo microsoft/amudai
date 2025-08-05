@@ -1,4 +1,5 @@
-//! A basic sequence of values.
+//! A sequence of values with optional offsets and presence information,
+//! capable of representing both fixed-size and variable-size primitive types.
 
 use crate::{
     offsets::{FixedSizeOffsetsIter, Offsets, OffsetsIter},
@@ -930,6 +931,18 @@ impl ValueSequence {
 impl Sequence for ValueSequence {
     fn as_any(&self) -> &(dyn std::any::Any + Send + Sync + 'static) {
         self as _
+    }
+
+    fn into_any(self: Box<Self>) -> Box<(dyn std::any::Any + Send + Sync + 'static)> {
+        self
+    }
+
+    fn type_id(&self) -> std::any::TypeId {
+        std::any::TypeId::of::<Self>()
+    }
+
+    fn clone_boxed(&self) -> Box<dyn Sequence> {
+        Box::new(self.clone())
     }
 
     fn basic_type(&self) -> BasicTypeDescriptor {

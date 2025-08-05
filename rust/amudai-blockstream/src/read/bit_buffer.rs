@@ -8,6 +8,7 @@
 use std::{ops::Range, sync::Arc};
 
 use amudai_bits::bitpacking;
+use amudai_bytes::buffer::AlignedByteVec;
 use amudai_common::Result;
 use amudai_format::{
     defs::shard,
@@ -250,8 +251,8 @@ impl BitBufferReader {
                 let byte_pos = position / 8;
                 let mut block = reader.read_containing_block(byte_pos)?;
                 let unpacked_len = block.descriptor.logical_size() * 8;
-                let unpacked =
-                    bitpacking::unpack_bits_to_bytes(block.values.as_slice(), 0, unpacked_len);
+                let mut unpacked = AlignedByteVec::zeroed(unpacked_len);
+                bitpacking::unpack_bits_to_bytes(block.values.as_slice(), 0, &mut unpacked);
                 block.values.values = Values::from_vec(unpacked);
                 block.values.type_desc.basic_type = BasicType::Boolean;
                 block.descriptor.logical_range.start *= 8;
@@ -286,7 +287,8 @@ impl BitBufferReader {
                 let byte_range = bit_range.start / 8..bit_range.end.div_ceil(8);
                 let offset = (bit_range.start - byte_range.start * 8) as usize;
                 let bits = reader.read_range(byte_range)?.values.into_inner();
-                let presence = bitpacking::unpack_bits_to_bytes(&bits, offset, len);
+                let mut presence = AlignedByteVec::zeroed(len);
+                bitpacking::unpack_bits_to_bytes(&bits, offset, &mut presence);
                 Ok(Presence::Bytes(presence))
             }
             BitBufferReader::Constant(value) => {

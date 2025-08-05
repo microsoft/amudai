@@ -8,7 +8,10 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+ahash = { workspace = true }
 bytemuck = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 amudai-bytes = { workspace = true }
 amudai-common = { workspace = true }
