@@ -15,10 +15,14 @@
 
 pub mod into_iter_adapters;
 pub mod position_series;
+pub mod put_back;
+pub mod range_list_slice;
+pub mod set_ops;
 pub mod shared_range_list;
 pub mod transform;
 
 pub use into_iter_adapters::IntoIteratorExt;
 pub use position_series::{PositionItem, PositionSeries};
+pub use range_list_slice::RangeListSlice;
 pub use shared_range_list::SharedRangeList;
 pub use transform::RangeIteratorsExt;

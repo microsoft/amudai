@@ -413,6 +413,11 @@ impl EagerPool {
         self.0.spawn_counter.load(Ordering::Relaxed)
     }
 
+    /// Returns the number of workers in this pool.
+    pub fn thread_count(&self) -> usize {
+        self.0.thread_count()
+    }
+
     /// Determines the size of the global thread pool based on configuration and system resources.
     ///
     /// This internal method calculates the appropriate pool size using the following logic:
@@ -538,6 +543,10 @@ impl Workers {
             std::thread::spawn(move || Self::thread_fn(this, i, rx));
         });
         this
+    }
+
+    fn thread_count(&self) -> usize {
+        self.threads.len()
     }
 
     fn try_reserve(&self) -> Option<usize> {

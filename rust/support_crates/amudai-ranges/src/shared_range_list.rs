@@ -1,13 +1,4 @@
-//! An immutable, cheaply cloneable, and sliceable list of ranges.
-//!
-//! A `SharedRangeList<T>` stores a list of non-overlapping, ascending ranges
-//! (typically over integral types) in a shared, immutable view. It builds
-//! on top of `SharedVec<Range<T>>`.
-//!
-//! In addition to borrowing the underlying slice of `Range<T>` values,
-//! it "trims" the first and last range. This means the logical start of the
-//! first range can be greater than `inner[0].start`, and the logical end
-//! of the last range can be less than `inner[inner.len()-1].end`.
+//! An immutable, owning container for a sorted, non-overlapping list of half-open ranges.
 
 use amudai_shared_vec::SharedVec;
 use std::{
@@ -15,21 +6,46 @@ use std::{
     ops::{Range, RangeBounds},
 };
 
-/// An immutable, cheaply cloneable, and sliceable list of non-overlapping,
-/// ascending ranges.
+use crate::{RangeListSlice, range_list_slice::trim_edges};
+
+/// An immutable, owning container for a sorted, non-overlapping list of half-open ranges.
 ///
-/// `SharedRangeList` provides a view over a shared sequence of `Range<T>`.
-/// The key features are:
-/// - **Immutability**: Once created, a `SharedRangeList` cannot be modified.
-/// - **Cheap Clones and Slices**: Cloning and slicing a `SharedRangeList` is
-///   inexpensive as it shares the underlying data (similar to `Arc<[T]>`).
-/// - **Trimming**: The first and last ranges in the list can be "trimmed".
-///   The `first` field defines the start of the first logical range and the
-///   `last` field defines the end of the last logical range.
+/// `SharedRangeList<T>` mirrors [`RangeListSlice`], but it owns its underlying storage via
+/// a shared backing container ([`SharedVec<Range<T>>`](amudai_shared_vec::SharedVec)).
+/// Cloning a `SharedRangeList` is cheap (O(1)) because it shares the underlying storage;
+/// creating sub-views via [`slice`](Self::slice) is also O(1) and returns another
+/// `SharedRangeList` that logically references a subset of the same backing data.
 ///
-/// Typically, `T` is an integral type (e.g., `u32`, `u64`, `usize`).
-/// The ranges stored are expected to be sorted by their start points and
-/// non-overlapping.
+/// Like its borrowed counterpart, the first and last logical ranges can be “trimmed”: the
+/// logical start of the first range may be greater than the physical `inner[0].start`, and the
+/// logical end of the last range may be less than `inner[last].end`. This allows efficient
+/// sub-views without copying or modifying the physical ranges.
+///
+/// Key characteristics:
+/// - Owning, shareable storage: backed by `SharedVec<Range<T>>` for cheap clones and slices.
+/// - Immutability: once constructed, ranges cannot be mutated through this type.
+/// - Trimming: first/last logical ranges can be adjusted to represent sub-views whose
+///   boundaries do not align with physical range boundaries.
+/// - Half-open semantics: every `Range<T>` is interpreted as `[start, end)` (end-exclusive).
+///
+/// Invariants and expectations:
+/// - The stored ranges are sorted by `start` and non-overlapping:
+///   `inner[i].end <= inner[i + 1].start` for all valid `i`.
+/// - `T` must at least be `PartialOrd` for search operations. Methods that count or compute
+///   positions additionally require `T: Default + Clone + Add<Output = T> + Sub<Output = T>`.
+/// - This is a logical view over owned storage: `self.first`/`self.last` may differ from the
+///   first/last physical ranges in `inner` to reflect trimming.
+///
+/// When to choose which type:
+/// - Use `SharedRangeList` when you need an owned container you can store, clone, and pass
+///   around while keeping allocations minimal.
+/// - Use [`RangeListSlice`] when you only need a lightweight borrowed view over an existing
+///   `&[Range<T>]`.
+///
+/// Complexity overview:
+/// - `search_position` / `contains_position`: O(log n)
+/// - `slice`, `clamp`, `split_at_position`: O(log n) to locate boundaries + O(1) to build views
+/// - Iteration: O(n)
 #[derive(Clone)]
 pub struct SharedRangeList<T> {
     /// Underlying shared slice containing the ranges.
@@ -94,6 +110,22 @@ impl<T: Clone> SharedRangeList<T> {
     /// A `Vec<Range<T>>` with each logical range, including trimming.
     pub fn to_vec(&self) -> Vec<Range<T>> {
         self.iter().cloned().collect()
+    }
+
+    /// Returns a borrowed `RangeListSlice` view of this list.
+    ///
+    /// The returned view:
+    /// - Borrows the underlying storage (no allocation or copying).
+    /// - Preserves the current logical trimming (`first`/`last`) of this list.
+    /// - Is cheap to clone and slice (O(1)).
+    ///
+    /// Lifetime:
+    /// - The view is tied to `&self`.
+    ///
+    /// Complexity: O(1).
+    #[inline]
+    pub fn as_slice(&self) -> RangeListSlice<'_, T> {
+        RangeListSlice::from_parts(self.first.clone(), &self.inner, self.last.clone())
     }
 }
 
@@ -169,7 +201,7 @@ impl<T: Default + Clone> SharedRangeList<T> {
     }
 }
 
-impl<T: PartialOrd> SharedRangeList<T> {
+impl<T: PartialOrd + Clone> SharedRangeList<T> {
     /// Searches for the logical range containing the specified position.
     ///
     /// Performs a binary search over the logical ranges in this `SharedRangeList`
@@ -196,26 +228,7 @@ impl<T: PartialOrd> SharedRangeList<T> {
     /// - If `pos` is greater than or equal to the end of the last logical range, returns `Err(len)`.
     /// - If `pos` falls between two ranges, returns `Err(index)` for the insertion point.
     pub fn search_position(&self, pos: T) -> Result<usize, usize> {
-        let len = self.len();
-        if len == 0 {
-            return Err(0);
-        }
-        if pos < self.first.start {
-            return Err(0);
-        }
-        if pos >= self.last.end {
-            return Err(len);
-        }
-
-        self.inner.binary_search_by(|range| {
-            if pos < range.start {
-                std::cmp::Ordering::Greater
-            } else if pos >= range.end {
-                std::cmp::Ordering::Less
-            } else {
-                std::cmp::Ordering::Equal
-            }
-        })
+        self.as_slice().search_position(pos)
     }
 
     /// Returns `true` if the specified position is contained within any logical range in the list.
@@ -257,9 +270,7 @@ impl<T: PartialOrd> SharedRangeList<T> {
     where
         T: Default + std::ops::Sub<Output = T> + std::ops::Add<Output = T> + Clone,
     {
-        self.iter()
-            .map(|range| range.end.clone() - range.start.clone())
-            .fold(T::default(), |acc, size| acc + size)
+        self.as_slice().count_positions()
     }
 
     /// Finds the range index and position corresponding to the given count of positions.
@@ -300,24 +311,7 @@ impl<T: PartialOrd> SharedRangeList<T> {
     where
         T: Default + std::ops::Sub<Output = T> + std::ops::Add<Output = T> + Clone,
     {
-        let mut accumulated = T::default();
-
-        for (index, range) in self.iter().enumerate() {
-            let range_size = range.end.clone() - range.start.clone();
-            let next_accumulated = accumulated.clone() + range_size.clone();
-
-            if count < next_accumulated {
-                // The position is in this range
-                let offset = count - accumulated;
-                let position = range.start.clone() + offset;
-                return Some((index, position));
-            }
-
-            accumulated = next_accumulated;
-        }
-
-        // count is equal to or exceeds total positions
-        None
+        self.as_slice().position_at_count(count)
     }
 }
 
@@ -491,24 +485,7 @@ impl<T: Default + Clone + PartialOrd> SharedRangeList<T> {
         if inner.is_empty() {
             Self::empty()
         } else {
-            let mut first = inner[0].clone();
-            let mut last = inner.last().unwrap().clone();
-            assert!(start < first.end, "start must be less than first.end");
-            assert!(end > last.start, "end must be greater than last.start");
-            if start > first.start {
-                first.start = start.clone();
-            }
-            if end < first.end {
-                assert_eq!(inner.len(), 1);
-                first.end = end.clone();
-            }
-            if start > last.start {
-                assert_eq!(inner.len(), 1);
-                last.start = start;
-            }
-            if end < last.end {
-                last.end = end;
-            }
+            let (first, last) = trim_edges(&inner, start, end);
             Self { inner, first, last }
         }
     }
@@ -592,20 +569,8 @@ impl<T: Default + Clone + PartialOrd> SharedRangeList<T> {
     ///
     /// Panics if `range_idx > self.len()`.
     pub fn range_covers_or_follows_position(&self, range_idx: usize, pos: T) -> bool {
-        assert!(range_idx <= self.len());
-        let bounds = self.bounds();
-        if range_idx == self.len() {
-            return self.is_empty() || pos >= bounds.end;
-        }
-        let range = self.get(range_idx).expect("range");
-        if range.contains(&pos) {
-            true
-        } else if range_idx != 0 {
-            let prev_range = self.get(range_idx).expect("prev_range");
-            pos < range.start && pos >= prev_range.end
-        } else {
-            pos < range.start
-        }
+        self.as_slice()
+            .range_covers_or_follows_position(range_idx, pos)
     }
 }
 
@@ -756,6 +721,13 @@ impl<T: PartialEq> PartialEq for SharedRangeList<T> {
 }
 
 impl<T: Eq> Eq for SharedRangeList<T> {}
+
+impl<'a, T: Default + Clone> From<RangeListSlice<'a, T>> for SharedRangeList<T> {
+    fn from(slice: RangeListSlice<'a, T>) -> Self {
+        // Preserve logical trimming by cloning the logical ranges into owned storage
+        SharedRangeList::from(slice.to_vec())
+    }
+}
 
 /// Iterator over logical ranges in a `SharedRangeList`, applying any trimming
 /// to the first and last ranges.
@@ -1677,7 +1649,7 @@ mod tests {
         let rl = rl(&[1..3, 10..12, 100..103]);
         // Range 0: positions 1,2 (counts 0,1)
         // Range 1: positions 10,11 (counts 2,3)
-        // Range 2: positions 100,101,102 (counts 4,5,6)
+        // Range 2: positions 100,101,102 (counts  4,5,6)
 
         assert_eq!(rl.position_at_count(0), Some((0, 1)));
         assert_eq!(rl.position_at_count(1), Some((0, 2)));

@@ -8,9 +8,10 @@
 //!
 //! # Provided Adapters
 //!
-//! - [`ChunkedRanges`]: Splits each input range into subranges of at most a given size.
-//! - [`ShiftDownRanges`]: Shifts all range bounds down by a fixed amount (with underflow checking).
-//! - [`ShiftUpRanges`]: Shifts all range bounds up by a fixed amount (with overflow checking).
+//! - `ChunkedRanges`: Splits each input range into subranges of at most a given size.
+//! - `ShiftDownRanges`: Shifts all range bounds down by a fixed amount (with underflow checking).
+//! - `ShiftUpRanges`: Shifts all range bounds up by a fixed amount (with overflow checking).
+//! - `ClampedRanges`: Yields intersections of input ranges with a clamp bound.
 //!
 //! The [`RangeIteratorsExt`] trait is implemented for all iterators over `Range<u64>`,
 //! providing convenient methods to construct these adapters.
@@ -18,7 +19,9 @@
 use std::ops::Range;
 
 pub mod chunk;
+pub mod clamp;
 pub mod shift;
+pub mod take_within;
 
 /// Extension trait for more idiomatic usage of the range iterator adapters.
 ///
@@ -34,6 +37,13 @@ pub trait RangeIteratorsExt: Iterator<Item = Range<u64>> + Sized {
     /// Panics if `chunk_size` is 0.
     fn chunk_ranges(self, chunk_size: u64) -> chunk::ChunkedRanges<Self> {
         chunk::ChunkedRanges::new(self, chunk_size)
+    }
+
+    /// Adapts an iterator of `Range<u64>` to yield only the intersections with `bounds`.
+    ///
+    /// Each output range is the clamped portion of the corresponding input range.
+    fn clamp_to(self, bounds: Range<u64>) -> clamp::ClampedRanges<Self> {
+        clamp::ClampedRanges::new(self, bounds)
     }
 
     /// Adapts an iterator of `Range<u64>` to yield ranges shifted down by `amount`.
