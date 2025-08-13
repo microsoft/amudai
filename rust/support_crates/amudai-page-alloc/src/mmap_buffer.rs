@@ -319,6 +319,29 @@ impl AsRef<[u8]> for MmapBuffer {
     }
 }
 
+impl AsMut<[u8]> for MmapBuffer {
+    #[inline]
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_bytes_mut()
+    }
+}
+
+impl AsRef<[u64]> for MmapBuffer {
+    #[inline]
+    fn as_ref(&self) -> &[u64] {
+        debug_assert_eq!(self.len, self.len.next_multiple_of(8));
+        unsafe { std::slice::from_raw_parts(self.ptr as *const u64, self.len / 8) }
+    }
+}
+
+impl AsMut<[u64]> for MmapBuffer {
+    #[inline]
+    fn as_mut(&mut self) -> &mut [u64] {
+        debug_assert_eq!(self.len, self.len.next_multiple_of(8));
+        unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut u64, self.len / 8) }
+    }
+}
+
 unsafe impl MemoryOwner for MmapBuffer {
     fn memory(&self) -> MemoryAllocation {
         MemoryAllocation {

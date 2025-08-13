@@ -70,6 +70,7 @@ pub mod bytes_vec;
 pub mod manifest;
 pub mod pod_vec;
 pub mod segmented_vec;
+mod std_impls;
 
 /// Trait for types that can be "dehydrated" to external storage.
 ///

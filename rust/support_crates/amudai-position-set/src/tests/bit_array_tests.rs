@@ -1,6 +1,6 @@
 use itertools::Itertools;
 
-use crate::bit_array::BitArray;
+use crate::bit_array::{BigBitArray, BitArray, BitArrayBase};
 
 #[test]
 fn test_bit_array_iter() {
@@ -2465,4 +2465,105 @@ fn test_ranges_iter_within_out_of_bounds_panics() {
 fn test_ranges_iter_within_zero_len_array_out_of_bounds_panics() {
     let b = BitArray::empty(0);
     let _ = b.ranges_iter_within(0..1).collect::<Vec<_>>();
+}
+
+#[test]
+fn test_for_each_set_bit() {
+    // Empty array: no calls
+    let empty = BitArray::empty(10);
+    let mut calls: Vec<(usize, u64)> = vec![];
+    empty.for_each_set_bit(|i, p| calls.push((i, p)));
+    assert!(calls.is_empty());
+
+    // Single bit
+    let mut single = BitArray::empty(10);
+    single.set(5);
+    let mut calls: Vec<(usize, u64)> = vec![];
+    single.for_each_set_bit(|i, p| calls.push((i, p)));
+    assert_eq!(calls, vec![(0, 5u64)]);
+
+    // Multiple bits in one word
+    let mut multi = BitArray::empty(20);
+    for &i in &[0, 3, 7, 11, 19] {
+        multi.set(i);
+    }
+    let mut calls: Vec<(usize, u64)> = vec![];
+    multi.for_each_set_bit(|i, p| calls.push((i, p)));
+    let expected: Vec<(usize, u64)> = vec![0, 3, 7, 11, 19]
+        .into_iter()
+        .enumerate()
+        .map(|(i, p)| (i, p as u64))
+        .collect();
+    assert_eq!(calls, expected);
+
+    // Across word boundaries
+    let mut cross_word = BitArray::empty(150);
+    for &i in &[0, 63, 64, 65, 127, 128, 149] {
+        cross_word.set(i);
+    }
+    let mut calls: Vec<(usize, u64)> = vec![];
+    cross_word.for_each_set_bit(|i, p| calls.push((i, p)));
+    let expected: Vec<(usize, u64)> = vec![0, 63, 64, 65, 127, 128, 149]
+        .into_iter()
+        .enumerate()
+        .map(|(i, p)| (i, p as u64))
+        .collect();
+    assert_eq!(calls, expected);
+
+    // All bits set
+    let mut all_set = BitArray::empty(8);
+    all_set.set_all();
+    let mut calls: Vec<(usize, u64)> = vec![];
+    all_set.for_each_set_bit(|i, p| calls.push((i, p)));
+    let expected: Vec<(usize, u64)> = (0..8).map(|p| (p, p as u64)).collect();
+    assert_eq!(calls, expected);
+
+    // Respects bit array length (partial last word)
+    let words = [0xFFFFFFFFFFFFFFFFu64, 0xFFFFFFFFFFFFFFFFu64];
+    let partial = BitArray::from_lsb_words(&words, 70);
+    let mut calls: Vec<(usize, u64)> = vec![];
+    partial.for_each_set_bit(|i, p| calls.push((i, p)));
+    assert_eq!(calls.len(), 70);
+    assert_eq!(calls.first(), Some(&(0, 0)));
+    assert_eq!(calls.last(), Some(&(69, 69)));
+
+    // Exactly 64 bits (one full word)
+    let mut full_word = BitArray::empty(64);
+    for &i in &[0, 31, 32, 63] {
+        full_word.set(i);
+    }
+    let mut calls: Vec<(usize, u64)> = vec![];
+    full_word.for_each_set_bit(|i, p| calls.push((i, p)));
+    let expected: Vec<(usize, u64)> = vec![0, 31, 32, 63]
+        .into_iter()
+        .enumerate()
+        .map(|(i, p)| (i, p as u64))
+        .collect();
+    assert_eq!(calls, expected);
+}
+
+#[test]
+fn test_big_bit_array() {
+    const LEN: usize = 16 * 1024 * 1024 + 100;
+    let mut bits = BigBitArray::empty(16 * 1024 * 1024 + 100);
+    assert_eq!(bits.count_ones(), 0);
+    assert_eq!(bits.len(), LEN);
+
+    for pos in (0..LEN).step_by(7) {
+        bits.set(pos);
+    }
+
+    assert!(bits.contains(0));
+    assert!(bits.contains(7));
+    assert_eq!(bits.count_ones(), LEN / 7 + (LEN % 7 != 0) as usize);
+    bits.clear();
+    assert_eq!(bits.count_ones(), 0);
+}
+
+#[test]
+fn test_bit_array_on_slice() {
+    let bits = BitArrayBase::wrap_lsb_words([1u64, 2u64, 3u64].as_ref(), Some(188));
+    assert_eq!(bits.count_ones(), 4);
+    let positions = bits.iter().collect::<Vec<_>>();
+    assert_eq!(&positions, &[0, 65, 128, 129]);
 }

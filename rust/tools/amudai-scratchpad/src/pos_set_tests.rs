@@ -3,6 +3,22 @@ use anyhow::Result;
 
 use crate::time;
 
+pub fn collect_positions(_args: &[Option<&str>]) -> Result<()> {
+    let set = time!(test_build_as_bits(10000000000, 500000000));
+    let count = time!(set.par_count_positions());
+    dbg!(&count);
+    let mut output = vec![0u64; count as usize];
+    let count = time!(set.par_collect_positions(&mut output));
+    assert_eq!(count, set.count_positions() as usize);
+
+    time!({
+        for &pos in &output {
+            assert!(set.contains(pos));
+        }
+    });
+    Ok(())
+}
+
 pub fn set_ops(_args: &[Option<&str>]) -> Result<()> {
     dbg!(amudai_workflow::eager_pool::EagerPool::global().thread_count());
 

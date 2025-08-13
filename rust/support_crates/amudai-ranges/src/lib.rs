@@ -19,6 +19,7 @@ pub mod put_back;
 pub mod range_list_slice;
 pub mod set_ops;
 pub mod shared_range_list;
+pub mod slice_ext;
 pub mod transform;
 
 pub use into_iter_adapters::IntoIteratorExt;

@@ -220,6 +220,26 @@ impl BitSegment {
         }
     }
 
+    /// Calls `f(rank, pos)` for every set position in ascending order.
+    ///
+    /// - `rank` is the 0-based index among set positions within this segment.
+    /// - `pos` is the absolute position (i.e., `self.span.start + relative_index`).
+    ///
+    /// Equivalent to:
+    /// `for (i, p) in self.positions().enumerate() { f(i, p) }`
+    ///
+    /// Runs in O(k) where k = `self.count_positions()`, and does not allocate.
+    ///
+    /// # Returns
+    ///
+    /// The number of positions (total rank).
+    pub fn for_each_position(&self, mut f: impl FnMut(usize, u64)) -> usize {
+        let base = self.span.start;
+        self.bits.for_each_set_bit(|i, pos| {
+            f(i, pos + base);
+        })
+    }
+
     /// Converts this bitset segment into a list-based segment.
     ///
     /// Builds and returns a `ListSegment` containing the absolute positions of all set bits

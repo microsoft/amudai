@@ -334,6 +334,28 @@ impl RangeSegment {
         self.runs.last().map(|r| r.last as u64 + self.span.start)
     }
 
+    /// Calls `f(rank, pos)` for every set position in ascending order.
+    ///
+    /// - `rank` is the 0-based index among set positions within this segment.
+    /// - `pos` is the absolute position (i.e., `self.span.start + relative_index`).
+    ///
+    /// Equivalent to:
+    /// `for (i, p) in self.positions().enumerate() { f(i, p) }`
+    ///
+    /// Runs in O(k) where k = `self.count_positions()`, and does not allocate.
+    pub fn for_each_position(&self, mut f: impl FnMut(usize, u64)) -> usize {
+        let base = self.span.start;
+        let mut rank: usize = 0;
+
+        for &Run { first, last } in &self.runs {
+            for rel in first..=last {
+                f(rank, base + rel as u64);
+                rank += 1;
+            }
+        }
+        rank
+    }
+
     /// Adds a single absolute position. Must be greater than any previously added position.
     #[inline]
     pub fn push(&mut self, pos: u64) {

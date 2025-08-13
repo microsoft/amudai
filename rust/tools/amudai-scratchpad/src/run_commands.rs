@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::pos_set_tests::set_ops;
+use crate::pos_set_tests::{collect_positions, set_ops};
 
 pub type RunFn = fn(&[Option<&str>]) -> Result<()>;
 
@@ -32,6 +32,11 @@ fn echo(args: &[Option<&str>]) -> Result<()> {
 pub static RUN_COMMANDS: &[RunCommand] = &[
     RunCommand::new("echo", "Echo the provided args", echo),
     RunCommand::new("pos-set-ops", "Test position set building and ops", set_ops),
+    RunCommand::new(
+        "pos-set-collect",
+        "Test collect positions",
+        collect_positions,
+    ),
 ];
 
 pub fn all() -> &'static [RunCommand] {

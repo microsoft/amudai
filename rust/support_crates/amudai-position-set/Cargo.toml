@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 amudai-bits = { workspace = true }
+amudai-page-alloc = { workspace = true }
 amudai-ranges = { workspace = true }
 amudai-workflow = { workspace = true }
 bytemuck = { workspace = true }

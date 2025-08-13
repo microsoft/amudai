@@ -20,8 +20,8 @@ use crate::{
 /// # Memory Efficiency
 ///
 /// This representation is most efficient when the number of set positions is small relative
-/// to the segment span size. Each position requires 4 bytes of storage. When the number of
-/// positions exceeds [`Segment::MAX_LIST_LEN`] (typically 32,768 positions for a 1MB span),
+/// to the segment span size. Each position requires 2 bytes of storage. When the number of
+/// positions exceeds [`Segment::MAX_LIST_LEN`] (typically 4096 positions for a 64K-position span),
 /// the segment should be converted to a [`BitSegment`] representation for better memory efficiency.
 ///
 /// # Position Storage
@@ -512,6 +512,23 @@ impl ListSegment {
         debug_assert!(self.span.contains(&pos));
         let rel_pos = (pos - self.span.start) as u16;
         self.values.binary_search(&rel_pos).is_ok()
+    }
+
+    /// Calls `f(rank, pos)` for every set position in ascending order.
+    ///
+    /// - `rank` is the 0-based index among set positions within this segment.
+    /// - `pos` is the absolute position (i.e., `self.span.start + relative_index`).
+    ///
+    /// Equivalent to:
+    /// `for (i, p) in self.positions().enumerate() { f(i, p) }`
+    ///
+    /// Runs in O(k) where k = `self.count_positions()`, and does not allocate.
+    pub fn for_each_position(&self, mut f: impl FnMut(usize, u64)) -> usize {
+        let base = self.span.start;
+        for (i, &rel) in self.values.iter().enumerate() {
+            f(i, base + rel as u64);
+        }
+        self.values.len()
     }
 
     /// Computes the union of two segments (set of positions present in either).

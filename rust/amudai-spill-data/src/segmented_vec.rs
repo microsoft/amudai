@@ -46,6 +46,7 @@ use crate::{
 /// - **Index access**: O(1)
 /// - **Parallel processing**: Each segment can be processed independently
 /// - **Memory usage**: More efficient than Vec for very large collections
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SegmentedVec<C> {
     /// The individual segments that make up the collection
     segments: Vec<C>,
@@ -127,6 +128,28 @@ impl<C> SegmentedVec<C> {
     #[inline]
     pub fn segments(&self) -> &[C] {
         &self.segments
+    }
+
+    /// Returns an iterator over all items across all segments by reference.
+    pub fn iter<'a>(&'a self) -> SegmentedIter<'a, C>
+    where
+        &'a C: IntoIterator,
+    {
+        SegmentedIter {
+            outer: self.segments.iter(),
+            current: None,
+        }
+    }
+
+    /// Returns a mutable iterator over all items across all segments.
+    pub fn iter_mut<'a>(&'a mut self) -> SegmentedIterMut<'a, C>
+    where
+        &'a mut C: IntoIterator,
+    {
+        SegmentedIterMut {
+            outer: self.segments.iter_mut(),
+            current: None,
+        }
     }
 
     /// Maps a linear index to a (segment_id, offset) pair.
@@ -401,6 +424,133 @@ where
     }
 }
 
+/// Iterator over items of a SegmentedVec when consumed by value.
+pub struct SegmentedIntoIter<C>
+where
+    C: IntoIterator,
+{
+    outer: std::vec::IntoIter<C>,
+    current: Option<C::IntoIter>,
+}
+
+impl<C> Iterator for SegmentedIntoIter<C>
+where
+    C: IntoIterator,
+{
+    type Item = C::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(inner) = self.current.as_mut() {
+                if let Some(item) = inner.next() {
+                    return Some(item);
+                }
+                self.current = None; // inner exhausted
+            }
+            match self.outer.next() {
+                Some(next_seg) => {
+                    self.current = Some(next_seg.into_iter());
+                }
+                None => return None,
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // Conservative hint; exact computation would require additional trait bounds.
+        (0, None)
+    }
+}
+
+impl<C> IntoIterator for SegmentedVec<C>
+where
+    C: IntoIterator,
+{
+    type Item = C::Item;
+    type IntoIter = SegmentedIntoIter<C>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        SegmentedIntoIter {
+            outer: self.segments.into_iter(),
+            current: None,
+        }
+    }
+}
+
+/// Iterator over items of a SegmentedVec by shared reference.
+pub struct SegmentedIter<'a, C>
+where
+    &'a C: IntoIterator,
+{
+    outer: std::slice::Iter<'a, C>,
+    current: Option<<&'a C as IntoIterator>::IntoIter>,
+}
+
+impl<'a, C> Iterator for SegmentedIter<'a, C>
+where
+    &'a C: IntoIterator,
+{
+    type Item = <&'a C as IntoIterator>::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(inner) = self.current.as_mut() {
+                if let Some(item) = inner.next() {
+                    return Some(item);
+                }
+                self.current = None; // inner exhausted
+            }
+            match self.outer.next() {
+                Some(next_seg) => {
+                    self.current = Some(next_seg.into_iter());
+                }
+                None => return None,
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, None)
+    }
+}
+
+/// Iterator over items of a SegmentedVec by mutable reference.
+pub struct SegmentedIterMut<'a, C>
+where
+    &'a mut C: IntoIterator,
+{
+    outer: std::slice::IterMut<'a, C>,
+    current: Option<<&'a mut C as IntoIterator>::IntoIter>,
+}
+
+impl<'a, C> Iterator for SegmentedIterMut<'a, C>
+where
+    &'a mut C: IntoIterator,
+{
+    type Item = <&'a mut C as IntoIterator>::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(inner) = self.current.as_mut() {
+                if let Some(item) = inner.next() {
+                    return Some(item);
+                }
+                self.current = None; // inner exhausted
+            }
+            match self.outer.next() {
+                Some(next_seg) => {
+                    self.current = Some(next_seg.into_iter());
+                }
+                None => return None,
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, None)
+    }
+}
+
 impl<C: Dump + Send + Sync> Dump for SegmentedVec<C> {
     /// Computes the total size required to dump this segmented vector.
     ///
@@ -536,8 +686,6 @@ impl<C: Load + Collection + Send + Sync> Load for SegmentedVec<C> {
     where
         R: amudai_io::ReadAt + Clone,
     {
-        // TODO: parallel
-
         let expected_len = manifest.get::<u64>("len")? as usize;
         let segment_size = manifest.get::<u64>("segment_size")? as usize;
         verify!(segment_size > 1);

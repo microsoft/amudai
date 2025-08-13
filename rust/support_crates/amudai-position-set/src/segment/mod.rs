@@ -1,7 +1,7 @@
 //! Segments are compact encodings of a fixed-size, half-open interval of absolute positions.
 //! - Each segment owns [start, end) with 0 < end - start <= SPAN and start % SPAN == 0.
 //! - The final segment in a set may be shorter than SPAN (but never zero).
-//! - Encodings trade space for speed: Empty, Full, List(u32 offsets), Bits(bitset), Ranges(u32 pairs).
+//! - Encodings trade space for speed: Empty, Full, List(u16 offsets), Bits(bitset), Ranges(u16 pairs).
 //! - Constructors pick an encoding automatically; optimize() can re-encode later.
 //! - Inputs must be sorted, unique, and inside span; debug assertions enforce these contracts.
 //! - All positions yielded/consumed are absolute (not rebased to 0).
@@ -48,7 +48,7 @@ pub mod ranges;
 /// - Most operations are O(n) in the size of the current encoding.
 ///
 /// Constants
-/// - SPAN: logical width per segment (1 MiB by default)
+/// - SPAN: logical width per segment (64K positions)
 /// - BIT_SEGMENT_SIZE, MAX_LIST_LEN, MAX_RANGES_LEN: storage thresholds derived
 ///   from SPAN
 #[derive(Clone)]
@@ -70,13 +70,13 @@ pub enum SegmentKind {
     Empty,
     /// All positions in the span are set.
     Full,
-    /// Sparse set of individual positions as `u32` offsets from `span.start`.
+    /// Sparse set of individual positions as `u16` offsets from `span.start`.
     /// Best for very sparse data.
     List,
     /// Dense bitset, one bit per position across the span (fixed size: `SPAN/8` bytes).
     /// Good for high-density data.
     Bits,
-    /// Run-length encoding as `(start, end)` `u32` pairs relative to `span.start`.
+    /// Run-length encoding as `(start, end)` `u16` pairs relative to `span.start`.
     /// Efficient when positions form few long runs.
     Ranges,
 }
@@ -472,6 +472,55 @@ impl Segment {
         }
     }
 
+    /// Calls `f(rank, pos)` for every set position in ascending order.
+    ///
+    /// - `rank` is the 0-based index among set positions within this segment.
+    /// - `pos` is the absolute position (i.e., `self.span.start + relative_index`).
+    ///
+    /// Equivalent to:
+    /// `for (i, p) in self.positions().enumerate() { f(i, p) }`
+    ///
+    /// # Returns
+    ///
+    /// The number of positions (total rank).
+    pub fn for_each_position(&self, f: impl FnMut(usize, u64)) -> usize {
+        match self {
+            Segment::Empty(segment) => segment.for_each_position(f),
+            Segment::Full(segment) => segment.for_each_position(f),
+            Segment::List(segment) => segment.for_each_position(f),
+            Segment::Bits(segment) => segment.for_each_position(f),
+            Segment::Ranges(segment) => segment.for_each_position(f),
+        }
+    }
+
+    /// Copies all set absolute positions in ascending order into the provided buffer.
+    ///
+    /// Returns the number of positions written into `out`.
+    ///
+    /// Semantics
+    /// - Positions are written in the same order as [`Segment::positions`] and
+    ///  [`Segment::for_each_position`] would produce them.
+    /// - Writes exactly `self.count_positions()` items.
+    ///
+    /// Contracts
+    /// - `out.len()` must be at least `self.count_positions()`. If it is smaller, this
+    ///   function will panic due to out-of-bounds indexing.
+    /// - If `out.len()` is larger, the extra elements are left unchanged.
+    ///
+    /// Notes
+    /// - Prefer this when you want a zero-allocation copy into a caller-provided buffer.
+    /// - If you don’t know the required size, call `self.count_positions()` first or
+    ///   consider returning a `Vec<u64>` from a helper.
+    pub fn collect_positions(&self, out: &mut [u64]) -> usize {
+        debug_assert!(
+            out.len() >= self.count_positions(),
+            "buffer too small for collect_positions"
+        );
+        self.for_each_position(|i, pos| {
+            out[i] = pos;
+        })
+    }
+
     /// Sets the given absolute position within this segment.
     ///
     /// Contracts
@@ -847,7 +896,7 @@ impl EmptySegment {
     }
 
     pub fn from_ranges(span: Range<u64>, ranges: impl Iterator<Item = Range<u64>>) -> Self {
-        assert_eq!(ranges.map(|r| (r.start - r.end) as usize).sum::<usize>(), 0);
+        assert_eq!(ranges.map(|r| (r.end - r.start) as usize).sum::<usize>(), 0);
         Self::new(span)
     }
 
@@ -886,6 +935,12 @@ impl EmptySegment {
     pub fn contains(&self, pos: u64) -> bool {
         debug_assert!(self.0.contains(&pos));
         false
+    }
+
+    /// Calls `f(rank, pos)` for every set position in ascending order.
+    /// Since this is an empty segment, does nothing.
+    pub fn for_each_position(&self, _f: impl FnMut(usize, u64)) -> usize {
+        0
     }
 
     /// Union of two empty segments (still empty). Panics if spans differ.
@@ -954,9 +1009,9 @@ impl FullSegment {
     /// Creates a new full segment for the given span.
     #[inline]
     pub fn new(span: Range<u64>) -> Self {
-        debug_assert!(span.start <= span.end);
-        debug_assert!((span.end - span.start) <= Segment::SPAN);
-        debug_assert!(span.start.is_multiple_of(Segment::SPAN));
+        assert!(span.start < span.end);
+        assert!((span.end - span.start) <= Segment::SPAN);
+        assert!(span.start.is_multiple_of(Segment::SPAN));
         FullSegment(span)
     }
 
@@ -1004,6 +1059,17 @@ impl FullSegment {
     pub fn contains(&self, pos: u64) -> bool {
         debug_assert!(self.0.contains(&pos));
         true
+    }
+
+    /// Calls `f(rank, pos)` for every set position in ascending order.
+    ///
+    /// - `rank` is the 0-based index among set positions within this segment.
+    /// - `pos` is the absolute position (i.e., `self.span.start + relative_index`).
+    pub fn for_each_position(&self, mut f: impl FnMut(usize, u64)) -> usize {
+        for (i, pos) in self.0.clone().enumerate() {
+            f(i, pos);
+        }
+        (self.0.end - self.0.start) as usize
     }
 
     /// Union of two full segments (still full). Panics if spans differ.

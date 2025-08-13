@@ -33,6 +33,7 @@ use std::ops::Range;
 
 use amudai_ranges::{
     put_back::PutBack,
+    slice_ext::SliceExt,
     transform::take_within::{TakeRangesWithinExt, TakeWithinExt},
 };
 
@@ -191,6 +192,16 @@ impl PositionSet {
             .sum()
     }
 
+    /// Parallel count of total positions.
+    ///
+    /// Behavior matches [`count_positions`](Self::count_positions) but processes
+    /// segments in parallel.
+    pub fn par_count_positions(&self) -> u64 {
+        self.par_unary(|segment| segment.count_positions() as u64)
+            .into_iter()
+            .sum()
+    }
+
     /// Returns an iterator over all set positions.
     pub fn positions(&self) -> PositionsIter<'_> {
         PositionsIter::all(self)
@@ -283,6 +294,71 @@ impl PositionSet {
     /// Behavior matches [`invert`](Self::invert) but processes segments in parallel.
     pub fn par_invert(&self) -> PositionSet {
         PositionSet::new(self.par_unary(|s| s.complement()), self.span)
+    }
+
+    /// Write all present positions into the provided slice, in ascending order.
+    ///
+    /// Behavior:
+    /// - Positions are written contiguously starting at `output[0]`.
+    /// - Exactly `self.count_positions()` values are written.
+    /// - Any remaining tail in `output` (if longer) is left untouched.
+    ///
+    /// Requirements:
+    /// - `output.len() >= self.count_positions()`.
+    ///
+    /// Panics:
+    /// - If `output` is too small (slice indexing will panic).
+    ///
+    /// Complexity:
+    /// - O(#segments + number_of_positions).
+    ///
+    /// Notes:
+    /// - Values are absolute positions in `[0, self.span)`.
+    /// - Allocation-free, eager alternative to iterating via [`positions`](Self::positions).
+    pub fn collect_positions(&self, output: &mut [u64]) -> usize {
+        let mut offset = 0usize;
+        for segment in &self.segments {
+            let n = segment.collect_positions(&mut output[offset..]);
+            offset += n;
+        }
+        offset
+    }
+
+    /// Parallel write of all present positions into the provided slice, in ascending order.
+    ///
+    /// Behavior:
+    /// - Produces the same result as [`collect_positions`](Self::collect_positions).
+    ///
+    /// Requirements:
+    /// - `output.len() >= self.count_positions()`.
+    ///
+    /// Panics:
+    /// - If `output` is too small (slice indexing will panic).
+    pub fn par_collect_positions(&self, output: &mut [u64]) -> usize {
+        let segments_per_chunk = self.get_par_chunk_size();
+
+        let chunk_pos_counts = amudai_workflow::data_parallel::map(
+            None,
+            self.segments.chunks(segments_per_chunk),
+            |segments| segments.iter().map(|s| s.count_positions()).sum::<usize>(),
+        )
+        .collect::<Vec<_>>();
+
+        let chunk_outputs = output.split_at_sizes_mut(chunk_pos_counts.iter().copied());
+
+        let items = self
+            .segments
+            .chunks(segments_per_chunk)
+            .zip(chunk_outputs.into_iter());
+
+        amudai_workflow::data_parallel::for_each(None, items, |(segments, output)| {
+            let mut offset = 0usize;
+            for segment in segments {
+                let n = segment.collect_positions(&mut output[offset..]);
+                offset += n;
+            }
+        });
+        chunk_pos_counts.iter().sum::<usize>()
     }
 
     /// Internal consistency checks for debug/testing.

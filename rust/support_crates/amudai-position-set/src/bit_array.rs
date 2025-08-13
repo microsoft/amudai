@@ -2,6 +2,8 @@
 
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Range};
 
+use crate::bit_store::BitStore;
+
 /// A fixed-size array of bits with `[u64]` storage and bitwise operations.
 ///
 /// `BitArray` provides a space-efficient way to store and manipulate a collection of bits,
@@ -25,19 +27,56 @@ use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, N
 /// - Count operations: O(n/64) using popcount instructions
 /// - Rank/Select operations: O(n/64) in worst case
 #[derive(Clone)]
-pub struct BitArray {
+pub struct BitArrayBase<S> {
     len: usize,
-    bits: Box<[u64]>,
+    bits: S,
 }
 
-impl BitArray {
+impl<S: AsMut<[u64]>> BitArrayBase<S> {
+    /// Constructs a bit array by wrapping existing mutable `u64` storage.
+    ///
+    /// The storage is interpreted as LSB-ordered words (bit 0 is the LSB of word 0).
+    /// This function validates the storage size for the requested logical length and
+    /// tail-masks the final word so that all bits beyond `len` are zero.
+    ///
+    /// Invariants after construction:
+    /// - `bits.as_mut().len() == len.div_ceil(64)`
+    /// - All bits beyond `len` in the last word are zero (via [`Self::mask_tail`]).
+    ///
+    /// Arguments
+    /// - `bits`: Mutable storage of `u64` words. Its length in words must be exactly
+    ///   `len.div_ceil(64)`. The storage is modified in-place to enforce tail masking.
+    /// - `len`: Logical number of bits.
+    ///
+    /// Panics
+    /// - If `bits.as_mut().len() != len.div_ceil(64)` (insufficient or excess storage).
+    ///
+    /// Complexity
+    /// - O(1). Performs a length check and, at most, masks the final word.
+    ///
+    /// See also
+    /// - [`BitArrayBase::wrap_lsb_words`], which can wrap read-only or owned storage and
+    ///   asserts (rather than applies) tail masking.
+    pub fn new(mut bits: S, len: usize) -> BitArrayBase<S> {
+        let count = len.div_ceil(64);
+        let words = bits.as_mut();
+        assert_eq!(words.len(), count);
+        Self::mask_tail(words, len);
+        BitArrayBase { len, bits }
+    }
+
     /// Creates a new bit array with all bits set to 0.
     ///
     /// # Arguments
     ///
     /// * `len` - The number of bits in the array
-    pub fn empty(len: usize) -> BitArray {
-        Self::new_with_pattern(len, 0)
+    pub fn empty(len: usize) -> BitArrayBase<S>
+    where
+        S: BitStore + AsMut<[u64]>,
+    {
+        let count = len.div_ceil(64);
+        let bits = S::new_zeroed(count);
+        BitArrayBase { len, bits }
     }
 
     /// Creates a new bit array with all bits set to 1.
@@ -45,7 +84,10 @@ impl BitArray {
     /// # Arguments
     ///
     /// * `len` - The number of bits in the array
-    pub fn full(len: usize) -> BitArray {
+    pub fn full(len: usize) -> BitArrayBase<S>
+    where
+        S: BitStore + AsMut<[u64]>,
+    {
         Self::new_with_pattern(len, u64::MAX)
     }
 
@@ -58,11 +100,14 @@ impl BitArray {
     ///
     /// * `len` - The number of bits in the array
     /// * `pattern` - The 64-bit pattern to repeat across the array
-    pub fn new_with_pattern(len: usize, pattern: u64) -> BitArray {
+    pub fn new_with_pattern(len: usize, pattern: u64) -> BitArrayBase<S>
+    where
+        S: BitStore + AsMut<[u64]>,
+    {
         let count = len.div_ceil(64);
-        let mut bits = vec![pattern; count].into_boxed_slice();
-        Self::mask_tail(&mut bits, len);
-        BitArray { len, bits }
+        let mut bits = S::new_with_pattern(count, pattern);
+        Self::mask_tail(bits.as_mut(), len);
+        BitArrayBase { len, bits }
     }
 
     /// Creates a new bit array with bits set at the specified positions.
@@ -80,8 +125,11 @@ impl BitArray {
     ///
     /// Time complexity: O(p) where p is the number of positions provided.
     /// Each position requires O(1) time to set.
-    pub fn from_positions(positions: impl Iterator<Item = usize>, len: usize) -> BitArray {
-        let mut bit_array = BitArray::empty(len);
+    pub fn from_positions(positions: impl Iterator<Item = usize>, len: usize) -> BitArrayBase<S>
+    where
+        S: BitStore,
+    {
+        let mut bit_array = BitArrayBase::empty(len);
         for position in positions {
             bit_array.set(position);
         }
@@ -104,8 +152,11 @@ impl BitArray {
     /// Time complexity: O(r × w) where r is the number of ranges and w is the average
     /// number of u64 words spanned by each range. This is more efficient than setting
     /// individual bits when working with contiguous ranges.
-    pub fn from_ranges(ranges: impl Iterator<Item = Range<usize>>, len: usize) -> BitArray {
-        let mut bit_array = BitArray::empty(len);
+    pub fn from_ranges(ranges: impl Iterator<Item = Range<usize>>, len: usize) -> BitArrayBase<S>
+    where
+        S: BitStore,
+    {
+        let mut bit_array = BitArrayBase::empty(len);
         for range in ranges {
             bit_array.set_range(range);
         }
@@ -131,12 +182,16 @@ impl BitArray {
     /// # Panics
     ///
     /// Panics if `len > words.len() * 64` (not enough words to represent `len` bits)
-    pub fn from_lsb_words(words: &[u64], len: usize) -> BitArray {
+    pub fn from_lsb_words(words: &[u64], len: usize) -> BitArrayBase<S>
+    where
+        S: BitStore,
+    {
         assert!(len <= words.len() * 64);
         let count = len.div_ceil(64);
-        let mut bits = words[..count].to_vec().into_boxed_slice();
-        Self::mask_tail(&mut bits, len);
-        BitArray { len, bits }
+        let mut bits = S::new_zeroed(count);
+        bits.as_mut().copy_from_slice(&words[..count]);
+        Self::mask_tail(bits.as_mut(), len);
+        BitArrayBase { len, bits }
     }
 
     /// Creates a new bit array from an array of bytes in LSB (Least Significant Bit) order.
@@ -153,8 +208,11 @@ impl BitArray {
     /// # Returns
     ///
     /// A new `BitArray` initialized with the provided data
-    pub fn from_lsb_bytes(bytes: &[u8], len: usize) -> BitArray {
-        let mut bit_array = BitArray::empty(len);
+    pub fn from_lsb_bytes(bytes: &[u8], len: usize) -> BitArrayBase<S>
+    where
+        S: BitStore,
+    {
+        let mut bit_array = BitArrayBase::empty(len);
         let byte_len = len.div_ceil(8).min(bytes.len());
         if byte_len != 0 {
             bytemuck::cast_slice_mut::<_, u8>(bit_array.storage_mut())[..byte_len]
@@ -162,58 +220,6 @@ impl BitArray {
         }
         Self::mask_tail(bit_array.storage_mut(), len);
         bit_array
-    }
-
-    /// Returns the number of bits in the array.
-    ///
-    /// # Returns
-    ///
-    /// The length of the bit array in bits
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Returns `true` if the bit array has zero length.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    /// Returns an immutable reference to the underlying u64 storage.
-    ///
-    /// The storage is organized as an array of u64 words where each word contains
-    /// 64 bits in LSB order. The number of words is `len.div_ceil(64)`. Bits beyond
-    /// the array's length in the final word are guaranteed to be 0.
-    #[inline]
-    pub fn storage(&self) -> &[u64] {
-        &self.bits
-    }
-
-    /// Returns a mutable reference to the underlying u64 storage.
-    ///
-    /// The storage is organized as an array of u64 words where each word contains
-    /// 64 bits in LSB order. The number of words is `len.div_ceil(64)`.
-    ///
-    /// # Safety and Invariants
-    ///
-    /// When modifying the storage directly, you must ensure that bits beyond the
-    /// array's length remain 0.
-    #[inline]
-    pub fn storage_mut(&mut self) -> &mut [u64] {
-        &mut self.bits
-    }
-
-    /// Check if the bit at the given index is set.
-    #[inline]
-    pub fn contains(&self, index: usize) -> bool {
-        debug_assert!(
-            index < self.len,
-            "Index {index} out of bounds (len: {})",
-            self.len
-        );
-        let (word_index, bit_position) = Self::bit_position(index);
-        (self.bits[word_index] & (1u64 << bit_position)) != 0
     }
 
     /// Sets the bit at the given index to 1.
@@ -225,7 +231,7 @@ impl BitArray {
             self.len
         );
         let (word_index, bit_position) = Self::bit_position(index);
-        self.bits[word_index] |= 1u64 << bit_position;
+        self.storage_mut()[word_index] |= 1u64 << bit_position;
     }
 
     /// Sets the bit at the given index to 1 and returns the previous state.
@@ -247,7 +253,7 @@ impl BitArray {
         );
         let (word_index, bit_position) = Self::bit_position(index);
         let mask = 1u64 << bit_position;
-        let cell = &mut self.bits[word_index];
+        let cell = &mut self.storage_mut()[word_index];
         let prev = *cell & mask;
         *cell |= 1u64 << bit_position;
         prev != 0
@@ -262,7 +268,7 @@ impl BitArray {
             self.len
         );
         let (word_index, bit_position) = Self::bit_position(index);
-        self.bits[word_index] &= !(1u64 << bit_position);
+        self.storage_mut()[word_index] &= !(1u64 << bit_position);
     }
 
     /// Sets the bit at the given index to the specified value.
@@ -275,20 +281,20 @@ impl BitArray {
         );
         let (word_index, bit_position) = Self::bit_position(index);
         let mask = 1u64 << bit_position;
-        let word = &mut self.bits[word_index];
+        let word = &mut self.storage_mut()[word_index];
         *word = (*word & !mask) | (mask & (-(value as i64) as u64));
     }
 
     /// Clears all bits (sets all to 0).
     pub fn clear(&mut self) {
-        self.bits.fill(0);
+        self.storage_mut().fill(0);
     }
 
     /// Sets all bits to 1.
     pub fn set_all(&mut self) {
-        self.bits.fill(u64::MAX);
+        self.storage_mut().fill(u64::MAX);
         // Ensure the tail bits beyond len are properly masked
-        Self::mask_tail(&mut self.bits, self.len);
+        Self::mask_tail(self.bits.as_mut(), self.len);
     }
 
     /// Sets all bits in the specified range to 1.
@@ -358,46 +364,154 @@ impl BitArray {
 
         let (start_word, start_bit) = Self::bit_position(start);
         let (end_word, end_bit) = Self::bit_position(end);
+        let bits = self.storage_mut();
 
         if start_word == end_word {
             // Range is within a single word
             // Since end_bit can't be 0 when start_word == end_word, we can safely
             // create the mask
             let mask = ((1u64 << end_bit) - 1) & !((1u64 << start_bit) - 1);
-            mask_fn(&mut self.bits[start_word], mask);
+            mask_fn(&mut bits[start_word], mask);
         } else {
             // Range spans multiple words
 
             // Process partial bits in the first word (from start_bit to bit 63)
             let first_mask = !((1u64 << start_bit) - 1);
-            mask_fn(&mut self.bits[start_word], first_mask);
+            mask_fn(&mut bits[start_word], first_mask);
 
             // Process all bits in complete middle words
             for word_idx in (start_word + 1)..end_word {
-                mask_fn(&mut self.bits[word_idx], u64::MAX);
+                mask_fn(&mut bits[word_idx], u64::MAX);
             }
 
             // Process partial bits in the last word (from bit 0 to end_bit-1)
             // Only if end_bit > 0 (if end_bit == 0, we don't touch the end_word)
             if end_bit > 0 {
                 let last_mask = (1u64 << end_bit) - 1;
-                mask_fn(&mut self.bits[end_word], last_mask);
+                mask_fn(&mut bits[end_word], last_mask);
             }
         }
     }
 
     /// Flips all bits in place (NOT operation).
     pub fn negate(&mut self) {
-        for word in self.bits.iter_mut() {
+        for word in self.storage_mut().iter_mut() {
             *word = !*word;
         }
+        let len = self.len;
         // Ensure the tail bits beyond len are properly masked
-        Self::mask_tail(&mut self.bits, self.len);
+        Self::mask_tail(self.storage_mut(), len);
+    }
+
+    /// Returns a mutable reference to the underlying u64 storage.
+    ///
+    /// The storage is organized as an array of u64 words where each word contains
+    /// 64 bits in LSB order. The number of words is `len.div_ceil(64)`.
+    ///
+    /// # Safety and Invariants
+    ///
+    /// When modifying the storage directly, you must ensure that bits beyond the
+    /// array's length remain 0.
+    #[inline]
+    pub fn storage_mut(&mut self) -> &mut [u64] {
+        self.bits.as_mut()
+    }
+}
+
+impl<S: AsRef<[u64]>> BitArrayBase<S> {
+    /// Constructs a `BitArrayBase` by wrapping existing `u64` storage without copying.
+    ///
+    /// This is a zero-copy constructor: it does not allocate and does not modify `bits`.
+    /// The provided storage is treated as LSB-ordered words (bit 0 is the LSB of word 0),
+    /// and the logical bit-length is either the supplied `len` or the full capacity
+    /// (`bits.as_ref().len() * 64`) when `len` is `None`.
+    ///
+    /// This function validates and enforces the invariants of `BitArrayBase`:
+    /// - The storage length in words must match the logical length:  
+    ///   `bits.as_ref().len() == len.div_ceil(64)`, which is equivalent to
+    ///   `raw_len - len < 64` where `raw_len = bits.as_ref().len() * 64`.
+    ///   In other words, there can be at most a single partial word at the end,
+    ///   and no completely unused trailing words.
+    /// - All tail bits beyond `len` in the last word must be zero (tail-masked).
+    ///
+    /// No masking is performed here; the function asserts that the tail is already
+    /// masked correctly. If you own/mutate the storage and need to enforce tail
+    /// masking first, call `mask_tail` on the words before wrapping.
+    ///
+    /// # Arguments
+    ///
+    /// * `bits` - The existing storage to wrap (LSB-ordered `u64` words).
+    /// * `len`  - Optional logical bit-length. When `None`, uses the full capacity
+    ///            (`bits.as_ref().len() * 64`). When `Some(len)`, `len` must be
+    ///            within the last word of `bits`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    /// - `len > bits.as_ref().len() * 64` (insufficient storage),
+    /// - `bits.as_ref().len() * 64 - len >= 64` (storage has fully unused trailing words),
+    /// - or any tail bit beyond `len` in the last word is non-zero (tail not masked).
+    ///
+    /// # Complexity
+    ///
+    /// O(1). Performs only bounds/tail checks and stores the references.
+    ///
+    /// # Mutability
+    ///
+    /// The returned `BitArrayBase<S>` is as mutable as `S` allows:
+    /// - If `S: AsRef<[u64]>` only (e.g., wrapping `&[u64]`), the view is read-only.
+    /// - If `S: AsMut<[u64]>` (e.g., wrapping `Box<[u64]>`), all mutating APIs are available.
+    ///
+    /// # Use cases
+    ///
+    /// - Create a read-only view over borrowed bit storage (`&[u64]`) without copying.
+    /// - Wrap owned storage (`Box<[u64]>`, mmap-backed buffer) to avoid reallocation.
+    /// - Zero-copy integration with memory-mapped or preformatted buffers.
+    ///
+    /// # Examples
+    ///
+    /// Read-only view over borrowed storage:
+    /// ```
+    /// # use amudai_position_set::bit_array::BitArrayBase;
+    /// let words: &[u64] = &[0b1011, 0b1];
+    /// let bits = BitArrayBase::wrap_lsb_words(words, Some(65)); // 2 words => raw_len = 128
+    /// assert!(bits.contains(0));
+    /// assert!(bits.contains(1));
+    /// assert!(!bits.contains(2));
+    /// assert!(bits.contains(3));
+    /// assert!(bits.contains(64)); // LSB of second word
+    /// ```
+    ///
+    /// Owned, mutable storage:
+    /// ```
+    /// # use amudai_position_set::bit_array::BitArrayBase;
+    /// let mut storage = vec![0u64; 2].into_boxed_slice(); // 128-bit capacity
+    /// // Caller ensures tail is masked for the chosen length; here, length is full capacity.
+    /// let mut bits = BitArrayBase::wrap_lsb_words(storage, None);
+    /// bits.set(5);
+    /// assert!(bits.contains(5));
+    /// ```
+    pub fn wrap_lsb_words(bits: S, len: Option<usize>) -> BitArrayBase<S> {
+        let len = len.unwrap_or(bits.as_ref().len() * 64);
+        assert!(Self::is_tail_masked(bits.as_ref(), len));
+        BitArrayBase { len, bits }
+    }
+
+    /// Check if the bit at the given index is set.
+    #[inline]
+    pub fn contains(&self, index: usize) -> bool {
+        debug_assert!(
+            index < self.len,
+            "Index {index} out of bounds (len: {})",
+            self.len
+        );
+        let (word_index, bit_position) = Self::bit_position(index);
+        (self.storage()[word_index] & (1u64 << bit_position)) != 0
     }
 
     /// Counts the number of set bits (1s) in the bit array.
     pub fn count_ones(&self) -> usize {
-        self.bits
+        self.storage()
             .iter()
             .map(|word| word.count_ones() as usize)
             .sum()
@@ -454,11 +568,11 @@ impl BitArray {
             self.len
         );
         let (word_index, bit_position) = Self::bit_position(index);
-        self.bits[..word_index]
+        self.storage()[..word_index]
             .iter()
             .map(|v| v.count_ones() as usize)
             .sum::<usize>()
-            + (self.bits[word_index] << (63 - bit_position)).count_ones() as usize
+            + (self.storage()[word_index] << (63 - bit_position)).count_ones() as usize
     }
 
     /// Finds the position of the n-th set bit (0-indexed). This is also known as the
@@ -484,7 +598,7 @@ impl BitArray {
         }
 
         let mut n = n as u64;
-        for (word_index, word) in self.bits.iter().copied().enumerate() {
+        for (word_index, word) in self.storage().iter().copied().enumerate() {
             let len = word.count_ones() as u64;
             if n < len {
                 let index = select_u64(word, n);
@@ -501,7 +615,7 @@ impl BitArray {
     /// in ascending order.
     pub fn iter(&self) -> BitArrayIter<'_> {
         BitArrayIter {
-            words: self.bits.iter(),
+            words: self.storage().iter(),
             current_word: 0,
             next_word_index: 0,
             base_index: 0,
@@ -530,7 +644,7 @@ impl BitArray {
 
         let start = std::cmp::min(pos_range.start, pos_range.end);
         let (word_index, bit_pos) = Self::bit_position(start);
-        let mut words = self.bits[word_index..].iter();
+        let mut words = self.storage()[word_index..].iter();
         let mut current_word = words.next().copied().unwrap_or(0);
 
         // Mask out bits before the start position
@@ -553,7 +667,7 @@ impl BitArray {
     /// run of 1s. Ranges are yielded in ascending order and are non-overlapping.
     pub fn ranges_iter(&self) -> BitArrayRangesIter<'_> {
         BitArrayRangesIter {
-            words: self.bits.iter(),
+            words: self.storage().iter(),
             current_word: 0,
             next_word_index: 0,
             base_index: 0,
@@ -577,7 +691,7 @@ impl BitArray {
 
         let (word_index, bit_pos) = Self::bit_position(pos_range.start);
         let end_word = pos_range.end.div_ceil(64);
-        let mut words = self.bits[word_index..end_word].iter();
+        let mut words = self.storage()[word_index..end_word].iter();
         let mut current_word = words.next().copied().unwrap_or(0);
         // Mask out bits before the start position in the first word
         current_word &= !((1u64 << bit_pos) - 1);
@@ -592,33 +706,98 @@ impl BitArray {
         }
     }
 
-    pub fn into_truncated(self, len: usize) -> BitArray {
-        assert!(len <= self.len());
-        let word_count = len.div_ceil(64);
-        if word_count < self.storage().len() {
-            BitArray::from_lsb_words(self.storage(), len)
-        } else {
-            assert_eq!(word_count, self.storage().len());
-            let mut bits = self.bits;
-            Self::mask_tail(&mut bits, len);
-            BitArray { len, bits }
-        }
+    /// Calls `f(rank, pos)` for every set bit in ascending position order.
+    ///
+    /// - `rank` is the 0-based ordinal among set bits (i.e., `self.iter().enumerate()`).
+    /// - `pos` is the absolute bit position.
+    ///
+    /// # Returns
+    ///
+    /// The number of inspected set bits.
+    pub fn for_each_set_bit(&self, mut f: impl FnMut(usize, u64)) -> usize {
+        self.for_each_set_bit_while(|i, pos| {
+            f(i, pos);
+            true
+        })
     }
 
-    /// Returns the number of heap-allocated bytes used by this bit array's storage.
+    /// Like `for_each`, but stops early when the callback returns `false`.
     ///
-    /// This accounts only for the backing boxed slice (`bits`) that holds the u64 words.
-    /// It does not include the size of the `BitArray` struct itself or any allocator
-    /// bookkeeping overhead. The result is exact for this type because `Box<[u64]>`
-    /// stores exactly `len.div_ceil(64)` u64 words with no extra capacity.
+    /// Calls `f(rank, pos)` for each set bit in ascending order and returns
+    /// as soon as `f` returns `false`. Use this for early-exit scans.
     ///
-    /// Equivalent to: `self.bits.len() * size_of::<u64>()`.
-    pub fn heap_size_bytes(&self) -> usize {
-        self.bits.len() * std::mem::size_of::<u64>()
+    /// # Returns
+    ///
+    /// The number of inspected set bits.
+    pub fn for_each_set_bit_while(&self, mut f: impl FnMut(usize, u64) -> bool) -> usize {
+        assert!(Self::is_tail_masked(self.storage(), self.len));
+
+        let mut i = 0usize;
+        for (word_index, &w0) in self.storage().iter().enumerate() {
+            let mut w = w0;
+            let base = word_index * 64;
+            while w != 0 {
+                let tz = w.trailing_zeros() as usize;
+                let pos = base + tz;
+                if !f(i, pos as u64) {
+                    return i + 1;
+                }
+                i += 1;
+                // Clear the least significant set bit.
+                w &= w - 1;
+            }
+        }
+        i
+    }
+
+    /// Returns an immutable reference to the underlying u64 storage.
+    ///
+    /// The storage is organized as an array of u64 words where each word contains
+    /// 64 bits in LSB order. The number of words is `len.div_ceil(64)`. Bits beyond
+    /// the array's length in the final word are guaranteed to be 0.
+    #[inline]
+    pub fn storage(&self) -> &[u64] {
+        self.bits.as_ref()
     }
 }
 
-impl BitArray {
+impl<S> BitArrayBase<S>
+where
+    S: BitStore + AsRef<[u64]> + AsMut<[u64]>,
+{
+    pub fn into_truncated(self, len: usize) -> BitArrayBase<S> {
+        assert!(len <= self.len());
+        let word_count = len.div_ceil(64);
+        if word_count < self.storage().len() {
+            BitArrayBase::from_lsb_words(self.storage(), len)
+        } else {
+            assert_eq!(word_count, self.storage().len());
+            let mut bits = self.bits;
+            Self::mask_tail(bits.as_mut(), len);
+            BitArrayBase { len, bits }
+        }
+    }
+}
+
+impl<S> BitArrayBase<S> {
+    /// Returns the number of bits in the array.
+    ///
+    /// # Returns
+    ///
+    /// The length of the bit array in bits
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns `true` if the bit array has zero length.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl<S> BitArrayBase<S> {
     /// Helper function that returns the u64 index and bit position within that u64
     /// for a given bit index in the array.
     #[inline]
@@ -665,140 +844,187 @@ impl BitArray {
         let mask = (1u64 << partial) - 1; // Create mask with 'remainder' number of 1s
         *bits.last_mut().unwrap() &= mask;
     }
+
+    /// Returns true if the storage has a valid tail mask for the given `len`.
+    ///
+    /// Checks that all bits beyond `len` in the last word are zero
+    #[inline]
+    pub(crate) fn is_tail_masked(bits: &[u64], len: usize) -> bool {
+        let raw_len = bits.len() * 64;
+        assert!(raw_len >= len, "{raw_len} >= {len}");
+        assert!(raw_len - len < 64, "{raw_len} - {len}");
+
+        if len == 0 || bits.is_empty() {
+            return true;
+        }
+
+        let partial = len % 64;
+        if partial == 0 {
+            // perfectly aligned; nothing needs masking
+            return true;
+        }
+
+        let mask = (1u64 << partial) - 1;
+        (bits.last().unwrap() & !mask) == 0
+    }
 }
 
-impl BitAnd for &BitArray {
-    type Output = BitArray;
+impl<S, S1> BitAnd<&BitArrayBase<S1>> for &BitArrayBase<S>
+where
+    S: BitStore + AsRef<[u64]> + AsMut<[u64]>,
+    S1: AsRef<[u64]>,
+{
+    type Output = BitArrayBase<S>;
 
-    fn bitand(self, rhs: &BitArray) -> Self::Output {
+    fn bitand(self, rhs: &BitArrayBase<S1>) -> Self::Output {
         assert_eq!(
             self.len, rhs.len,
             "BitArrays must have the same length for bitwise AND operation: {} != {}",
             self.len, rhs.len
         );
 
-        let mut result_bits = Vec::with_capacity(self.bits.len());
-        for (left, right) in self.bits.iter().zip(rhs.bits.iter()) {
-            result_bits.push(left & right);
+        let mut result = BitArrayBase::<S>::empty(self.len);
+        let result_bits = result.storage_mut();
+        for (res, (left, right)) in result_bits
+            .iter_mut()
+            .zip(self.storage().iter().zip(rhs.storage().iter()))
+        {
+            *res = left & right;
         }
 
-        let mut result = BitArray {
-            len: self.len,
-            bits: result_bits.into_boxed_slice(),
-        };
-        BitArray::mask_tail(&mut result.bits, result.len);
+        BitArrayBase::<S>::mask_tail(result_bits, self.len);
         result
     }
 }
 
-impl BitOr for &BitArray {
-    type Output = BitArray;
+impl<S, S1> BitOr<&BitArrayBase<S1>> for &BitArrayBase<S>
+where
+    S: BitStore + AsRef<[u64]> + AsMut<[u64]>,
+    S1: AsRef<[u64]>,
+{
+    type Output = BitArrayBase<S>;
 
-    fn bitor(self, rhs: &BitArray) -> Self::Output {
+    fn bitor(self, rhs: &BitArrayBase<S1>) -> Self::Output {
         assert_eq!(
             self.len, rhs.len,
-            "BitArrays must have the same length for bitwise OR operation: {} != {}",
+            "BitArrays must have the same length for bitwise AND operation: {} != {}",
             self.len, rhs.len
         );
 
-        let mut result_bits = Vec::with_capacity(self.bits.len());
-        for (left, right) in self.bits.iter().zip(rhs.bits.iter()) {
-            result_bits.push(left | right);
+        let mut result = BitArrayBase::<S>::empty(self.len);
+        let result_bits = result.storage_mut();
+        for (res, (left, right)) in result_bits
+            .iter_mut()
+            .zip(self.storage().iter().zip(rhs.storage().iter()))
+        {
+            *res = left | right;
         }
 
-        let mut result = BitArray {
-            len: self.len,
-            bits: result_bits.into_boxed_slice(),
-        };
-        BitArray::mask_tail(&mut result.bits, result.len);
+        BitArrayBase::<S>::mask_tail(result_bits, self.len);
         result
     }
 }
 
-impl BitXor for &BitArray {
-    type Output = BitArray;
+impl<S, S1> BitXor<&BitArrayBase<S1>> for &BitArrayBase<S>
+where
+    S: BitStore + AsRef<[u64]> + AsMut<[u64]>,
+    S1: AsRef<[u64]>,
+{
+    type Output = BitArrayBase<S>;
 
-    fn bitxor(self, rhs: &BitArray) -> Self::Output {
+    fn bitxor(self, rhs: &BitArrayBase<S1>) -> Self::Output {
         assert_eq!(
             self.len, rhs.len,
-            "BitArrays must have the same length for bitwise XOR operation: {} != {}",
+            "BitArrays must have the same length for bitwise AND operation: {} != {}",
             self.len, rhs.len
         );
 
-        let mut result_bits = Vec::with_capacity(self.bits.len());
-        for (left, right) in self.bits.iter().zip(rhs.bits.iter()) {
-            result_bits.push(left ^ right);
+        let mut result = BitArrayBase::<S>::empty(self.len);
+        let result_bits = result.storage_mut();
+        for (res, (left, right)) in result_bits
+            .iter_mut()
+            .zip(self.storage().iter().zip(rhs.storage().iter()))
+        {
+            *res = left ^ right;
         }
 
-        let mut result = BitArray {
-            len: self.len,
-            bits: result_bits.into_boxed_slice(),
-        };
-        BitArray::mask_tail(&mut result.bits, result.len);
+        BitArrayBase::<S>::mask_tail(result_bits, self.len);
         result
     }
 }
 
-impl Not for &BitArray {
-    type Output = BitArray;
+impl<S> Not for &BitArrayBase<S>
+where
+    S: BitStore + AsRef<[u64]> + AsMut<[u64]>,
+{
+    type Output = BitArrayBase<S>;
 
     fn not(self) -> Self::Output {
-        let mut result_bits = Vec::with_capacity(self.bits.len());
-        for &word in self.bits.iter() {
-            result_bits.push(!word);
+        let mut result = BitArrayBase::<S>::empty(self.len);
+        let result_bits = result.storage_mut();
+        for (res, this) in result_bits.iter_mut().zip(self.storage().iter()) {
+            *res = !*this;
         }
 
-        let mut result = BitArray {
-            len: self.len,
-            bits: result_bits.into_boxed_slice(),
-        };
-        BitArray::mask_tail(&mut result.bits, result.len);
+        BitArrayBase::<S>::mask_tail(result_bits, self.len);
         result
     }
 }
 
-impl BitAndAssign<&BitArray> for BitArray {
-    fn bitand_assign(&mut self, rhs: &BitArray) {
+impl<S, S1> BitAndAssign<&BitArrayBase<S1>> for BitArrayBase<S>
+where
+    S: AsRef<[u64]> + AsMut<[u64]>,
+    S1: AsRef<[u64]>,
+{
+    fn bitand_assign(&mut self, rhs: &BitArrayBase<S1>) {
         assert_eq!(
             self.len, rhs.len,
-            "BitArrays must have the same length for bitwise AND assignment: {} != {}",
+            "BitArrays must have the same length for bitwise AND-assign: {} != {}",
             self.len, rhs.len
         );
-
-        for (left, right) in self.bits.iter_mut().zip(rhs.bits.iter()) {
-            *left &= right;
+        for (l, r) in self.storage_mut().iter_mut().zip(rhs.storage().iter()) {
+            *l &= *r;
         }
-        BitArray::mask_tail(&mut self.bits, self.len);
+        let len = self.len;
+        Self::mask_tail(self.storage_mut(), len);
     }
 }
 
-impl BitOrAssign<&BitArray> for BitArray {
-    fn bitor_assign(&mut self, rhs: &BitArray) {
+impl<S, S1> BitOrAssign<&BitArrayBase<S1>> for BitArrayBase<S>
+where
+    S: AsRef<[u64]> + AsMut<[u64]>,
+    S1: AsRef<[u64]>,
+{
+    fn bitor_assign(&mut self, rhs: &BitArrayBase<S1>) {
         assert_eq!(
             self.len, rhs.len,
-            "BitArrays must have the same length for bitwise OR assignment: {} != {}",
+            "BitArrays must have the same length for bitwise OR-assign: {} != {}",
             self.len, rhs.len
         );
-
-        for (left, right) in self.bits.iter_mut().zip(rhs.bits.iter()) {
-            *left |= right;
+        for (l, r) in self.storage_mut().iter_mut().zip(rhs.storage().iter()) {
+            *l |= *r;
         }
-        BitArray::mask_tail(&mut self.bits, self.len);
+        let len = self.len;
+        Self::mask_tail(self.storage_mut(), len);
     }
 }
 
-impl BitXorAssign<&BitArray> for BitArray {
-    fn bitxor_assign(&mut self, rhs: &BitArray) {
+impl<S, S1> BitXorAssign<&BitArrayBase<S1>> for BitArrayBase<S>
+where
+    S: AsRef<[u64]> + AsMut<[u64]>,
+    S1: AsRef<[u64]>,
+{
+    fn bitxor_assign(&mut self, rhs: &BitArrayBase<S1>) {
         assert_eq!(
             self.len, rhs.len,
-            "BitArrays must have the same length for bitwise XOR assignment: {} != {}",
+            "BitArrays must have the same length for bitwise XOR-assign: {} != {}",
             self.len, rhs.len
         );
-
-        for (left, right) in self.bits.iter_mut().zip(rhs.bits.iter()) {
-            *left ^= right;
+        for (l, r) in self.storage_mut().iter_mut().zip(rhs.storage().iter()) {
+            *l ^= *r;
         }
-        BitArray::mask_tail(&mut self.bits, self.len);
+        let len = self.len;
+        Self::mask_tail(self.storage_mut(), len);
     }
 }
 
@@ -1012,3 +1238,21 @@ impl<'a> Iterator for BitArrayRangesIter<'a> {
         }
     }
 }
+
+pub type BitArray = BitArrayBase<Box<[u64]>>;
+
+impl BitArray {
+    /// Returns the number of heap-allocated bytes used by this bit array's storage.
+    ///
+    /// This accounts only for the backing boxed slice (`bits`) that holds the u64 words.
+    /// It does not include the size of the `BitArray` struct itself or any allocator
+    /// bookkeeping overhead. The result is exact for this type because `Box<[u64]>`
+    /// stores exactly `len.div_ceil(64)` u64 words with no extra capacity.
+    ///
+    /// Equivalent to: `self.bits.len() * size_of::<u64>()`.
+    pub fn heap_size_bytes(&self) -> usize {
+        self.bits.len() * std::mem::size_of::<u64>()
+    }
+}
+
+pub type BigBitArray = BitArrayBase<amudai_page_alloc::mmap_buffer::MmapBuffer>;
