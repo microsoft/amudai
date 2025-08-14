@@ -107,6 +107,13 @@ mod tests {
         svec.iter_mut().for_each(|r| r.end = 100000);
         assert_eq!(svec[10].end, 100000);
 
+        let mut it1 = svec.iter();
+        it1.next().unwrap();
+        it1.next().unwrap();
+        let it2 = it1.clone();
+        assert_eq!(it1.count(), 9999);
+        assert_eq!(it2.count(), 9999);
+
         svec.clear();
         assert!(svec.is_empty());
     }

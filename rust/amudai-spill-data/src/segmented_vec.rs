@@ -486,6 +486,19 @@ where
     current: Option<<&'a C as IntoIterator>::IntoIter>,
 }
 
+impl<'a, C> Clone for SegmentedIter<'a, C>
+where
+    &'a C: IntoIterator,
+    <&'a C as IntoIterator>::IntoIter: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            outer: self.outer.clone(),
+            current: self.current.clone(),
+        }
+    }
+}
+
 impl<'a, C> Iterator for SegmentedIter<'a, C>
 where
     &'a C: IntoIterator,
