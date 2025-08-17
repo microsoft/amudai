@@ -16,7 +16,10 @@ use amudai_sequence::sequence::ValueSequence;
 
 use super::{ConstantFieldReader, FieldReader};
 
-use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
+use crate::{
+    read::{field_context::FieldContext, field_decoder::FieldCursor},
+    write::field_encoder::EncodedField,
+};
 
 /// A decoder for binary and string field types.
 ///
@@ -266,14 +269,7 @@ impl BytesFieldCursor {
     /// [`fetch_nullable`]: Self::fetch_nullable
     #[inline]
     pub fn fetch(&mut self, position: u64) -> Result<&[u8]> {
-        self.establish_block(position)?;
-
-        let index = self.position_index(position);
-        if self.fixed_size == 0 {
-            Ok(self.block.values.var_binary_at(index))
-        } else {
-            Ok(self.block.values.fixed_binary_at(index, self.fixed_size))
-        }
+        self.fetch_value_as_bytes(position)
     }
 
     /// Fetches the binary value at the specified position, returning `None` if the
@@ -293,18 +289,7 @@ impl BytesFieldCursor {
     /// and `Some` contains the binary data, or an error if I/O fails.
     #[inline]
     pub fn fetch_nullable(&mut self, position: u64) -> Result<Option<&[u8]>> {
-        self.establish_block(position)?;
-
-        let index = self.position_index(position);
-        let is_valid = self.block.values.presence.is_valid(index);
-        let res = is_valid.then(|| {
-            if self.fixed_size == 0 {
-                self.block.values.var_binary_at(index)
-            } else {
-                self.block.values.fixed_binary_at(index, self.fixed_size)
-            }
-        });
-        Ok(res)
+        self.fetch_nullable_as_bytes(position)
     }
 
     /// Checks if the value at the specified position is null.
@@ -319,9 +304,7 @@ impl BytesFieldCursor {
     /// or an error if I/O fails.
     #[inline]
     pub fn is_null(&mut self, position: u64) -> Result<bool> {
-        self.establish_block(position)?;
-        let index = self.position_index(position);
-        Ok(self.block.values.presence.is_null(index))
+        self.fetch_is_null(position)
     }
 
     /// Ensures the current block contains the specified position.
@@ -351,6 +334,78 @@ impl BytesFieldCursor {
     fn fetch_block(&mut self, position: u64) -> Result<()> {
         self.block = self.reader.read_containing_block(position)?;
         Ok(())
+    }
+}
+
+impl FieldCursor for BytesFieldCursor {
+    fn as_any(&self) -> &(dyn std::any::Any + Send + Sync + 'static) {
+        self
+    }
+
+    #[inline]
+    fn basic_type(&self) -> BasicTypeDescriptor {
+        self.basic_type
+    }
+
+    #[inline]
+    fn move_to(&mut self, position: u64) -> Result<Range<u64>> {
+        self.establish_block(position)?;
+        Ok(self.cached_range())
+    }
+
+    #[inline]
+    fn cached_range(&self) -> Range<u64> {
+        self.block.descriptor.logical_range.clone()
+    }
+
+    #[inline]
+    fn cached_is_null(&self, position: u64) -> bool {
+        debug_assert!(self.cached_range().contains(&position));
+        let index = self.position_index(position);
+        self.block.values.presence.is_null(index)
+    }
+
+    #[inline]
+    fn cached_value_as_bytes(&self, position: u64) -> &[u8] {
+        debug_assert!(self.cached_range().contains(&position));
+        let index = self.position_index(position);
+        if self.fixed_size == 0 {
+            self.block.values.var_binary_at(index)
+        } else {
+            self.block.values.fixed_binary_at(index, self.fixed_size)
+        }
+    }
+
+    #[inline]
+    fn cached_nullable_as_bytes(&self, position: u64) -> Option<&[u8]> {
+        debug_assert!(self.cached_range().contains(&position));
+        let index = self.position_index(position);
+        let is_valid = self.block.values.presence.is_valid(index);
+        if !is_valid {
+            None
+        } else if self.fixed_size == 0 {
+            Some(self.block.values.var_binary_at(index))
+        } else {
+            Some(self.block.values.fixed_binary_at(index, self.fixed_size))
+        }
+    }
+
+    #[inline]
+    fn fetch_is_null(&mut self, position: u64) -> Result<bool> {
+        self.establish_block(position)?;
+        Ok(self.cached_is_null(position))
+    }
+
+    #[inline]
+    fn fetch_value_as_bytes(&mut self, position: u64) -> Result<&[u8]> {
+        self.establish_block(position)?;
+        Ok(self.cached_value_as_bytes(position))
+    }
+
+    #[inline]
+    fn fetch_nullable_as_bytes(&mut self, position: u64) -> Result<Option<&[u8]>> {
+        self.establish_block(position)?;
+        Ok(self.cached_nullable_as_bytes(position))
     }
 }
 
@@ -455,6 +510,57 @@ impl StringFieldCursor {
 
     fn bytes_to_str(bytes: &[u8]) -> Result<&str> {
         std::str::from_utf8(bytes).map_err(|e| Error::invalid_format(e.to_string()))
+    }
+}
+
+impl FieldCursor for StringFieldCursor {
+    fn as_any(&self) -> &(dyn std::any::Any + Send + Sync + 'static) {
+        self
+    }
+
+    #[inline]
+    fn basic_type(&self) -> BasicTypeDescriptor {
+        self.inner.basic_type
+    }
+
+    #[inline]
+    fn move_to(&mut self, position: u64) -> Result<Range<u64>> {
+        self.inner.move_to(position)
+    }
+
+    #[inline]
+    fn cached_range(&self) -> Range<u64> {
+        self.inner.cached_range()
+    }
+
+    #[inline]
+    fn cached_is_null(&self, position: u64) -> bool {
+        self.inner.cached_is_null(position)
+    }
+
+    #[inline]
+    fn cached_value_as_bytes(&self, position: u64) -> &[u8] {
+        self.inner.cached_value_as_bytes(position)
+    }
+
+    #[inline]
+    fn cached_nullable_as_bytes(&self, position: u64) -> Option<&[u8]> {
+        self.inner.cached_nullable_as_bytes(position)
+    }
+
+    #[inline]
+    fn fetch_is_null(&mut self, position: u64) -> Result<bool> {
+        self.inner.fetch_is_null(position)
+    }
+
+    #[inline]
+    fn fetch_value_as_bytes(&mut self, position: u64) -> Result<&[u8]> {
+        self.inner.fetch_value_as_bytes(position)
+    }
+
+    #[inline]
+    fn fetch_nullable_as_bytes(&mut self, position: u64) -> Result<Option<&[u8]>> {
+        self.inner.fetch_nullable_as_bytes(position)
     }
 }
 

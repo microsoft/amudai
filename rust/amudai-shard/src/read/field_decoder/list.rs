@@ -14,7 +14,10 @@ use amudai_format::{
 use amudai_ranges::PositionSeries;
 use amudai_sequence::sequence::ValueSequence;
 
-use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
+use crate::{
+    read::{field_context::FieldContext, field_decoder::FieldCursor},
+    write::field_encoder::EncodedField,
+};
 
 use super::FieldReader;
 
@@ -220,6 +223,8 @@ pub struct ListFieldCursor {
     next_block: DecodedBlock,
     reader: Box<dyn FieldReader>,
     basic_type: BasicTypeDescriptor,
+    /// A pair of offsets that cross the `block`/`next_block` boundary.
+    cached_boundary: [u64; 2],
 }
 
 impl ListFieldCursor {
@@ -247,6 +252,7 @@ impl ListFieldCursor {
             next_block: DecodedBlock::empty(),
             reader,
             basic_type,
+            cached_boundary: [u64::MAX, u64::MAX],
         }
     }
 
@@ -282,28 +288,8 @@ impl ListFieldCursor {
     #[inline]
     pub fn fetch(&mut self, position: u64) -> Result<Range<u64>> {
         self.establish_block(position)?;
-
-        // The list "value" is a range of child positions formed by a pair of consecutive
-        // `u64` offsets that we read from the list's logical `position` and `position + 1`.
-        // These might cross the current block boundary, thus we may also need to access
-        // the next block.
-
-        let index = self.block.descriptor.position_index(position);
-        let values = self.block.values.as_slice::<u64>();
-        let start = values[index];
-        let end = if self.block.descriptor.contains(position + 1) {
-            values[index + 1]
-        } else {
-            // The next offset falls outside the current block, thus it must be in the next block.
-            assert!(self.next_block.descriptor.contains(position + 1));
-            // The index now is relative to the `next_block`.
-            let index = self.next_block.descriptor.position_index(position + 1);
-            // Since we've just crossed the block boundary, this has to be the very first value
-            // in the `next_block`.
-            assert_eq!(index, 0);
-            self.next_block.values.as_slice::<u64>()[index]
-        };
-        Ok(start..end)
+        let r = self.get_range_at(position);
+        Ok(r[0]..r[1])
     }
 
     /// Fetches the offset range for a nullable list or map at the specified position.
@@ -323,9 +309,15 @@ impl ListFieldCursor {
     /// or an error if I/O fails.
     #[inline]
     pub fn fetch_nullable(&mut self, position: u64) -> Result<Option<Range<u64>>> {
-        let range = self.fetch(position)?;
+        self.establish_block(position)?;
         let index = self.block.descriptor.position_index(position);
-        Ok(self.block.values.presence.is_valid(index).then_some(range))
+        let is_valid = self.block.values.presence.is_valid(index);
+        if is_valid {
+            let r = self.get_range_at(position);
+            Ok(Some(r[0]..r[1]))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Checks if the list or map at the specified position is null.
@@ -340,10 +332,26 @@ impl ListFieldCursor {
     /// or an error if I/O fails.
     #[inline]
     pub fn is_null(&mut self, position: u64) -> Result<bool> {
-        self.establish_block(position)?;
+        self.fetch_is_null(position)
+    }
+
+    /// Returns a two–element slice `[start, end]` giving the child-element offset range
+    /// (inclusive..exclusive) for the list or map value at `position`.
+    #[inline]
+    fn get_range_at(&self, position: u64) -> &[u64] {
+        // The list "value" is a range of child positions formed by a pair of consecutive
+        // `u64` offsets that we read from the list's logical `position` and `position + 1`.
+        // These might cross the current block boundary, thus we may also need to access
+        // the next block.
 
         let index = self.block.descriptor.position_index(position);
-        Ok(self.block.values.presence.is_null(index))
+        let values = self.block.values.as_slice::<u64>();
+        if self.block.descriptor.contains(position + 1) {
+            &values[index..index + 2]
+        } else {
+            assert_ne!(self.cached_boundary[0], u64::MAX);
+            &self.cached_boundary
+        }
     }
 
     /// Ensures the necessary blocks are cached for the specified position.
@@ -364,6 +372,7 @@ impl ListFieldCursor {
             && !self.next_block.descriptor.contains(position + 1)
         {
             self.fetch_next_block(position + 1)?;
+            self.cached_boundary = self.read_boundary_range();
         }
         Ok(())
     }
@@ -389,6 +398,8 @@ impl ListFieldCursor {
         } else {
             self.block = self.reader.read_containing_block(position)?;
         }
+        // Reset the cached boundary range once the current block changes
+        self.cached_boundary = [u64::MAX, u64::MAX];
         Ok(())
     }
 
@@ -411,6 +422,91 @@ impl ListFieldCursor {
     fn fetch_next_block(&mut self, position: u64) -> Result<()> {
         self.next_block = self.reader.read_containing_block(position)?;
         Ok(())
+    }
+
+    /// Reads and returns the cross‑block boundary offset pair needed when
+    /// list or map value spans two adjacent decoded blocks.
+    fn read_boundary_range(&self) -> [u64; 2] {
+        assert_eq!(
+            self.block.descriptor.logical_range.end,
+            self.next_block.descriptor.logical_range.start
+        );
+        let values = self.block.values.as_slice::<u64>();
+        let next_values = self.next_block.values.as_slice::<u64>();
+        [*values.last().unwrap(), *next_values.first().unwrap()]
+    }
+}
+
+impl FieldCursor for ListFieldCursor {
+    fn as_any(&self) -> &(dyn std::any::Any + Send + Sync + 'static) {
+        self
+    }
+
+    #[inline]
+    fn basic_type(&self) -> BasicTypeDescriptor {
+        self.basic_type
+    }
+
+    #[inline]
+    fn move_to(&mut self, position: u64) -> Result<Range<u64>> {
+        self.establish_block(position)?;
+        Ok(self.cached_range())
+    }
+
+    #[inline]
+    fn cached_range(&self) -> Range<u64> {
+        if self.block.descriptor.logical_range.is_empty() {
+            return self.block.descriptor.logical_range.clone();
+        }
+
+        let start = self.block.descriptor.logical_range.start;
+        let end = if !self.next_block.descriptor.logical_range.is_empty()
+            && self.block.descriptor.logical_range.end
+                == self.next_block.descriptor.logical_range.start
+        {
+            self.next_block.descriptor.logical_range.end - 1
+        } else {
+            self.block.descriptor.logical_range.end - 1
+        };
+        start..end
+    }
+
+    #[inline]
+    fn cached_is_null(&self, position: u64) -> bool {
+        debug_assert!(self.cached_range().contains(&position));
+        let index = self.block.descriptor.position_index(position);
+        self.block.values.presence.is_null(index)
+    }
+
+    #[inline]
+    fn cached_value_as_bytes(&self, position: u64) -> &[u8] {
+        debug_assert!(self.cached_range().contains(&position));
+        bytemuck::cast_slice(self.get_range_at(position))
+    }
+
+    #[inline]
+    fn cached_nullable_as_bytes(&self, position: u64) -> Option<&[u8]> {
+        debug_assert!(self.cached_range().contains(&position));
+        let is_valid = !self.cached_is_null(position);
+        is_valid.then(|| self.cached_value_as_bytes(position))
+    }
+
+    #[inline]
+    fn fetch_is_null(&mut self, position: u64) -> Result<bool> {
+        self.establish_block(position)?;
+        Ok(self.cached_is_null(position))
+    }
+
+    #[inline]
+    fn fetch_value_as_bytes(&mut self, position: u64) -> Result<&[u8]> {
+        self.establish_block(position)?;
+        Ok(self.cached_value_as_bytes(position))
+    }
+
+    #[inline]
+    fn fetch_nullable_as_bytes(&mut self, position: u64) -> Result<Option<&[u8]>> {
+        self.establish_block(position)?;
+        Ok(self.cached_nullable_as_bytes(position))
     }
 }
 

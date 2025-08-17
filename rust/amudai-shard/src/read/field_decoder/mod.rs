@@ -451,6 +451,91 @@ impl FieldDecoder {
         let reader = self.create_reader(positions_hint)?;
         Ok(unit::StructFieldCursor::new(reader, basic_type))
     }
+
+    /// Creates a dynamically‑typed cursor (`Box<dyn FieldCursor>`) for this field.
+    ///
+    /// This convenience factory inspects the field's [`BasicTypeDescriptor`] and
+    /// constructs the most specific cursor implementation available, erasing the
+    /// concrete cursor type behind `dyn FieldCursor`.
+    pub fn create_dyn_cursor(
+        &self,
+        positions_hint: impl PositionSeries<u64> + Clone,
+    ) -> Result<Box<dyn FieldCursor>> {
+        let ty = self.basic_type();
+        match ty.basic_type {
+            BasicType::Boolean => Ok(Box::new(
+                self.create_primitive_cursor::<u8>(positions_hint)?,
+            )),
+            BasicType::Int8 => {
+                if ty.signed {
+                    Ok(Box::new(
+                        self.create_primitive_cursor::<i8>(positions_hint)?,
+                    ))
+                } else {
+                    Ok(Box::new(
+                        self.create_primitive_cursor::<u8>(positions_hint)?,
+                    ))
+                }
+            }
+            BasicType::Int16 => {
+                if ty.signed {
+                    Ok(Box::new(
+                        self.create_primitive_cursor::<i16>(positions_hint)?,
+                    ))
+                } else {
+                    Ok(Box::new(
+                        self.create_primitive_cursor::<u16>(positions_hint)?,
+                    ))
+                }
+            }
+            BasicType::Int32 => {
+                if ty.signed {
+                    Ok(Box::new(
+                        self.create_primitive_cursor::<i32>(positions_hint)?,
+                    ))
+                } else {
+                    Ok(Box::new(
+                        self.create_primitive_cursor::<u32>(positions_hint)?,
+                    ))
+                }
+            }
+            BasicType::Int64 => {
+                if ty.signed {
+                    Ok(Box::new(
+                        self.create_primitive_cursor::<i64>(positions_hint)?,
+                    ))
+                } else {
+                    Ok(Box::new(
+                        self.create_primitive_cursor::<u64>(positions_hint)?,
+                    ))
+                }
+            }
+            BasicType::Float32 => Ok(Box::new(
+                self.create_primitive_cursor::<f32>(positions_hint)?,
+            )),
+            BasicType::Float64 => Ok(Box::new(
+                self.create_primitive_cursor::<f64>(positions_hint)?,
+            )),
+            BasicType::Binary | BasicType::FixedSizeBinary | BasicType::Guid => {
+                Ok(Box::new(self.create_bytes_cursor(positions_hint)?))
+            }
+            BasicType::String => Ok(Box::new(self.create_string_cursor(positions_hint)?)),
+            BasicType::DateTime => Ok(Box::new(
+                self.create_primitive_cursor::<u64>(positions_hint)?,
+            )),
+            BasicType::List | BasicType::Map => {
+                Ok(Box::new(self.create_list_cursor(positions_hint)?))
+            }
+            BasicType::Struct | BasicType::FixedSizeList => {
+                // TODO: for fixed-size list, we may want to implement a dedicated FixedSizeList
+                // cursor that returns (nullable) computed ranges. This may be more convenient
+                // for the consumers.
+                Ok(Box::new(self.create_struct_cursor(positions_hint)?))
+            }
+            BasicType::Union => todo!(),
+            _ => panic!("FieldDecoder with basic type {ty} is unexpected"),
+        }
+    }
 }
 
 /// A reader for the stripe field data that efficiently accesses and decodes
@@ -616,6 +701,193 @@ pub trait FieldReader: Send + Sync + 'static {
     /// For contiguous range access, prefer `read_range` which handles block boundary
     /// crossing and range extraction automatically.
     fn read_containing_block(&mut self, position: u64) -> Result<DecodedBlock>;
+}
+
+/// A cursor abstraction for iterator-style, sparse / forward-biased access to values
+/// within a single field (column) of a stripe.
+///
+/// # Purpose
+///
+/// `FieldCursor` is a lightweight, block–aware accessor sitting on top of a
+/// [`FieldReader`]. It optimizes random-sparse and mostly forward access patterns by:
+/// * Caching the entire decoded storage block that contains the most recently
+///   accessed logical position
+/// * Serving subsequent queries that fall inside that cached block without I/O
+/// * Only performing new I/O / decode work when the requested position lies outside
+///   the cached block range
+///
+/// # Two Access Modes
+///
+/// The API exposes two complementary groups of methods:
+///
+/// 1. **Cached (no-fail) accessors** — prefixed with `cached_`.
+///    * These assume the caller has already ensured the target position is inside
+///      the current cached block (e.g. by examining `cached_range()` or after a
+///      successful `move_to` / fetch call).
+///    * They are infallible and **will panic** if used with an out‑of‑range position.
+///    * Intended for tight inner loops where repeated bounds / error checks would
+///      add measurable overhead.
+/// 2. **Fetching accessors** — methods that take `&mut self` and return `Result<...>`.
+///    * They transparently load & decode a new block if needed.
+///    * They return decoding / I/O errors instead of panicking.
+///    * Safe to call for arbitrary logical positions in non-descending order. (They
+///      may also work for descending access but will often be less efficient due to
+///      cache misses.)
+///
+/// # Null Semantics
+///
+/// * Nullability is derived from the underlying presence bitmap (or trivial
+///   presence for non-nullable fields).
+/// * `*_is_null` / `*_nullable_*` helpers distinguish between “value present” and
+///   “value absent (null)”. For fixed-size primitive fields, null positions still
+///   have placeholder bytes in the values buffer; rely on the null check to decide
+///   whether to interpret them.
+///
+/// # Performance Notes
+///
+/// * Access patterns with spatial locality (ascending, small skips) maximize cache
+///   hits.
+/// * Repeatedly jumping across far-apart positions causes frequent block
+///   replacements and higher I/O.
+/// * Use cached methods inside hot loops after one positioning call (`move_to` or a
+///   `fetch_*`).
+///
+/// # Invariants Expected of Implementations
+///
+/// * After a successful `move_to(p)` or `fetch_*`/`is_null(p)` returning `Ok`, the
+///   returned / active cached range always contains `p`.
+/// * The range returned by `move_to` equals `cached_range()` immediately after.
+/// * Cached methods never mutate internal state beyond read-only views.
+///
+/// # When To Use
+///
+/// Choose a `FieldCursor` when you need:
+/// * Random access to scattered positions without materializing large ranges
+/// * A zero-copy or near-zero-copy view into decoded blocks
+/// * Fine-grained control over per-position processing
+///
+/// Prefer a `FieldReader` when you need:
+/// * Contiguous large ranges
+/// * Bulk vectorized processing across boundaries
+///
+/// # See Also
+///
+/// * [`FieldDecoder::create_*_cursor`](FieldDecoder) factory helpers.
+/// * [`FieldReader`] for bulk range reads.
+///
+/// # Implementation Guidance
+///
+/// Cursor implementors should:
+/// * Store current `DecodedBlock` (or equivalent) plus its logical range
+/// * Avoid reallocating on cached accesses
+/// * Validate in debug builds that cached methods are only called in-range
+pub trait FieldCursor: Send + Sync + 'static {
+    fn as_any(&self) -> &(dyn std::any::Any + Send + Sync + 'static);
+
+    /// Returns the basic type descriptor for the underlying field.
+    fn basic_type(&self) -> BasicTypeDescriptor;
+
+    /// Positions the cursor on the block covering `position`, decoding it if needed.
+    ///
+    /// If the current cached block already contains `position`, no I/O occurs and the
+    /// existing range is returned. Otherwise, implementations must fetch & decode the
+    /// block containing `position`, update internal cache state, and return the new
+    /// logical range.
+    ///
+    /// # Returns
+    ///
+    /// The full logical position range `[start, end)` of the now-cached block.
+    ///
+    /// # Errors
+    ///
+    /// * Propagates underlying storage / I/O / decoding failures.
+    fn move_to(&mut self, position: u64) -> Result<Range<u64>>;
+
+    /// Returns the logical position range of the currently cached block.
+    ///
+    /// # Invariant
+    ///
+    /// * After any successful `move_to` / `fetch_*` / `is_null` call for position `p`,
+    ///   `cached_range().contains(&p)` holds.
+    ///
+    /// # Panics
+    ///
+    /// Never panics.
+    fn cached_range(&self) -> Range<u64>;
+
+    /// Returns whether the value at `position` (must be in the cached range) is null.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `position` is **not** inside `cached_range()`.
+    fn cached_is_null(&self, position: u64) -> bool;
+
+    /// Returns the raw bytes of the (possibly placeholder) value at `position`
+    /// (must be in the cached range).
+    ///
+    /// For:
+    /// * Primitive fields: Returns a slice of length equal to the primitive size.
+    /// * Boolean fields: One byte (`0` or `1`).
+    /// * Variable-length bytes / string fields: Slice over the concatenated values
+    ///   buffer specific to that logical element.
+    /// * List and Map fields: a pair of `u64` values (returned as a 16‑byte slice)
+    ///   representing the child element offset range for the logical list/map value:
+    ///   `[start, end)` (start inclusive, end exclusive).
+    /// * Struct / presence-only fields: Implementations typically return an empty
+    ///   slice (`&[]`).
+    ///
+    /// # Null Handling
+    ///
+    /// The returned slice is **not** guaranteed to represent a valid value if the
+    /// position is null. Always check `cached_is_null` first for semantic validity.
+    ///
+    /// # Panics
+    ///
+    /// * If `position` is outside `cached_range()`.
+    fn cached_value_as_bytes(&self, position: u64) -> &[u8];
+
+    /// Returns `Some(bytes)` for a non-null value or `None` if null, restricted to
+    /// the cached range.
+    ///
+    /// Convenience wrapper combining `cached_is_null` + `cached_value_as_bytes`.
+    ///
+    /// # Panics
+    ///
+    /// * If `position` is outside `cached_range()`.
+    fn cached_nullable_as_bytes(&self, position: u64) -> Option<&[u8]>;
+
+    /// Determines whether the value at `position` is null, fetching / decoding a
+    /// new block if necessary.
+    ///
+    /// # Errors
+    ///
+    /// Propagates decoding / I/O failures encountered while loading a new block.
+    fn fetch_is_null(&mut self, position: u64) -> Result<bool>;
+
+    /// Returns the raw bytes of the value at `position`, loading a new block if
+    /// needed.
+    ///
+    /// # Null Handling
+    ///
+    /// For nullable fields, callers must still invoke `is_null` (or use
+    /// `fetch_nullable_as_bytes`) to interpret semantic validity. The returned
+    /// bytes for null positions may be zeroed or unspecified placeholder content.
+    ///
+    /// # Errors
+    ///
+    /// * I/O / decoding errors on cache miss.
+    fn fetch_value_as_bytes(&mut self, position: u64) -> Result<&[u8]>;
+
+    /// Returns `Ok(Some(bytes))` when the value at `position` is non-null, or
+    /// `Ok(None)` if it is null, fetching a block if required.
+    ///
+    /// # Semantics
+    /// * Combines `is_null` + `fetch_value_as_bytes` atomically with respect to
+    ///   caching, ensuring only one decode on miss.
+    ///
+    /// # Errors
+    /// * I/O / decoding errors on cache miss.
+    fn fetch_nullable_as_bytes(&mut self, position: u64) -> Result<Option<&[u8]>>;
 }
 
 /// A constant field reader that can handle both primitive and binary types.

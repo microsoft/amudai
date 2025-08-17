@@ -14,7 +14,10 @@ use amudai_format::{
 use amudai_ranges::PositionSeries;
 use amudai_sequence::sequence::ValueSequence;
 
-use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
+use crate::{
+    read::{field_context::FieldContext, field_decoder::FieldCursor},
+    write::field_encoder::EncodedField,
+};
 
 use super::{ConstantFieldReader, FieldReader};
 
@@ -178,10 +181,11 @@ impl PrimitiveFieldDecoder {
 
 /// A cursor for iterator-style access to primitive values in a stripe field.
 ///
-/// `PrimitiveFieldCursor<T>` provides optimized access to primitive values through a forward-moving
-/// access pattern with sparse position requests. This approach is both more convenient
-/// and more performant than using `FieldReader` to read entire position ranges when
-/// the access pattern involves reading individual values at specific positions.
+/// `PrimitiveFieldCursor<T>` provides optimized access to primitive values through a
+/// forward-moving access pattern with sparse position requests. This approach is both
+/// more convenient and more performant than using `FieldReader` to read entire position
+/// ranges when the access pattern involves reading individual values at specific
+/// positions.
 ///
 /// The cursor maintains an internal cache of the current data block and only fetches
 /// new blocks when the requested position falls outside the cached block's range,
@@ -386,6 +390,73 @@ where
         let is_valid = self.block.values.presence.is_valid(index);
         let res = is_valid.then(|| self.block.values.as_slice::<T>()[index]);
         Ok(res)
+    }
+}
+
+impl<T> FieldCursor for PrimitiveFieldCursor<T>
+where
+    T: bytemuck::AnyBitPattern + bytemuck::NoUninit + Send + Sync,
+{
+    fn as_any(&self) -> &(dyn std::any::Any + Send + Sync + 'static) {
+        self
+    }
+
+    #[inline]
+    fn basic_type(&self) -> BasicTypeDescriptor {
+        self.basic_type
+    }
+
+    #[inline]
+    fn move_to(&mut self, position: u64) -> Result<Range<u64>> {
+        self.establish_block(position)?;
+        Ok(self.cached_range())
+    }
+
+    #[inline]
+    fn cached_range(&self) -> Range<u64> {
+        self.block.descriptor.logical_range.clone()
+    }
+
+    #[inline]
+    fn cached_is_null(&self, position: u64) -> bool {
+        debug_assert!(self.cached_range().contains(&position));
+        let index = self.position_index(position);
+        self.block.values.presence.is_null(index)
+    }
+
+    #[inline]
+    fn cached_value_as_bytes(&self, position: u64) -> &[u8] {
+        debug_assert!(self.cached_range().contains(&position));
+        let index = self.position_index(position);
+        bytemuck::bytes_of(&self.block.values.as_slice::<T>()[index])
+    }
+
+    #[inline]
+    fn cached_nullable_as_bytes(&self, position: u64) -> Option<&[u8]> {
+        debug_assert!(self.cached_range().contains(&position));
+        if self.cached_is_null(position) {
+            None
+        } else {
+            Some(self.cached_value_as_bytes(position))
+        }
+    }
+
+    #[inline]
+    fn fetch_is_null(&mut self, position: u64) -> Result<bool> {
+        self.establish_block(position)?;
+        Ok(self.cached_is_null(position))
+    }
+
+    #[inline]
+    fn fetch_value_as_bytes(&mut self, position: u64) -> Result<&[u8]> {
+        self.establish_block(position)?;
+        Ok(self.cached_value_as_bytes(position))
+    }
+
+    #[inline]
+    fn fetch_nullable_as_bytes(&mut self, position: u64) -> Result<Option<&[u8]>> {
+        self.establish_block(position)?;
+        Ok(self.cached_nullable_as_bytes(position))
     }
 }
 

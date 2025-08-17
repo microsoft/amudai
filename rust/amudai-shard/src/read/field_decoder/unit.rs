@@ -32,7 +32,10 @@ use amudai_format::{
 use amudai_ranges::PositionSeries;
 use amudai_sequence::{presence::Presence, sequence::ValueSequence, values::Values};
 
-use crate::{read::field_context::FieldContext, write::field_encoder::EncodedField};
+use crate::{
+    read::{field_context::FieldContext, field_decoder::FieldCursor},
+    write::field_encoder::EncodedField,
+};
 
 use super::FieldReader;
 
@@ -368,6 +371,70 @@ impl StructFieldCursor {
     fn fetch_block(&mut self, position: u64) -> Result<()> {
         self.block = self.reader.read_containing_block(position)?;
         Ok(())
+    }
+}
+
+impl FieldCursor for StructFieldCursor {
+    fn as_any(&self) -> &(dyn std::any::Any + Send + Sync + 'static) {
+        self
+    }
+
+    #[inline]
+    fn basic_type(&self) -> BasicTypeDescriptor {
+        self.basic_type
+    }
+
+    #[inline]
+    fn move_to(&mut self, position: u64) -> Result<Range<u64>> {
+        self.establish_block(position)?;
+        Ok(self.cached_range())
+    }
+
+    #[inline]
+    fn cached_range(&self) -> Range<u64> {
+        self.block.descriptor.logical_range.clone()
+    }
+
+    #[inline]
+    fn cached_is_null(&self, position: u64) -> bool {
+        debug_assert!(self.cached_range().contains(&position));
+        let index = self.position_index(position);
+        self.block.values.presence.is_null(index)
+    }
+
+    #[inline]
+    fn cached_value_as_bytes(&self, position: u64) -> &[u8] {
+        debug_assert!(self.cached_range().contains(&position));
+        &[]
+    }
+
+    #[inline]
+    fn cached_nullable_as_bytes(&self, position: u64) -> Option<&[u8]> {
+        if self.cached_is_null(position) {
+            None
+        } else {
+            Some(&[])
+        }
+    }
+
+    #[inline]
+    fn fetch_is_null(&mut self, position: u64) -> Result<bool> {
+        self.is_null(position)
+    }
+
+    #[inline]
+    fn fetch_value_as_bytes(&mut self, position: u64) -> Result<&[u8]> {
+        self.establish_block(position)?;
+        Ok(&[])
+    }
+
+    #[inline]
+    fn fetch_nullable_as_bytes(&mut self, position: u64) -> Result<Option<&[u8]>> {
+        if self.is_null(position)? {
+            Ok(None)
+        } else {
+            Ok(Some(&[]))
+        }
     }
 }
 

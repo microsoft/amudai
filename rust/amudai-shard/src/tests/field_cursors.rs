@@ -1,5 +1,5 @@
 use amudai_blockstream::read::block_stream::empty_hint;
-use amudai_format::schema::SchemaId;
+use amudai_format::schema::{BasicType, SchemaId};
 use amudai_testkit::data_gen::procedural::generate_amudatum_record_batches;
 
 use crate::tests::shard_store::ShardStore;
@@ -226,6 +226,41 @@ fn consume_list_field_cursor(
     }
 }
 
+fn consume_dyn_field_cursor(
+    decoder: &crate::read::field_decoder::FieldDecoder,
+    position_count: u64,
+) {
+    let mut cursor = decoder.create_dyn_cursor(empty_hint()).unwrap();
+    if decoder.basic_type().basic_type == BasicType::List
+        || decoder.basic_type().basic_type == BasicType::Map
+    {
+        let mut prev = 0u64;
+        for pos in 0..position_count {
+            cursor.fetch_value_as_bytes(pos).unwrap();
+            let value = cursor.cached_value_as_bytes(pos);
+            let range = bytemuck::cast_slice::<_, u64>(value);
+            assert_eq!(range.len(), 2);
+            assert_eq!(range[0], prev);
+            prev = range[1];
+        }
+    } else {
+        for pos in 0..position_count {
+            cursor.fetch_value_as_bytes(pos).unwrap();
+            cursor.cached_value_as_bytes(pos);
+        }
+    }
+
+    let mut cursor = decoder.create_dyn_cursor(empty_hint()).unwrap();
+    for pos in (123..position_count).step_by(2157) {
+        cursor.move_to(pos).unwrap();
+        let range = cursor.cached_range();
+        assert!(range.contains(&pos));
+        for p in range {
+            cursor.cached_value_as_bytes(p);
+        }
+    }
+}
+
 fn consume_field_with_cursor(
     decoder: &crate::read::field_decoder::FieldDecoder,
     data_type: &amudai_format::schema::DataType,
@@ -256,4 +291,6 @@ fn consume_field_with_cursor(
         BasicType::Guid => consume_fixed_bytes_field_cursor(decoder, 16, position_count),
         _ => (),
     }
+
+    consume_dyn_field_cursor(decoder, position_count);
 }
