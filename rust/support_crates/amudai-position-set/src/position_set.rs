@@ -32,6 +32,7 @@
 use std::ops::Range;
 
 use amudai_ranges::{
+    PositionSeries,
     put_back::PutBack,
     slice_ext::SliceExt,
     transform::take_within::{TakeRangesWithinExt, TakeWithinExt},
@@ -527,6 +528,18 @@ impl PositionSet {
     }
 }
 
+impl PositionSeries<u64> for &PositionSet {
+    const RANGES: bool = false;
+
+    fn into_ranges(self) -> impl IntoIterator<Item = Range<u64>> + Clone {
+        self.ranges()
+    }
+
+    fn into_positions(self) -> impl IntoIterator<Item = u64> + Clone {
+        self.positions()
+    }
+}
+
 /// Summary statistics for a PositionSet and its internal layout.
 ///
 /// Fields:
@@ -562,6 +575,7 @@ pub struct PositionSetStats {
 }
 
 /// Iterator over absolute positions across all segments in a `PositionSet`.
+#[derive(Clone)]
 pub struct PositionsIter<'a> {
     segments: std::slice::Iter<'a, Segment>,
     current: Option<crate::segment::PositionsIter<'a>>,
@@ -626,6 +640,7 @@ impl<'a> Iterator for PositionsIter<'a> {
 }
 
 /// Iterator over contiguous absolute ranges across all segments in a `PositionSet`.
+#[derive(Clone)]
 pub struct RangesIter<'a> {
     segments: std::slice::Iter<'a, Segment>,
     current: Option<crate::segment::RangesIter<'a>>,
