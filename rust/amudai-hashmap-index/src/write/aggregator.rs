@@ -2,57 +2,49 @@ use crate::write::builder::get_entry_bucket_index;
 use amudai_collections::identity_hash::IdentityHashMap;
 use amudai_common::Result;
 use amudai_io::{IoStream, temp_file_store::TemporaryFileStore};
-use rayon::prelude::*;
+use rayon::slice::ParallelSliceMut;
 use std::{
     io::{BufReader, BufWriter, Read, Write},
     sync::Arc,
 };
 
-/// Uses temporary files to store hash-position entries, making it suitable for
-/// large datasets that cannot fit in memory. Supports parallel processing
-/// through multiple temporary files and bucket-based organization.
+/// Uses a single temporary file to store hash-position entries, making it suitable for
+/// large datasets that cannot fit in memory. Aggregation and sorting are performed
+/// sequentially within a partition; parallelism is retained only at the partition level.
 pub struct EntriesAggregator {
     temp_store: Arc<dyn TemporaryFileStore>,
-    temp_files: Vec<BufWriter<Box<dyn IoStream>>>,
-    max_memory_usage: usize,
+    temp_file: Option<BufWriter<Box<dyn IoStream>>>,
 }
 
 impl EntriesAggregator {
     /// Creates a new disk-based entries aggregator and sorter.
     ///
-    /// The aggregator uses temporary files to sort entries. The number of files
-    /// is determined by the available parallelism of the system (usually, the
-    /// number of CPU cores).
+    /// The aggregator uses a single temporary file per partition to persist
+    /// intermediate results.
     ///
     /// # Parameters
     ///
     /// * `temp_store` - The temporary file store to use for creating temporary files.
-    ///                  
-    /// * `max_memory_usage` - The maximum memory usage allowed for the aggregator. This is
-    ///   a recommendation that affects the number of sorters running
-    ///   in parallel. It's still possible that a single sorter uses
-    ///   more memory than this limit.
     ///
     /// # Errors
     /// Returns an error if temporary file allocation fails.
-    pub fn new(temp_store: Arc<dyn TemporaryFileStore>, max_memory_usage: usize) -> Result<Self> {
-        let num_files = std::thread::available_parallelism()?
-            .get()
-            .next_power_of_two()
-            .max(2);
-        let temp_files = (0..num_files)
-            .map(|_| {
-                temp_store
-                    .allocate_stream(None)
-                    .map_err(|e| e.into())
-                    .map(BufWriter::new)
-            })
-            .collect::<Result<Vec<_>>>()?;
+    pub fn new(temp_store: Arc<dyn TemporaryFileStore>) -> Result<Self> {
+        let temp_file = Some(BufWriter::new(temp_store.allocate_stream(None)?));
         Ok(EntriesAggregator {
             temp_store,
-            temp_files,
-            max_memory_usage,
+            temp_file,
         })
+    }
+
+    /// Returns an estimated memory usage required to aggregate and sort
+    /// the current temporary file content during `finish()`.
+    ///
+    /// Heuristic: approximately 2x of the current temp file size.
+    pub fn estimated_mem_size(&self) -> usize {
+        self.temp_file
+            .as_ref()
+            .map(|w| (w.get_ref().current_size() as usize).saturating_mul(2))
+            .unwrap_or(0)
     }
 
     /// Adds a new hash-position entry to the aggregator.
@@ -64,8 +56,10 @@ impl EntriesAggregator {
     /// # Returns
     /// Returns `Ok(())` on success, or an error if the operation fails.
     pub fn push_entry(&mut self, hash: u64, position: u64) -> Result<()> {
-        let bucket_index = get_entry_bucket_index(hash, self.temp_files.len());
-        let temp_file = &mut self.temp_files[bucket_index];
+        let temp_file = self
+            .temp_file
+            .as_mut()
+            .expect("entries aggregator temp file should be available");
         temp_file.write_all(&hash.to_le_bytes())?;
         temp_file.write_all(&position.to_le_bytes())?;
         Ok(())
@@ -79,22 +73,12 @@ impl EntriesAggregator {
     /// # Returns
     /// Returns the number of unique hash entries that were aggregated.
     pub fn finish(&mut self) -> Result<usize> {
-        let temp_files = std::mem::take(&mut self.temp_files);
-        let aggregated_results = temp_files
-            .into_par_iter()
-            .map(|temp_file| self.aggregate_entries(temp_file))
-            .collect::<Result<Vec<_>>>()?;
-
-        let unique_count = aggregated_results
-            .iter()
-            .map(|(_, count)| count)
-            .sum::<usize>();
-
-        self.temp_files = aggregated_results
-            .into_iter()
-            .map(|(temp_file, _)| temp_file)
-            .collect::<Vec<_>>();
-
+        let temp_file = self
+            .temp_file
+            .take()
+            .expect("entries aggregator temp file should be available");
+        let (aggregated_file, unique_count) = self.aggregate_entries(temp_file)?;
+        self.temp_file = Some(aggregated_file);
         Ok(unique_count)
     }
 
@@ -109,37 +93,12 @@ impl EntriesAggregator {
     /// # Returns
     /// Returns a struct `SortedEntries` for iterating over sorted entries.
     pub fn sorted_entries(&mut self, buckets_count: usize) -> Result<SortedEntries> {
-        let mut temp_files = std::mem::take(&mut self.temp_files)
-            .into_iter()
-            .map(Some)
-            .collect::<Vec<_>>();
-
-        // Estimate the memory usage per file based on the current size of each temporary file.
-        let estimated_mem_usage_per_file = temp_files
-            .iter()
-            .map(|temp_file| temp_file.as_ref().unwrap().get_ref().current_size() * 2)
-            .max()
-            .unwrap() as usize;
-
-        let allowed_parallelism = (self.max_memory_usage / estimated_mem_usage_per_file)
-            .max(1)
-            .min(temp_files.len());
-
-        // Sort the aggregated entries in parallel, using the allowed parallelism
-        // to limit the number of concurrent sort operations.
-        let temp_files = temp_files
-            .chunks_mut(allowed_parallelism)
-            .flat_map(|chunk| {
-                chunk
-                    .into_par_iter()
-                    .map(|temp_file| {
-                        self.sort_aggregated_entries(temp_file.take().unwrap(), buckets_count)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        SortedEntries::new(temp_files, buckets_count)
+        let temp_file = self
+            .temp_file
+            .take()
+            .expect("aggregated temp file should be available");
+        let sorted_stream = self.sort_aggregated_entries(temp_file, buckets_count)?;
+        SortedEntries::new(vec![sorted_stream], buckets_count)
     }
 
     /// Reads the dumped entries from a temporary file, aggregates position lists by hash,

@@ -42,10 +42,6 @@ pub struct IndexedEntry {
 /// including partitioning settings, storage configuration, and memory management options.
 #[derive(Clone)]
 pub struct HashmapIndexBuilderParams {
-    /// The number of partitions in the index.
-    /// If this number is not a power of two, it will be rounded up to the next power of two.
-    pub partitions_count: usize,
-
     /// A hint for memory budget in bytes during index building.
     /// This value is used to configure the number of sorters running in parallel.
     /// By default, this parameter is set to 1GB.
@@ -72,30 +68,14 @@ pub struct HashmapIndexBuilderParams {
 }
 
 impl HashmapIndexBuilderParams {
-    /// Maximum allowed number of partitions to prevent excessive overhead.
-    const MAX_PARTITIONS_COUNT: usize = 1024;
-
     /// Default memory usage limit for the index builder.
     const DEFAULT_MEM_USAGE_LIMIT: usize = 1024 * 1024 * 1024; // 1 GB
-
-    /// Calculates the effective number of partitions for the index.
-    /// The resulted number is rounded to next power of two if necessary
-    /// and capped at `MAX_PARTITIONS_COUNT`.
-    pub fn partitions_count(&self) -> usize {
-        self.partitions_count
-            .next_power_of_two()
-            .min(Self::MAX_PARTITIONS_COUNT)
-    }
 
     /// Returns the effective maximum memory usage for the index builder.
     /// Default is 1GB, but can be overridden by setting `max_memory_usage`.
     pub fn max_memory_usage(&self) -> usize {
         self.max_memory_usage
             .unwrap_or(Self::DEFAULT_MEM_USAGE_LIMIT)
-    }
-
-    pub fn max_memory_usage_per_partition(&self) -> usize {
-        self.max_memory_usage() / self.partitions_count()
     }
 }
 
@@ -160,18 +140,27 @@ pub struct HashmapIndexBuilder {
     /// based on the hash value.
     partition_bits: u8,
     partition_builders: Vec<Arc<Mutex<HashmapIndexPartitionBuilder>>>,
+    max_memory_usage: usize,
 }
 
 impl HashmapIndexBuilder {
+    /// Minimum number of partitions to ensure parallelism and balanced load.
+    const MIN_PARTITIONS_COUNT: usize = 8;
+
+    /// Maximum allowed number of partitions to prevent excessive overhead.
+    const MAX_PARTITIONS_COUNT: usize = 1024;
+
     /// Creates a new hashmap index builder with the given parameters.
     ///
-    /// The builder creates partitions based on [HashmapIndexBuilderParams::effective_partitions_count].
+    /// The builder decides on the number of partitions automatically based on
+    /// available parallelism (rounded up to the nearest power of two) with a
+    /// minimum of 8 partitions, and caps it at an internal maximum.
     /// Each partition has its own builder for parallel processing.
     ///
     /// # Errors
     /// Returns an error if the builder cannot be initialized due to storage or schema issues
     pub fn new(params: HashmapIndexBuilderParams) -> Result<Self> {
-        let partitions_count = params.partitions_count();
+        let partitions_count = Self::decide_partitions_count();
         let partition_bits = partitions_count.trailing_zeros() as u8;
 
         let shard_params = ShardBuilderParams {
@@ -196,7 +185,23 @@ impl HashmapIndexBuilder {
         Ok(HashmapIndexBuilder {
             partition_builders,
             partition_bits,
+            max_memory_usage: params.max_memory_usage(),
         })
+    }
+
+    /// Decides the number of partitions to use for the index build.
+    ///
+    /// Strategy:
+    /// - Use the available parallelism of the system (hardware threads) as a baseline
+    /// - Round up to the next power of two to simplify bit operations in partitioning
+    /// - Enforce a minimum of `Self::MIN_PARTITIONS_COUNT` partitions
+    /// - Cap to `Self::MAX_PARTITIONS_COUNT`
+    fn decide_partitions_count() -> usize {
+        let hw = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        let count = hw.next_power_of_two().max(Self::MIN_PARTITIONS_COUNT);
+        count.min(Self::MAX_PARTITIONS_COUNT)
     }
 
     /// Add entries to the index for processing.
@@ -232,17 +237,43 @@ impl HashmapIndexBuilder {
     /// # Errors
     /// Returns an error if any partition fails to finish or during aggregation
     pub fn finish(self) -> Result<PreparedHashmapIndex> {
-        let partitions = self
+        // Unwrap the Arc<Mutex<...>> and collect plain builders.
+        let mut builders: Vec<HashmapIndexPartitionBuilder> = self
             .partition_builders
-            .into_par_iter()
+            .into_iter()
             .map(|builder| {
                 Arc::try_unwrap(builder)
                     .unwrap_or_else(|_| panic!("Expected single reference to partition builder"))
                     .into_inner()
                     .unwrap()
-                    .finish()
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect();
+
+        if builders.is_empty() {
+            return Ok(PreparedHashmapIndex { partitions: vec![] });
+        }
+
+        // Balanced partitions assumption: use the average memory usage per partition.
+        let mem_usage_per_partition = builders
+            .iter()
+            .map(|b| b.estimated_mem_size())
+            .sum::<usize>()
+            / builders.len();
+
+        // Calculate the maximum allowed parallelism based on prospective memory usage.
+        let allowed_parallelism = (self.max_memory_usage / mem_usage_per_partition.max(1)).max(1);
+
+        let mut partitions = Vec::with_capacity(builders.len());
+        while !builders.is_empty() {
+            let chunk_size = builders.len().min(allowed_parallelism);
+            let chunk = builders.drain(0..chunk_size).collect::<Vec<_>>();
+            let mut finished = chunk
+                .into_par_iter()
+                .map(|b| b.finish())
+                .collect::<Result<Vec<_>>>()?;
+            partitions.append(&mut finished);
+        }
+
         Ok(PreparedHashmapIndex { partitions })
     }
 }
@@ -268,15 +299,18 @@ impl HashmapIndexPartitionBuilder {
         params: HashmapIndexBuilderParams,
         shard_params: ShardBuilderParams,
     ) -> Result<Self> {
-        let aggregator = EntriesAggregator::new(
-            Arc::clone(&params.temp_store),
-            params.max_memory_usage_per_partition(),
-        )?;
+        let aggregator = EntriesAggregator::new(Arc::clone(&params.temp_store))?;
         Ok(HashmapIndexPartitionBuilder {
             partition_index,
             shard_params,
             aggregator,
         })
+    }
+
+    /// Estimates the memory required to finish this partition based on
+    /// the current aggregator state.
+    fn estimated_mem_size(&self) -> usize {
+        self.aggregator.estimated_mem_size()
     }
 
     /// Adds a batch of indexed entries to this partition.
@@ -700,7 +734,6 @@ pub(crate) mod tests {
     #[test]
     fn test_hashmap_index_build() {
         let params = HashmapIndexBuilderParams {
-            partitions_count: 8,
             max_memory_usage: Some(32 * 1024 * 1024),
             object_store: Arc::new(NullObjectStore),
             temp_store: temp_file_store::create_in_memory(32 * 1024 * 1024).unwrap(),
@@ -721,8 +754,9 @@ pub(crate) mod tests {
         let sealed_index = prepared_index
             .seal("null:///tmp/test_hashmap_index")
             .unwrap();
-
-        assert_eq!(params.partitions_count, sealed_index.partitions.len());
+        // Builder decides partition count: ensure it's power-of-two and non-zero
+        assert!(sealed_index.partitions.len().is_power_of_two());
+        assert!(sealed_index.partitions.len() > 0);
         assert_eq!(
             get_buckets_count(unique_entries) as u64,
             sealed_index

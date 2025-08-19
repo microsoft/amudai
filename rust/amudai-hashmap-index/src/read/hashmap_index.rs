@@ -284,7 +284,6 @@ mod tests {
     fn test_hashmap_index_lookup() {
         let shard_store = ShardStore::new();
         let params = HashmapIndexBuilderParams {
-            partitions_count: 8,
             max_memory_usage: Some(32 * 1024 * 1024),
             object_store: Arc::clone(&shard_store.object_store),
             temp_store: temp_file_store::create_in_memory(32 * 1024 * 1024).unwrap(),
