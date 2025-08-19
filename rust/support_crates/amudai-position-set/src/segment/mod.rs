@@ -645,6 +645,96 @@ impl Segment {
         }
     }
 
+    /// In-place union with `other`.
+    pub fn union_with(&mut self, other: &Segment) {
+        let span = self.span();
+        assert_eq!(
+            span,
+            other.span(),
+            "Segment spans must match for union: left={:?}, right={:?}",
+            span,
+            other.span()
+        );
+
+        if matches!(self, Segment::Empty(_)) {
+            *self = other.clone();
+            return;
+        }
+
+        if matches!(other, Segment::Full(_)) {
+            *self = Segment::Full(FullSegment::new(span));
+            return;
+        }
+
+        match (self, other) {
+            (_, Segment::Empty(_)) => (),
+            (Segment::Full(_), _) => (),
+            (Segment::Bits(this), Segment::Bits(right)) => {
+                this.union_with(right);
+            }
+            (Segment::List(this), Segment::List(right))
+                if this.count_positions() + right.count_positions()
+                    <= Segment::MAX_LIST_LEN as usize =>
+            {
+                this.union_with(right);
+            }
+            (Segment::Ranges(this), Segment::Ranges(right))
+                if this.count_runs() + right.count_runs() <= Segment::MAX_RANGES_LEN as usize =>
+            {
+                *this = this.union(right);
+            }
+
+            // For mixed types or when the result size estimation might exceed the representation
+            // thresholds, convert both to bits and perform union.
+            (Segment::Bits(this), right) => {
+                this.union_with(&right.to_bits());
+            }
+            (this, right) => {
+                let mut bits = this.to_bits().into_owned();
+                let right_bits = right.to_bits();
+                bits.union_with(&right_bits);
+                // Optimize the result to choose the best representation
+                let mut result = Segment::Bits(bits);
+                result.optimize();
+                *this = result;
+            }
+        }
+    }
+
+    /// Merges (unions) `other` into `self`, consuming `other`.
+    ///
+    /// Semantics
+    /// - Set operation: `self <- self ∪ other`.
+    /// - Equivalent to calling [`union_with`] with a borrow of `other`, but takes
+    ///   ownership so it can avoid cloning in fast paths (e.g. when `self` is empty).
+    /// - After return, all positions set in either original segment are set in `self`.
+    ///
+    /// Fast paths
+    /// - If `self` is `Empty`, it is replaced by `other` (moved, no clone).
+    /// - If `other` is `Full`, `self` becomes `Full`.
+    /// - Otherwise it defers to the same logic as [`union_with`].
+    pub fn merge_with(&mut self, other: Segment) {
+        let span = self.span();
+        assert_eq!(
+            span,
+            other.span(),
+            "Segment spans must match for merge: left={:?}, right={:?}",
+            span,
+            other.span()
+        );
+
+        if matches!(self, Segment::Empty(_)) || matches!(other, Segment::Full(_)) {
+            *self = other;
+            return;
+        }
+
+        if matches!(self, Segment::Full(_)) || matches!(other, Segment::Empty(_)) {
+            return;
+        }
+
+        self.union_with(&other);
+    }
+
     /// Computes the intersection of two segments with the same `span`.
     ///
     /// Behavior
@@ -695,6 +785,59 @@ impl Segment {
         }
     }
 
+    /// In-place intersection with `other`.
+    pub fn intersect_with(&mut self, other: &Segment) {
+        let span = self.span();
+        assert_eq!(
+            span,
+            other.span(),
+            "Segment spans must match for intersect_with: left={:?}, right={:?}",
+            span,
+            other.span()
+        );
+
+        if matches!(self, Segment::Empty(_)) || matches!(other, Segment::Full(_)) {
+            return;
+        }
+
+        if matches!(other, Segment::Empty(_)) {
+            *self = Segment::Empty(EmptySegment::new(span));
+            return;
+        }
+
+        if matches!(self, Segment::Full(_)) {
+            *self = other.clone();
+            return;
+        }
+
+        match (self, other) {
+            (Segment::Bits(this), Segment::Bits(right)) => {
+                this.intersect_with(right);
+            }
+            (Segment::List(this), Segment::List(right)) => {
+                this.intersect_with(right);
+            }
+            (Segment::Ranges(this), Segment::Ranges(right)) => {
+                *this = this.intersect(right);
+            }
+
+            // If self already bits, just AND with other's bits view.
+            (Segment::Bits(this), right) => {
+                this.intersect_with(&right.to_bits());
+            }
+
+            // Mixed types (self not Bits). Convert self to bits, AND, then optimize.
+            (this, right) => {
+                let mut bits = this.to_bits().into_owned();
+                let right_bits = right.to_bits();
+                bits.intersect_with(&right_bits);
+                let mut result = Segment::Bits(bits);
+                result.optimize();
+                *this = result;
+            }
+        }
+    }
+
     pub fn complement(&self) -> Segment {
         match self {
             Segment::Empty(empty) => Segment::Full(empty.complement()),
@@ -714,6 +857,30 @@ impl Segment {
                 let mut result = Segment::Ranges(complement_ranges);
                 result.optimize();
                 result
+            }
+        }
+    }
+
+    pub fn complement_in_place(&mut self) {
+        let span = self.span();
+        match self {
+            Segment::Empty(_) => *self = Segment::Full(FullSegment::new(span)),
+            Segment::Full(_) => *self = Segment::Empty(EmptySegment::new(span)),
+            Segment::List(list) => {
+                let complement_bits = list.complement_as_bits();
+                *self = Segment::Bits(complement_bits);
+            }
+            Segment::Bits(bits) => {
+                let complement_bits = bits.complement();
+                let mut result = Segment::Bits(complement_bits);
+                result.optimize();
+                *self = result;
+            }
+            Segment::Ranges(ranges) => {
+                let complement_ranges = ranges.complement();
+                let mut result = Segment::Ranges(complement_ranges);
+                result.optimize();
+                *self = result;
             }
         }
     }

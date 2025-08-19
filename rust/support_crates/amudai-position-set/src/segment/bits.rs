@@ -193,6 +193,16 @@ impl BitSegment {
         }
     }
 
+    /// In-place union (bitwise OR) with `other`.
+    pub fn union_with(&mut self, other: &BitSegment) {
+        assert_eq!(
+            self.span, other.span,
+            "BitSegment spans must match for union: left={:?}, right={:?}",
+            self.span, other.span
+        );
+        self.bits |= &other.bits;
+    }
+
     /// Computes the intersection of two segments (positions present in both).
     ///
     /// Panics if `other.span != self.span`.
@@ -209,6 +219,16 @@ impl BitSegment {
         }
     }
 
+    /// In-place intersection (bitwise AND) with `other`.
+    pub fn intersect_with(&mut self, other: &BitSegment) {
+        assert_eq!(
+            self.span, other.span,
+            "BitSegment spans must match for intersect: left={:?}, right={:?}",
+            self.span, other.span
+        );
+        self.bits &= &other.bits;
+    }
+
     /// Computes the complement (negation) within this segment's span.
     pub fn complement(&self) -> BitSegment {
         let bits = !&self.bits;
@@ -216,6 +236,11 @@ impl BitSegment {
             span: self.span.clone(),
             bits,
         }
+    }
+
+    /// In-place negation.
+    pub fn complement_in_place(&mut self) {
+        self.bits.negate();
     }
 
     /// Calls `f(rank, pos)` for every set position in ascending order.

@@ -574,6 +574,37 @@ impl ListSegment {
         ListSegment::new(self.span(), out)
     }
 
+    /// In-place union with `other`.
+    pub fn union_with(&mut self, other: &ListSegment) {
+        assert_eq!(
+            self.span, other.span,
+            "ListSegment spans must match for union_with: left={:?}, right={:?}",
+            self.span, other.span
+        );
+
+        if other.values.is_empty() {
+            return;
+        }
+
+        if self.values.is_empty() {
+            self.values = other.values.clone();
+            return;
+        }
+
+        let span_len = (self.span.end - self.span.start) as usize;
+        if self.values.len() == span_len {
+            return;
+        }
+
+        if other.values.len() == span_len {
+            self.values = other.values.clone();
+            return;
+        }
+
+        let res = self.union(other);
+        self.values = res.values;
+    }
+
     /// Computes the intersection of two segments (positions present in both).
     ///
     /// Panics if `other.span != self.span`.
@@ -608,6 +639,63 @@ impl ListSegment {
 
         out.shrink_to_fit();
         ListSegment::new(self.span(), out)
+    }
+
+    /// In-place intersection with `other`.
+    pub fn intersect_with(&mut self, other: &ListSegment) {
+        assert_eq!(
+            self.span, other.span,
+            "ListSegment spans must match for intersect_with: left={:?}, right={:?}",
+            self.span, other.span
+        );
+
+        if self.values.is_empty() {
+            return;
+        }
+
+        if other.values.is_empty() {
+            self.values = Vec::new();
+            return;
+        }
+
+        let span_len = (self.span.end - self.span.start) as usize;
+
+        if other.values.len() == span_len {
+            return;
+        }
+
+        if self.values.len() == span_len {
+            let n = other.values.len();
+            self.values[..n].copy_from_slice(&other.values);
+            self.values.truncate(n);
+            return;
+        }
+
+        let mut write = 0usize;
+        let mut i = 0usize;
+        let mut j = 0usize;
+        let a_len = self.values.len();
+        let b_len = other.values.len();
+
+        while i < a_len && j < b_len {
+            use std::cmp::Ordering;
+            match self.values[i].cmp(&other.values[j]) {
+                Ordering::Equal => {
+                    self.values[write] = self.values[i];
+                    write += 1;
+                    i += 1;
+                    j += 1;
+                }
+                Ordering::Less => {
+                    i += 1;
+                }
+                Ordering::Greater => {
+                    j += 1;
+                }
+            }
+        }
+
+        self.values.truncate(write);
     }
 
     /// Computes the complement (negation) within this segment's span.

@@ -45,6 +45,7 @@ use crate::segment::{Segment, SegmentKind};
 /// PositionSet is optimized for sparse, dense, and mixed distributions. Internally it
 /// partitions the space into fixed-size segments (Segment::SPAN) and picks an adaptive
 /// representation per segment to balance memory and speed.
+#[derive(Clone)]
 pub struct PositionSet {
     segments: Vec<Segment>,
     span: u64,
@@ -240,6 +241,15 @@ impl PositionSet {
         )
     }
 
+    /// In-place union with `other`.
+    pub fn union_with(&mut self, other: &PositionSet) {
+        assert_eq!(self.span, other.span);
+        self.segments
+            .iter_mut()
+            .zip(other.segments.iter())
+            .for_each(|(this, other)| this.union_with(other));
+    }
+
     /// Parallel set union using internal data-parallelism.
     ///
     /// Behavior matches [`union`](Self::union) but processes segments in parallel.
@@ -268,6 +278,15 @@ impl PositionSet {
         )
     }
 
+    /// In-place intersection with `other`.
+    pub fn intersect_with(&mut self, other: &PositionSet) {
+        assert_eq!(self.span, other.span);
+        self.segments
+            .iter_mut()
+            .zip(other.segments.iter())
+            .for_each(|(this, other)| this.intersect_with(other));
+    }
+
     /// Parallel set intersection using internal data-parallelism.
     ///
     /// Behavior matches [`intersect`](Self::intersect) but processes segments in parallel.
@@ -290,11 +309,47 @@ impl PositionSet {
         )
     }
 
+    /// In-place inversion.
+    pub fn invert_in_place(&mut self) {
+        self.segments
+            .iter_mut()
+            .for_each(|s| s.complement_in_place());
+    }
+
     /// Parallel logical complement using internal data-parallelism.
     ///
     /// Behavior matches [`invert`](Self::invert) but processes segments in parallel.
     pub fn par_invert(&self) -> PositionSet {
         PositionSet::new(self.par_unary(|s| s.complement()), self.span)
+    }
+
+    /// In-place set union that consumes `other` (self <- self ∪ other).
+    ///
+    /// Semantics:
+    /// - Equivalent logical result to [`union_with`](Self::union_with), but takes ownership
+    ///   of `other` so it can reuse its internal segment allocations in fast paths.
+    /// - After return, every position present in either original set is present in `self`.
+    ///
+    /// Differences vs [`union_with`](Self::union_with):
+    /// - Ownership of `other` lets empty segments on the left be replaced by the
+    ///   corresponding (possibly non-empty) segment from `other` without cloning.
+    /// - Enables move of whole segments (no per-segment clone) in the "self segment empty"
+    ///   fast path.
+    /// - The passed `other` is moved and cannot be used afterwards.
+    ///
+    /// Panics:
+    /// - If `self.span() != other.span()`.
+    ///
+    /// Usage notes:
+    /// - Prefer this over cloning `other` + calling [`union_with`](Self::union_with) when
+    ///   you no longer need `other`.
+    /// - If you need to retain `other`, use [`union_with`](Self::union_with) instead.
+    pub fn merge_with(&mut self, other: PositionSet) {
+        assert_eq!(self.span, other.span);
+        self.segments
+            .iter_mut()
+            .zip(other.segments.into_iter())
+            .for_each(|(this, other)| this.merge_with(other));
     }
 
     /// Write all present positions into the provided slice, in ascending order.
