@@ -158,6 +158,7 @@ impl BytesBufferDecoder {
 pub type BytesBufferReader = GenericBufferReader<BinaryBlockDecoder>;
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod tests {
     use std::ops::Range;
 

@@ -668,7 +668,7 @@ mod tests {
     //! `$env:RUSTFLAGS="-C target-cpu=native"; cargo test --release benchmark --lib -- --ignored --nocapture`
     //! - AVX2 vs scalar performance comparisons
     //! - Multi-scale benchmarking (100K, 1M, 10M elements)
-    //! (Note: Benchmarks must be run in release mode for accurate performance measurements)
+    //!   (Note: Benchmarks must be run in release mode for accurate performance measurements)
 
     use super::*;
     use std::time::Instant;
@@ -991,7 +991,7 @@ mod tests {
         let test_sizes: Vec<usize> = vec![100_000, 1_000_000, 10_000_000]; // 100K, 1M, 10M elements
 
         for &elements in &test_sizes {
-            println!("\nTesting with {} elements", elements);
+            println!("\nTesting with {elements} elements");
 
             let bit_data = create_test_bit_data(elements / 8);
 
@@ -1074,7 +1074,7 @@ mod tests {
         let test_sizes: Vec<usize> = vec![100_000, 1_000_000, 10_000_000]; // 100K, 1M, 10M elements
 
         for &elements in &test_sizes {
-            println!("\nTesting with {} elements", elements);
+            println!("\nTesting with {elements} elements");
 
             let test_data: Vec<u8> = (0..elements).map(|i| (i % 2) as u8).collect();
             let mut output = vec![0u8; elements.div_ceil(8)];
@@ -1163,10 +1163,7 @@ mod tests {
         let test_sizes: Vec<usize> = vec![100_000, 1_000_000, 10_000_000]; // 100K, 1M, 10M elements
 
         for &elements in &test_sizes {
-            println!(
-                "\n📊 TESTING {} ELEMENTS (50 iterations, discard best/worst 5)",
-                elements
-            );
+            println!("\n📊 TESTING {elements} ELEMENTS (50 iterations, discard best/worst 5)");
             println!("============================================================");
 
             let test_data: Vec<u8> = (0..elements).map(|i| (i % 2) as u8).collect();
@@ -1181,10 +1178,7 @@ mod tests {
                 _ => 50,
             };
 
-            println!(
-                "\n🔄 PACK PERFORMANCE ({} iterations x 50 runs):",
-                iterations
-            );
+            println!("\n🔄 PACK PERFORMANCE ({iterations} iterations x 50 runs):");
             println!("--------------------------------------------------");
 
             // PACK
@@ -1226,19 +1220,13 @@ mod tests {
                 let min = filtered.iter().fold(f64::INFINITY, |a, &b| a.min(b));
                 let max = filtered.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
 
-                println!(
-                    "PACK: AVG {:.3} B/sec, Range [{:.3} - {:.3}]",
-                    avg_throughput, min, max
-                );
+                println!("PACK: AVG {avg_throughput:.3} B/sec, Range [{min:.3} - {max:.3}]");
 
                 let checksum: u64 = pack_output.iter().map(|&b| b as u64).sum();
-                println!("  (checksum: {})", checksum);
+                println!("  (checksum: {checksum})");
             }
 
-            println!(
-                "\n🔍 UNPACK PERFORMANCE ({} iterations x 50 runs):",
-                iterations
-            );
+            println!("\n🔍 UNPACK PERFORMANCE ({iterations} iterations x 50 runs):");
             println!("--------------------------------------------------");
 
             // UNPACK
@@ -1276,14 +1264,11 @@ mod tests {
                 let min = filtered.iter().fold(f64::INFINITY, |a, &b| a.min(b));
                 let max = filtered.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
 
-                println!(
-                    "UNPACK: AVG {:.3} B/sec, Range [{:.3} - {:.3}]",
-                    avg_throughput, min, max
-                );
+                println!("UNPACK: AVG {avg_throughput:.3} B/sec, Range [{min:.3} - {max:.3}]");
 
                 let final_output = unpack_bits_to_bytes_vec(&bit_data, 0, elements);
                 let checksum: u64 = final_output.iter().map(|&b| b as u64).sum();
-                println!("  (checksum: {})", checksum);
+                println!("  (checksum: {checksum})");
             }
         }
     }

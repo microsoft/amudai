@@ -61,7 +61,7 @@ fn test_from_ranges_basic() {
     let ranges = vec![5u64..10, 100u64..200, 9000u64..9500];
 
     let set = PositionSet::from_ranges(span, ranges.clone().into_iter());
-    let expected: u64 = ranges.iter().map(|r| (r.end - r.start) as u64).sum();
+    let expected: u64 = ranges.iter().map(|r| (r.end - r.start)).sum();
 
     assert_eq!(set.count_positions(), expected);
 

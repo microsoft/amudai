@@ -356,14 +356,14 @@ mod tests {
         assert_eq!(null_buffer.len(), 8);
 
         // Verify the bit pattern matches our input
-        assert_eq!(null_buffer.is_valid(0), true); // 1 -> valid
-        assert_eq!(null_buffer.is_valid(1), false); // 0 -> null
-        assert_eq!(null_buffer.is_valid(2), true); // 1 -> valid
-        assert_eq!(null_buffer.is_valid(3), true); // 1 -> valid
-        assert_eq!(null_buffer.is_valid(4), false); // 0 -> null
-        assert_eq!(null_buffer.is_valid(5), false); // 0 -> null
-        assert_eq!(null_buffer.is_valid(6), true); // 1 -> valid
-        assert_eq!(null_buffer.is_valid(7), false); // 0 -> null
+        assert!(null_buffer.is_valid(0)); // 1 -> valid
+        assert!(!null_buffer.is_valid(1)); // 0 -> null
+        assert!(null_buffer.is_valid(2)); // 1 -> valid
+        assert!(null_buffer.is_valid(3)); // 1 -> valid
+        assert!(!null_buffer.is_valid(4)); // 0 -> null
+        assert!(!null_buffer.is_valid(5)); // 0 -> null
+        assert!(null_buffer.is_valid(6)); // 1 -> valid
+        assert!(!null_buffer.is_valid(7)); // 0 -> null
     }
 
     #[test]
@@ -388,8 +388,7 @@ mod tests {
             assert_eq!(
                 null_buffer.is_valid(i),
                 expected_valid,
-                "Mismatch at index {}",
-                i
+                "Mismatch at index {i}"
             );
         }
     }
@@ -413,7 +412,7 @@ mod tests {
 
         // All values should be null (false)
         for i in 0..10 {
-            assert_eq!(null_buffer.is_valid(i), false, "All values should be null");
+            assert!(!null_buffer.is_valid(i), "All values should be null");
         }
     }
 

@@ -197,6 +197,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod intersection_tests {
     use super::intersect;
 
@@ -253,6 +254,7 @@ mod intersection_tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod intersection_ranges_tests {
     use super::intersect_ranges;
     use std::ops::Range;

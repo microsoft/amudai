@@ -1,3 +1,5 @@
+#![allow(clippy::approx_constant)]
+
 use std::sync::Arc;
 
 use crate::{

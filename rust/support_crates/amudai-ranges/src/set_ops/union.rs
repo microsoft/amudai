@@ -219,6 +219,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod union_ranges_tests {
     use super::union_ranges;
     use std::ops::Range;
@@ -309,6 +310,7 @@ mod union_ranges_tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod union_tests {
     use super::union;
 

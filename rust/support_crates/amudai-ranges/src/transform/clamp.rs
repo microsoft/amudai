@@ -50,7 +50,7 @@ where
     type Item = Range<u64>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(r) = self.inner.next() {
+        for r in self.inner.by_ref() {
             // Compute intersection [max(starts), min(ends))
             let start = r.start.max(self.clamp_range.start);
             let end = r.end.min(self.clamp_range.end);

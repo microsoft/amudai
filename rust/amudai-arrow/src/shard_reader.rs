@@ -333,6 +333,7 @@ pub(crate) fn resolve_field(
 }
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod tests {
     use crate::{builder::ArrowReaderBuilder, shard_reader::ShardRecordBatchReader};
 

@@ -473,10 +473,10 @@ fn test_shard_level_cardinality_across_stripes() -> Result<()> {
         hll_sketch.hash_algorithm.clone(),
         hll_sketch.hash_seed,
     )
-    .map_err(|e| Error::invalid_format(format!("Failed to create HLL config: {}", e)))?;
+    .map_err(|e| Error::invalid_format(format!("Failed to create HLL config: {e}")))?;
 
     let recreated_hll = HllSketch::from_config_and_counters(config, hll_sketch.counters.clone())
-        .map_err(|e| Error::invalid_format(format!("Failed to recreate HLL: {}", e)))?;
+        .map_err(|e| Error::invalid_format(format!("Failed to recreate HLL: {e}")))?;
     let recreated_estimate = recreated_hll.estimate_count() as u64;
     assert_eq!(
         recreated_estimate, estimated_count,

@@ -51,9 +51,7 @@ impl BitSegment {
         let rel_positions = positions.map(|pos| {
             debug_assert!(
                 span.contains(&pos),
-                "Position {} is outside segment span {:?}",
-                pos,
-                span
+                "Position {pos} is outside segment span {span:?}"
             );
             (pos - start) as usize
         });
@@ -259,7 +257,7 @@ impl BitSegment {
     pub fn to_ranges(&self) -> RangeSegment {
         let count = self.count_runs();
         let mut runs = Vec::<Run>::with_capacity(count);
-        runs.extend(self.bits.ranges_iter().map(|r| Run::from(r)));
+        runs.extend(self.bits.ranges_iter().map(Run::from));
         assert_eq!(runs.capacity(), runs.len());
         RangeSegment::new(self.span(), runs)
     }

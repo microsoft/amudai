@@ -21,8 +21,7 @@ pub trait SliceExt<T> {
     /// Panics
     /// - If any size yielded by `sizes` is greater than the number of elements remaining
     ///   in the slice at that step.
-    fn split_at_sizes_mut<'a>(&'a mut self, sizes: impl Iterator<Item = usize>)
-    -> Vec<&'a mut [T]>;
+    fn split_at_sizes_mut(&mut self, sizes: impl Iterator<Item = usize>) -> Vec<&mut [T]>;
 }
 
 impl<T> SliceExt<T> for [T] {

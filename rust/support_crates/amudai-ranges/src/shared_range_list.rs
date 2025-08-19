@@ -818,6 +818,7 @@ impl<T: Clone> IntoIterator for SharedRangeList<T> {
 }
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod tests {
     use super::*;
     use std::ops::Range;
@@ -1486,24 +1487,19 @@ mod tests {
                 let result = rl.position_at_count(count);
                 assert!(
                     result.is_some(),
-                    "count {} should be valid for ranges {:?}",
-                    count,
-                    ranges
+                    "count {count} should be valid for ranges {ranges:?}"
                 );
 
                 let (range_idx, position) = result.unwrap();
                 assert!(
                     range_idx < rl.len(),
-                    "range index {} out of bounds",
-                    range_idx
+                    "range index {range_idx} out of bounds"
                 );
 
                 let range = rl.get(range_idx).unwrap();
                 assert!(
                     position >= range.start && position < range.end,
-                    "position {} not in range {:?}",
-                    position,
-                    range
+                    "position {position} not in range {range:?}"
                 );
             }
 
@@ -1585,15 +1581,12 @@ mod tests {
                 // left should have exactly 'count' positions, and right should have the rest
                 assert_eq!(
                     left_count, count,
-                    "left count mismatch at position {} (count {})",
-                    position, count
+                    "left count mismatch at position {position} (count {count})"
                 );
                 assert_eq!(
                     left_count + right_count,
                     total_positions,
-                    "total count mismatch after split at position {} (count {})",
-                    position,
-                    count
+                    "total count mismatch after split at position {position} (count {count})"
                 );
 
                 // Verify that right part starts at or after the split position
@@ -1877,18 +1870,14 @@ mod tests {
                 assert_eq!(
                     left.count_positions(),
                     count,
-                    "Left count mismatch for ranges {:?} at count {}",
-                    ranges,
-                    count
+                    "Left count mismatch for ranges {ranges:?} at count {count}"
                 );
 
                 // Left + right should equal original
                 assert_eq!(
                     left.count_positions() + right.count_positions(),
                     total_count,
-                    "Total count mismatch for ranges {:?} at count {}",
-                    ranges,
-                    count
+                    "Total count mismatch for ranges {ranges:?} at count {count}"
                 );
 
                 // If count < total_count, the split position should match position_at_count
@@ -1898,9 +1887,7 @@ mod tests {
                         assert_eq!(
                             right.bounds().start,
                             expected_position,
-                            "Right start mismatch for ranges {:?} at count {}",
-                            ranges,
-                            count
+                            "Right start mismatch for ranges {ranges:?} at count {count}"
                         );
                     }
                 }

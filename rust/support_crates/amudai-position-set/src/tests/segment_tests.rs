@@ -211,7 +211,7 @@ fn from_positions_prefers_list_for_sparse_singleton() {
 fn from_positions_prefers_ranges_for_long_run() {
     let span = 0u64..1024u64;
     let run = 100u64..300u64;
-    let seg = Segment::from_positions(span.clone(), run.clone().into_iter());
+    let seg = Segment::from_positions(span.clone(), run.clone());
     dbg!(seg.kind());
     assert!(matches!(seg, Segment::Ranges(_)));
     assert_eq!(positions_of(&seg), run.collect::<Vec<_>>());

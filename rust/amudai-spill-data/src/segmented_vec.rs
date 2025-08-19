@@ -1085,6 +1085,8 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
+#[allow(clippy::vec_init_then_push)]
 mod tests {
     use super::*;
     use crate::{bytes_vec::BytesCollector, pod_vec::PodCollector};

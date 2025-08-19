@@ -1,3 +1,5 @@
+#![allow(clippy::approx_constant)]
+
 //! Comprehensive Numeric Index Tests
 //!
 //! This module contains comprehensive tests for numeric index functionality across all

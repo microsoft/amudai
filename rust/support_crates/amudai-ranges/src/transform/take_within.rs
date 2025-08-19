@@ -194,6 +194,7 @@ impl<I: Iterator<Item = Range<u64>>> TakeRangesWithinExt for PutBack<I> {
 }
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod tests {
     use super::{TakeRangesWithin, TakeWithin};
     use crate::{put_back::PutBack, transform::take_within::TakeRangesWithinExt};
@@ -201,7 +202,7 @@ mod tests {
 
     fn collect_rest_u64<I: Iterator<Item = u64>>(pb: &mut PutBack<I>) -> Vec<u64> {
         let mut out = Vec::new();
-        while let Some(v) = pb.next() {
+        for v in pb.by_ref() {
             out.push(v);
         }
         out
@@ -209,7 +210,7 @@ mod tests {
 
     fn collect_rest_ranges<I: Iterator<Item = Range<u64>>>(pb: &mut PutBack<I>) -> Vec<Range<u64>> {
         let mut out = Vec::new();
-        while let Some(r) = pb.next() {
+        for r in pb.by_ref() {
             out.push(r);
         }
         out

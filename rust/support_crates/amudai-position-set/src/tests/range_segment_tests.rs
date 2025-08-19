@@ -1,3 +1,5 @@
+#![allow(clippy::single_range_in_vec_init)]
+
 use std::ops::Range;
 
 use crate::segment::{Segment, bits::BitSegment, ranges::RangeSegment};

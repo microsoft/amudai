@@ -12,6 +12,12 @@ pub struct PositionSetBuilder {
     segments: Vec<Segment>,
 }
 
+impl Default for PositionSetBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PositionSetBuilder {
     pub fn new() -> PositionSetBuilder {
         PositionSetBuilder {

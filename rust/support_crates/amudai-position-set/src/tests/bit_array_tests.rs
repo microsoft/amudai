@@ -1,3 +1,6 @@
+#![allow(clippy::single_range_in_vec_init)]
+#![allow(clippy::reversed_empty_ranges)]
+
 use itertools::Itertools;
 
 use crate::bit_array::{BigBitArray, BitArray, BitArrayBase};
@@ -108,11 +111,7 @@ fn test_bit_operations() {
 
     // Test initial state - all bits should be 0
     for i in 0..10 {
-        assert!(
-            !bit_array.contains(i),
-            "Bit {} should be unset initially",
-            i
-        );
+        assert!(!bit_array.contains(i), "Bit {i} should be unset initially");
     }
 
     // Test set() method
@@ -163,8 +162,7 @@ fn test_bit_operations() {
     for i in 0..10 {
         assert!(
             bit_array.contains(i),
-            "Bit {} should be set after set_all()",
-            i
+            "Bit {i} should be set after set_all()"
         );
     }
 
@@ -173,8 +171,7 @@ fn test_bit_operations() {
     for i in 0..10 {
         assert!(
             !bit_array.contains(i),
-            "Bit {} should be unset after clear()",
-            i
+            "Bit {i} should be unset after clear()"
         );
     }
 }
@@ -194,7 +191,7 @@ fn test_bit_operations_across_word_boundaries() {
 
     // Verify they're set
     for &index in &test_indices {
-        assert!(bit_array.contains(index), "Bit {} should be set", index);
+        assert!(bit_array.contains(index), "Bit {index} should be set");
     }
 
     // Test reset on some bits
@@ -206,11 +203,7 @@ fn test_bit_operations_across_word_boundaries() {
 
     // Verify other bits are still set
     for &index in &[0, 31, 63, 64, 65, 127, 149] {
-        assert!(
-            bit_array.contains(index),
-            "Bit {} should still be set",
-            index
-        );
+        assert!(bit_array.contains(index), "Bit {index} should still be set");
     }
 
     // Test set_value with mixed operations
@@ -238,8 +231,7 @@ fn test_bit_operations_across_word_boundaries() {
     for i in 0..150 {
         assert!(
             bit_array.contains(i),
-            "Bit {} should be set after set_all()",
-            i
+            "Bit {i} should be set after set_all()"
         );
     }
 
@@ -248,8 +240,7 @@ fn test_bit_operations_across_word_boundaries() {
     for i in 0..150 {
         assert!(
             !bit_array.contains(i),
-            "Bit {} should be unset after clear()",
-            i
+            "Bit {i} should be unset after clear()"
         );
     }
 }
@@ -351,9 +342,7 @@ fn test_from_lsb_words() {
         assert_eq!(
             bit_array.contains(i),
             expected,
-            "Bit {} should be {}",
-            i,
-            expected
+            "Bit {i} should be {expected}"
         );
     }
 
@@ -364,7 +353,7 @@ fn test_from_lsb_words() {
     assert_eq!(bit_array.len(), 10);
     // First 10 bits should be set
     for i in 0..10 {
-        assert!(bit_array.contains(i), "Bit {} should be set", i);
+        assert!(bit_array.contains(i), "Bit {i} should be set");
     }
     // Storage should have excess bits masked
     assert_eq!(bit_array.storage()[0], 0x3FF); // Only bottom 10 bits set
@@ -397,7 +386,7 @@ fn test_from_lsb_words() {
 
     assert!(bit_array.contains(0), "Bit 0 should be set");
     for i in 1..64 {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
 
     // Test with zero length (edge case)
@@ -421,9 +410,7 @@ fn test_from_lsb_words() {
         assert_eq!(
             bit_array.contains(i),
             expected,
-            "Bit {} should be {}",
-            i,
-            expected
+            "Bit {i} should be {expected}"
         );
     }
 }
@@ -649,9 +636,7 @@ fn test_select() {
         assert_eq!(
             all_set.select(i),
             Some(i),
-            "select({}) should return Some({})",
-            i,
-            i
+            "select({i}) should return Some({i})"
         );
     }
     assert_eq!(
@@ -718,8 +703,7 @@ fn test_rank() {
         assert_eq!(
             empty_array.rank(i),
             0,
-            "Rank of position {} in empty array should be 0",
-            i
+            "Rank of position {i} in empty array should be 0"
         );
     }
 
@@ -732,8 +716,7 @@ fn test_rank() {
         assert_eq!(
             single_bit.rank(i),
             0,
-            "Rank of position {} should be 0 (before set bit)",
-            i
+            "Rank of position {i} should be 0 (before set bit)"
         );
     }
     // At and after the set bit, rank should be 1
@@ -741,8 +724,7 @@ fn test_rank() {
         assert_eq!(
             single_bit.rank(i),
             1,
-            "Rank of position {} should be 1 (at or after set bit)",
-            i
+            "Rank of position {i} should be 1 (at or after set bit)"
         );
     }
 
@@ -902,10 +884,10 @@ fn test_set_range() {
 
     // Verify bits 3-7 are set, others are not
     for i in 0..20 {
-        if i >= 3 && i < 8 {
-            assert!(bit_array.contains(i), "Bit {} should be set", i);
+        if (3..8).contains(&i) {
+            assert!(bit_array.contains(i), "Bit {i} should be set");
         } else {
-            assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+            assert!(!bit_array.contains(i), "Bit {i} should not be set");
         }
     }
 
@@ -914,17 +896,12 @@ fn test_set_range() {
 
     // Verify bits 3-11 are now set
     for i in 0..20 {
-        if i >= 3 && i < 12 {
-            assert!(
-                bit_array.contains(i),
-                "Bit {} should be set after overlap",
-                i
-            );
+        if (3..12).contains(&i) {
+            assert!(bit_array.contains(i), "Bit {i} should be set after overlap");
         } else {
             assert!(
                 !bit_array.contains(i),
-                "Bit {} should not be set after overlap",
-                i
+                "Bit {i} should not be set after overlap"
             );
         }
     }
@@ -948,8 +925,7 @@ fn test_set_range() {
     for i in 60..130 {
         assert!(
             large_array.contains(i),
-            "Bit {} should be set in multi-word range",
-            i
+            "Bit {i} should be set in multi-word range"
         );
     }
     assert!(!large_array.contains(59), "Bit 59 should not be set");
@@ -962,8 +938,7 @@ fn test_set_range() {
     for i in 64..128 {
         assert!(
             boundary_array.contains(i),
-            "Bit {} should be set at word boundary",
-            i
+            "Bit {i} should be set at word boundary"
         );
     }
     assert!(!boundary_array.contains(63), "Bit 63 should not be set");
@@ -976,7 +951,7 @@ fn test_set_range() {
     assert!(single_bit.contains(5), "Single bit 5 should be set");
     for i in 0..10 {
         if i != 5 {
-            assert!(!single_bit.contains(i), "Bit {} should not be set", i);
+            assert!(!single_bit.contains(i), "Bit {i} should not be set");
         }
     }
 
@@ -988,7 +963,7 @@ fn test_set_range() {
     assert!(end_range.contains(8), "Bit 8 should be set");
     assert!(end_range.contains(9), "Bit 9 should be set");
     for i in 0..7 {
-        assert!(!end_range.contains(i), "Bit {} should not be set", i);
+        assert!(!end_range.contains(i), "Bit {i} should not be set");
     }
 
     // Test setting range from beginning of array
@@ -996,14 +971,10 @@ fn test_set_range() {
     start_range.set_range(0..4);
 
     for i in 0..4 {
-        assert!(
-            start_range.contains(i),
-            "Bit {} should be set from start",
-            i
-        );
+        assert!(start_range.contains(i), "Bit {i} should be set from start");
     }
     for i in 4..10 {
-        assert!(!start_range.contains(i), "Bit {} should not be set", i);
+        assert!(!start_range.contains(i), "Bit {i} should not be set");
     }
 
     // Test empty range (should do nothing)
@@ -1066,10 +1037,10 @@ fn test_reset_range() {
 
     // Verify bits 3-7 are reset, others remain set
     for i in 0..20 {
-        if i >= 3 && i < 8 {
-            assert!(!bit_array.contains(i), "Bit {} should be reset", i);
+        if (3..8).contains(&i) {
+            assert!(!bit_array.contains(i), "Bit {i} should be reset");
         } else {
-            assert!(bit_array.contains(i), "Bit {} should remain set", i);
+            assert!(bit_array.contains(i), "Bit {i} should remain set");
         }
     }
 
@@ -1078,17 +1049,15 @@ fn test_reset_range() {
 
     // Verify bits 3-11 are now reset
     for i in 0..20 {
-        if i >= 3 && i < 12 {
+        if (3..12).contains(&i) {
             assert!(
                 !bit_array.contains(i),
-                "Bit {} should be reset after overlap",
-                i
+                "Bit {i} should be reset after overlap"
             );
         } else {
             assert!(
                 bit_array.contains(i),
-                "Bit {} should remain set after overlap",
-                i
+                "Bit {i} should remain set after overlap"
             );
         }
     }
@@ -1112,8 +1081,7 @@ fn test_reset_range() {
     for i in 60..130 {
         assert!(
             !large_array.contains(i),
-            "Bit {} should be reset in multi-word range",
-            i
+            "Bit {i} should be reset in multi-word range"
         );
     }
     assert!(large_array.contains(59), "Bit 59 should remain set");
@@ -1126,8 +1094,7 @@ fn test_reset_range() {
     for i in 64..128 {
         assert!(
             !boundary_array.contains(i),
-            "Bit {} should be reset at word boundary",
-            i
+            "Bit {i} should be reset at word boundary"
         );
     }
     assert!(boundary_array.contains(63), "Bit 63 should remain set");
@@ -1140,7 +1107,7 @@ fn test_reset_range() {
     assert!(!single_bit.contains(5), "Single bit 5 should be reset");
     for i in 0..10 {
         if i != 5 {
-            assert!(single_bit.contains(i), "Bit {} should remain set", i);
+            assert!(single_bit.contains(i), "Bit {i} should remain set");
         }
     }
 
@@ -1152,7 +1119,7 @@ fn test_reset_range() {
     assert!(!end_range.contains(8), "Bit 8 should be reset");
     assert!(!end_range.contains(9), "Bit 9 should be reset");
     for i in 0..7 {
-        assert!(end_range.contains(i), "Bit {} should remain set", i);
+        assert!(end_range.contains(i), "Bit {i} should remain set");
     }
 
     // Test resetting range from beginning of array
@@ -1162,12 +1129,11 @@ fn test_reset_range() {
     for i in 0..4 {
         assert!(
             !start_range.contains(i),
-            "Bit {} should be reset from start",
-            i
+            "Bit {i} should be reset from start"
         );
     }
     for i in 4..10 {
-        assert!(start_range.contains(i), "Bit {} should remain set", i);
+        assert!(start_range.contains(i), "Bit {i} should remain set");
     }
 
     // Test empty range (should do nothing)
@@ -1238,20 +1204,19 @@ fn test_set_reset_range_edge_cases() {
     for i in 0..64 {
         assert!(
             single_word.contains(i),
-            "Bit {} should be set in full word",
-            i
+            "Bit {i} should be set in full word"
         );
     }
 
     single_word.reset_range(20..44);
     for i in 0..20 {
-        assert!(single_word.contains(i), "Bit {} should remain set", i);
+        assert!(single_word.contains(i), "Bit {i} should remain set");
     }
     for i in 20..44 {
-        assert!(!single_word.contains(i), "Bit {} should be reset", i);
+        assert!(!single_word.contains(i), "Bit {i} should be reset");
     }
     for i in 44..64 {
-        assert!(single_word.contains(i), "Bit {} should remain set", i);
+        assert!(single_word.contains(i), "Bit {i} should remain set");
     }
 
     // Test with exactly 128-bit array (two words)
@@ -1259,17 +1224,13 @@ fn test_set_reset_range_edge_cases() {
     two_words.set_range(32..96); // Spans across word boundary
 
     for i in 32..96 {
-        assert!(
-            two_words.contains(i),
-            "Bit {} should be set across words",
-            i
-        );
+        assert!(two_words.contains(i), "Bit {i} should be set across words");
     }
     for i in 0..32 {
-        assert!(!two_words.contains(i), "Bit {} should not be set", i);
+        assert!(!two_words.contains(i), "Bit {i} should not be set");
     }
     for i in 96..128 {
-        assert!(!two_words.contains(i), "Bit {} should not be set", i);
+        assert!(!two_words.contains(i), "Bit {i} should not be set");
     }
 
     // Test setting and resetting the same range
@@ -1277,17 +1238,13 @@ fn test_set_reset_range_edge_cases() {
     toggle_range.set_range(5..15);
 
     for i in 5..15 {
-        assert!(
-            toggle_range.contains(i),
-            "Bit {} should be set initially",
-            i
-        );
+        assert!(toggle_range.contains(i), "Bit {i} should be set initially");
     }
 
     toggle_range.reset_range(5..15);
 
     for i in 5..15 {
-        assert!(!toggle_range.contains(i), "Bit {} should be reset", i);
+        assert!(!toggle_range.contains(i), "Bit {i} should be reset");
     }
 
     // Test partial overlap between set and reset ranges
@@ -1296,20 +1253,18 @@ fn test_set_reset_range_edge_cases() {
     overlap_test.reset_range(8..15);
 
     for i in 3..8 {
-        assert!(overlap_test.contains(i), "Bit {} should remain set", i);
+        assert!(overlap_test.contains(i), "Bit {i} should remain set");
     }
     for i in 8..12 {
         assert!(
             !overlap_test.contains(i),
-            "Bit {} should be reset by overlap",
-            i
+            "Bit {i} should be reset by overlap"
         );
     }
     for i in 12..15 {
         assert!(
             !overlap_test.contains(i),
-            "Bit {} should be reset (was not set)",
-            i
+            "Bit {i} should be reset (was not set)"
         );
     }
 
@@ -1320,8 +1275,7 @@ fn test_set_reset_range_edge_cases() {
     for i in 13..87 {
         assert!(
             unaligned.contains(i),
-            "Bit {} should be set in unaligned range",
-            i
+            "Bit {i} should be set in unaligned range"
         );
     }
     assert!(!unaligned.contains(12), "Bit 12 should not be set");
@@ -1393,7 +1347,7 @@ fn test_from_positions() {
     assert_eq!(bit_array.len(), 10);
     assert_eq!(bit_array.count_ones(), 0);
     for i in 0..10 {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
 
     // Test with single position
@@ -1404,7 +1358,7 @@ fn test_from_positions() {
     assert!(bit_array.contains(5), "Bit 5 should be set");
     for i in 0..10 {
         if i != 5 {
-            assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+            assert!(!bit_array.contains(i), "Bit {i} should not be set");
         }
     }
 
@@ -1415,12 +1369,12 @@ fn test_from_positions() {
     assert_eq!(bit_array.count_ones(), 5);
 
     for &pos in &[0, 3, 7, 11, 19] {
-        assert!(bit_array.contains(pos), "Bit {} should be set", pos);
+        assert!(bit_array.contains(pos), "Bit {pos} should be set");
     }
 
     for i in 0..20 {
         if ![0, 3, 7, 11, 19].contains(&i) {
-            assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+            assert!(!bit_array.contains(i), "Bit {i} should not be set");
         }
     }
 
@@ -1431,7 +1385,7 @@ fn test_from_positions() {
     assert_eq!(bit_array.count_ones(), 7);
 
     for &pos in &[0, 63, 64, 65, 127, 128, 149] {
-        assert!(bit_array.contains(pos), "Bit {} should be set", pos);
+        assert!(bit_array.contains(pos), "Bit {pos} should be set");
     }
 
     // Test with consecutive positions
@@ -1441,13 +1395,13 @@ fn test_from_positions() {
     assert_eq!(bit_array.count_ones(), 5);
 
     for i in 5..10 {
-        assert!(bit_array.contains(i), "Bit {} should be set", i);
+        assert!(bit_array.contains(i), "Bit {i} should be set");
     }
     for i in 0..5 {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
     for i in 10..15 {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
 
     // Test with duplicate positions (should handle gracefully)
@@ -1475,7 +1429,7 @@ fn test_from_positions() {
     assert_eq!(bit_array.len(), 8);
     assert_eq!(bit_array.count_ones(), 8);
     for i in 0..8 {
-        assert!(bit_array.contains(i), "Bit {} should be set", i);
+        assert!(bit_array.contains(i), "Bit {i} should be set");
     }
 
     // Test with positions spanning multiple words
@@ -1484,7 +1438,7 @@ fn test_from_positions() {
     assert_eq!(bit_array.len(), 250);
     assert_eq!(bit_array.count_ones(), 5);
     for &pos in &[10, 50, 100, 150, 200] {
-        assert!(bit_array.contains(pos), "Bit {} should be set", pos);
+        assert!(bit_array.contains(pos), "Bit {pos} should be set");
     }
 
     // Test with first and last positions
@@ -1495,7 +1449,7 @@ fn test_from_positions() {
     assert!(bit_array.contains(0));
     assert!(bit_array.contains(99));
     for i in 1..99 {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
 
     // Test with zero length array
@@ -1514,7 +1468,7 @@ fn test_from_ranges() {
     assert_eq!(bit_array.len(), 10);
     assert_eq!(bit_array.count_ones(), 0);
     for i in 0..10 {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
 
     // Test with single range
@@ -1524,13 +1478,13 @@ fn test_from_ranges() {
     assert_eq!(bit_array.count_ones(), 4);
 
     for i in 3..7 {
-        assert!(bit_array.contains(i), "Bit {} should be set", i);
+        assert!(bit_array.contains(i), "Bit {i} should be set");
     }
     for i in 0..3 {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
     for i in 7..10 {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
 
     // Test with multiple non-overlapping ranges
@@ -1541,12 +1495,12 @@ fn test_from_ranges() {
 
     // Check set bits: 1, 2, 5, 6, 7, 12, 13, 14
     for &pos in &[1, 2, 5, 6, 7, 12, 13, 14] {
-        assert!(bit_array.contains(pos), "Bit {} should be set", pos);
+        assert!(bit_array.contains(pos), "Bit {pos} should be set");
     }
 
     // Check unset bits
     for i in [0, 3, 4, 8, 9, 10, 11, 15, 16, 17, 18, 19] {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
 
     // Test with overlapping ranges
@@ -1556,10 +1510,10 @@ fn test_from_ranges() {
     assert_eq!(bit_array.count_ones(), 10); // Union of ranges: 2..12 = 10 bits
 
     for i in 2..12 {
-        assert!(bit_array.contains(i), "Bit {} should be set", i);
+        assert!(bit_array.contains(i), "Bit {i} should be set");
     }
     for i in [0, 1, 12, 13, 14] {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
 
     // Test with ranges across word boundaries
@@ -1570,17 +1524,17 @@ fn test_from_ranges() {
 
     // Check first range: 60..68
     for i in 60..68 {
-        assert!(bit_array.contains(i), "Bit {} should be set", i);
+        assert!(bit_array.contains(i), "Bit {i} should be set");
     }
 
     // Check second range: 125..130
     for i in 125..130 {
-        assert!(bit_array.contains(i), "Bit {} should be set", i);
+        assert!(bit_array.contains(i), "Bit {i} should be set");
     }
 
     // Check some unset bits
     for i in [0, 59, 68, 69, 124, 130, 149] {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
 
     // Test with empty ranges (start == end)
@@ -1590,10 +1544,10 @@ fn test_from_ranges() {
     assert_eq!(bit_array.count_ones(), 3); // Only 7..10 contributes
 
     for i in 7..10 {
-        assert!(bit_array.contains(i), "Bit {} should be set", i);
+        assert!(bit_array.contains(i), "Bit {i} should be set");
     }
     for i in [0, 1, 2, 3, 4, 5, 6, 10, 11, 12, 13, 14] {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
 
     // Test with single bit ranges
@@ -1611,7 +1565,7 @@ fn test_from_ranges() {
     assert_eq!(bit_array.len(), 10);
     assert_eq!(bit_array.count_ones(), 10);
     for i in 0..10 {
-        assert!(bit_array.contains(i), "Bit {} should be set", i);
+        assert!(bit_array.contains(i), "Bit {i} should be set");
     }
 
     // Test with ranges at exact word boundaries
@@ -1621,10 +1575,10 @@ fn test_from_ranges() {
     assert_eq!(bit_array.count_ones(), 192); // 64 + 64 + 64 = 192
 
     for i in 0..192 {
-        assert!(bit_array.contains(i), "Bit {} should be set", i);
+        assert!(bit_array.contains(i), "Bit {i} should be set");
     }
     for i in 192..200 {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
 
     // Test with overlapping ranges that merge
@@ -1634,13 +1588,13 @@ fn test_from_ranges() {
     assert_eq!(bit_array.count_ones(), 20); // Merged range: 10..30 = 20 bits
 
     for i in 10..30 {
-        assert!(bit_array.contains(i), "Bit {} should be set", i);
+        assert!(bit_array.contains(i), "Bit {i} should be set");
     }
     for i in 0..10 {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
     for i in 30..40 {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
 
     // Test with zero length array
@@ -1656,7 +1610,7 @@ fn test_from_ranges() {
     assert_eq!(bit_array.len(), 64);
     assert_eq!(bit_array.count_ones(), 64);
     for i in 0..64 {
-        assert!(bit_array.contains(i), "Bit {} should be set", i);
+        assert!(bit_array.contains(i), "Bit {i} should be set");
     }
 
     // Test with ranges that touch but don't overlap
@@ -1666,13 +1620,13 @@ fn test_from_ranges() {
     assert_eq!(bit_array.count_ones(), 15); // 5 + 5 + 5 = 15
 
     for i in 5..20 {
-        assert!(bit_array.contains(i), "Bit {} should be set", i);
+        assert!(bit_array.contains(i), "Bit {i} should be set");
     }
     for i in 0..5 {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
     for i in 20..25 {
-        assert!(!bit_array.contains(i), "Bit {} should not be set", i);
+        assert!(!bit_array.contains(i), "Bit {i} should not be set");
     }
 }
 
@@ -1960,7 +1914,7 @@ fn test_iter_within() {
     let iter_within_result: Vec<usize> = comparison.iter_within(15..45).collect();
     let filtered_iter_result: Vec<usize> = comparison
         .iter()
-        .filter(|&pos| pos >= 15 && pos < 45)
+        .filter(|&pos| (15..45).contains(&pos))
         .collect();
     assert_eq!(
         iter_within_result, filtered_iter_result,
@@ -2389,7 +2343,7 @@ fn test_ranges_iter_within_matches_slow_reference_on_various_patterns() {
     ] {
         let got = sparse.ranges_iter_within(s..e).collect::<Vec<_>>();
         let exp = ranges_within_slow_scan(&sparse, s..e);
-        assert_eq!(got, exp, "mismatch on range {}..{}", s, e);
+        assert_eq!(got, exp, "mismatch on range {s}..{e}");
     }
 
     // A few random-ish non-overlapping runs
@@ -2412,7 +2366,7 @@ fn test_ranges_iter_within_matches_slow_reference_on_various_patterns() {
     ] {
         let got = runs.ranges_iter_within(s..e).collect::<Vec<_>>();
         let exp = ranges_within_slow_scan(&runs, s..e);
-        assert_eq!(got, exp, "mismatch on range {}..{}", s, e);
+        assert_eq!(got, exp, "mismatch on range {s}..{e}");
     }
 }
 

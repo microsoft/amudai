@@ -419,6 +419,7 @@ fn bit_positions_to_byte_positions(
 }
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod tests {
     use std::ops::Range;
 

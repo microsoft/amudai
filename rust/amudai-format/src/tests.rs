@@ -37,7 +37,7 @@ fn test_schema_projection_builder() {
 
     // Test 2: Add simple top-level field
     let mut builder = SchemaProjectionBuilder::new(schema.clone());
-    builder.add_path(&["name"]).unwrap();
+    builder.add_path(["name"]).unwrap();
     let projection = builder.build();
     assert_eq!(projection.fields().len(), 1);
     assert_eq!(projection.fields()[0].name().as_ref(), "name");
@@ -45,9 +45,9 @@ fn test_schema_projection_builder() {
 
     // Test 3: Add multiple simple fields
     let mut builder = SchemaProjectionBuilder::new(schema.clone());
-    builder.add_path(&["id"]).unwrap();
-    builder.add_path(&["name"]).unwrap();
-    builder.add_path(&["price"]).unwrap();
+    builder.add_path(["id"]).unwrap();
+    builder.add_path(["name"]).unwrap();
+    builder.add_path(["price"]).unwrap();
     let projection = builder.build();
     assert_eq!(projection.fields().len(), 3);
 
@@ -63,7 +63,7 @@ fn test_schema_projection_builder() {
 
     // Test 4: Add nested field path (maintains structural integrity)
     let mut builder = SchemaProjectionBuilder::new(schema.clone());
-    builder.add_path(&["user_profile", "email"]).unwrap();
+    builder.add_path(["user_profile", "email"]).unwrap();
     let projection = builder.build();
     assert_eq!(projection.fields().len(), 1);
 
@@ -76,7 +76,7 @@ fn test_schema_projection_builder() {
     // Test 5: Add deeply nested path (3 levels)
     let mut builder = SchemaProjectionBuilder::new(schema.clone());
     builder
-        .add_path(&["user_profile", "address", "city"])
+        .add_path(["user_profile", "address", "city"])
         .unwrap();
     let projection = builder.build();
     assert_eq!(projection.fields().len(), 1);
@@ -95,12 +95,12 @@ fn test_schema_projection_builder() {
     // Test 6: Add multiple paths that share common ancestors
     let mut builder = SchemaProjectionBuilder::new(schema.clone());
     builder
-        .add_path(&["user_profile", "address", "city"])
+        .add_path(["user_profile", "address", "city"])
         .unwrap();
     builder
-        .add_path(&["user_profile", "address", "country"])
+        .add_path(["user_profile", "address", "country"])
         .unwrap();
-    builder.add_path(&["user_profile", "email"]).unwrap();
+    builder.add_path(["user_profile", "email"]).unwrap();
     let projection = builder.build();
     assert_eq!(projection.fields().len(), 1);
 
@@ -133,7 +133,7 @@ fn test_schema_projection_builder() {
 
     // Test 7: Add path through list
     let mut builder = SchemaProjectionBuilder::new(schema.clone());
-    builder.add_path(&["orders", "item", "order_id"]).unwrap();
+    builder.add_path(["orders", "item", "order_id"]).unwrap();
     let projection = builder.build();
     assert_eq!(projection.fields().len(), 1);
 
@@ -154,7 +154,7 @@ fn test_schema_projection_builder() {
     // Test 8: Add path through map
     let mut builder = SchemaProjectionBuilder::new(schema.clone());
     builder
-        .add_path(&["metadata", "value", "string_value"])
+        .add_path(["metadata", "value", "string_value"])
         .unwrap();
     let projection = builder.build();
     assert_eq!(projection.fields().len(), 1);
@@ -176,7 +176,7 @@ fn test_schema_projection_builder() {
     // Test 9: Add very deeply nested path (4+ levels)
     let mut builder = SchemaProjectionBuilder::new(schema.clone());
     builder
-        .add_path(&[
+        .add_path([
             "configuration",
             "database",
             "connection_pool",
@@ -203,22 +203,22 @@ fn test_schema_projection_builder() {
     let mut builder = SchemaProjectionBuilder::new(schema.clone());
 
     // Non-existent top-level field
-    assert!(builder.add_path(&["nonexistent"]).is_err());
+    assert!(builder.add_path(["nonexistent"]).is_err());
 
     // Non-existent nested field
-    assert!(builder.add_path(&["user_profile", "nonexistent"]).is_err());
+    assert!(builder.add_path(["user_profile", "nonexistent"]).is_err());
 
     // Path through primitive field (invalid)
-    assert!(builder.add_path(&["name", "invalid_child"]).is_err());
+    assert!(builder.add_path(["name", "invalid_child"]).is_err());
 
     // Test 11: Complex mixed paths
     let mut builder = SchemaProjectionBuilder::new(schema.clone());
-    builder.add_path(&["id"]).unwrap();
+    builder.add_path(["id"]).unwrap();
     builder
-        .add_path(&["user_profile", "address", "coordinates", "latitude"])
+        .add_path(["user_profile", "address", "coordinates", "latitude"])
         .unwrap();
     builder
-        .add_path(&[
+        .add_path([
             "orders",
             "item",
             "line_items",
@@ -227,9 +227,9 @@ fn test_schema_projection_builder() {
             "name",
         ])
         .unwrap();
-    builder.add_path(&["metadata", "key"]).unwrap();
+    builder.add_path(["metadata", "key"]).unwrap();
     builder
-        .add_path(&["sensor_readings", "", "measurements", "value", "raw_value"])
+        .add_path(["sensor_readings", "", "measurements", "value", "raw_value"])
         .unwrap();
 
     let projection = builder.build();
@@ -356,13 +356,13 @@ fn test_resolve_field_path() {
     assert!(result.is_empty());
 
     // Test valid simple field path
-    let result = schema.resolve_field_path(&["name"]).unwrap();
+    let result = schema.resolve_field_path(["name"]).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name().unwrap(), "name");
 
     // Test valid nested struct path (3 levels deep)
     let result = schema
-        .resolve_field_path(&["user_profile", "address", "city"])
+        .resolve_field_path(["user_profile", "address", "city"])
         .unwrap();
     assert_eq!(result.len(), 3);
     assert_eq!(result[0].name().unwrap(), "user_profile");
@@ -371,31 +371,31 @@ fn test_resolve_field_path() {
 
     // Test valid deeply nested path (4 levels deep)
     let result = schema
-        .resolve_field_path(&["user_profile", "address", "coordinates", "latitude"])
+        .resolve_field_path(["user_profile", "address", "coordinates", "latitude"])
         .unwrap();
     assert_eq!(result.len(), 4);
     assert_eq!(result[3].name().unwrap(), "latitude");
 
     // Test non-existent top-level field
-    assert!(schema.resolve_field_path(&["nonexistent"]).is_err());
+    assert!(schema.resolve_field_path(["nonexistent"]).is_err());
 
     // Test non-existent field in the middle of path
     assert!(
         schema
-            .resolve_field_path(&["user_profile", "nonexistent", "city"])
+            .resolve_field_path(["user_profile", "nonexistent", "city"])
             .is_err()
     );
 
     // Test non-existent leaf field
     assert!(
         schema
-            .resolve_field_path(&["user_profile", "address", "nonexistent"])
+            .resolve_field_path(["user_profile", "address", "nonexistent"])
             .is_err()
     );
 
     // Test path through list to struct field
     let result = schema
-        .resolve_field_path(&["orders", "item", "order_id"])
+        .resolve_field_path(["orders", "item", "order_id"])
         .unwrap();
     assert_eq!(result.len(), 3);
     assert_eq!(result[1].name().unwrap(), "item"); // list item
@@ -403,7 +403,7 @@ fn test_resolve_field_path() {
 
     // Test path through list to deeply nested field
     let result = schema
-        .resolve_field_path(&[
+        .resolve_field_path([
             "orders",
             "item",
             "line_items",
@@ -416,25 +416,25 @@ fn test_resolve_field_path() {
     assert_eq!(result[5].name().unwrap(), "name");
 
     // Test path through map using "key" accessor
-    let result = schema.resolve_field_path(&["metadata", "key"]).unwrap();
+    let result = schema.resolve_field_path(["metadata", "key"]).unwrap();
     assert_eq!(result.len(), 2);
     assert_eq!(result[1].name().unwrap(), "key");
 
     // Test path through map using "value" accessor
-    let result = schema.resolve_field_path(&["metadata", "value"]).unwrap();
+    let result = schema.resolve_field_path(["metadata", "value"]).unwrap();
     assert_eq!(result.len(), 2);
     assert_eq!(result[1].name().unwrap(), "value");
 
     // Test path through map to nested field in value
     let result = schema
-        .resolve_field_path(&["metadata", "value", "string_value"])
+        .resolve_field_path(["metadata", "value", "string_value"])
         .unwrap();
     assert_eq!(result.len(), 3);
     assert_eq!(result[2].name().unwrap(), "string_value");
 
     // Test path through sensor readings map
     let result = schema
-        .resolve_field_path(&[
+        .resolve_field_path([
             "sensor_readings",
             "item",
             "measurements",
@@ -447,7 +447,7 @@ fn test_resolve_field_path() {
 
     // Test deep nested path (4+ levels)
     let result = schema
-        .resolve_field_path(&[
+        .resolve_field_path([
             "configuration",
             "database",
             "connection_pool",
@@ -460,7 +460,7 @@ fn test_resolve_field_path() {
 
     // Test path through deeply nested list
     let result = schema
-        .resolve_field_path(&[
+        .resolve_field_path([
             "configuration",
             "database",
             "connection_pool",
@@ -473,7 +473,7 @@ fn test_resolve_field_path() {
     assert_eq!(result[5].name().unwrap(), "item");
 
     let result = schema
-        .resolve_field_path(&[
+        .resolve_field_path([
             "configuration",
             "api_endpoints",
             "value",
@@ -487,14 +487,14 @@ fn test_resolve_field_path() {
     // Test invalid path through primitive field (trying to access child of non-composite type)
     assert!(
         schema
-            .resolve_field_path(&["name", "invalid_child"])
+            .resolve_field_path(["name", "invalid_child"])
             .is_err()
     );
 
     // Test invalid path with non-existent field in complex nested structure
     assert!(
         schema
-            .resolve_field_path(&["user_profile", "address", "coordinates", "nonexistent"])
+            .resolve_field_path(["user_profile", "address", "coordinates", "nonexistent"])
             .is_err()
     );
 }

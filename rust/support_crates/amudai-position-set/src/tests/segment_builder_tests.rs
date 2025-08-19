@@ -1,3 +1,5 @@
+#![allow(clippy::single_range_in_vec_init)]
+
 use std::ops::Range;
 
 use crate::segment::{Segment, SegmentKind, builder::SegmentBuilder};
@@ -109,7 +111,7 @@ mod push_position_tests {
         let mut b = SegmentBuilder::new(span.clone());
 
         // First, force Ranges by inserting a long run (longer than MAX_LIST_LEN).
-        let long_len = (Segment::MAX_LIST_LEN + 2) as u64;
+        let long_len = Segment::MAX_LIST_LEN + 2;
         let base = 0u64;
         let _ = b.push_range(base..(base + long_len));
         // min_next_pos is now base + long_len
@@ -372,7 +374,7 @@ mod push_range_tests {
         let mut b = SegmentBuilder::new(span.clone());
 
         // Length strictly greater than MAX_LIST_LEN to force List->Ranges in builder
-        let len = (Segment::MAX_LIST_LEN + 10) as u64;
+        let len = Segment::MAX_LIST_LEN + 10;
         let start = 1234;
         let end = start + len;
         let tail = b.push_range(start..end);
@@ -619,7 +621,7 @@ mod push_range_tests {
         let mut b = SegmentBuilder::new(span.clone());
 
         // Force Ranges mode with a large initial range.
-        let long_len = (Segment::MAX_LIST_LEN + 2) as u64;
+        let long_len = Segment::MAX_LIST_LEN + 2;
         let start = 10_000u64;
         let end = start + long_len;
         let _ = b.push_range(start..end);
@@ -638,7 +640,7 @@ mod push_range_tests {
         // Single long range starting at `start`, at least up to `end + 1`
         assert!(!ranges.is_empty());
         assert_eq!(ranges[0].start, start);
-        assert!(ranges[0].end >= end + 1);
+        assert!(ranges[0].end > end);
     }
 
     #[test]
@@ -1048,7 +1050,7 @@ mod extend_from_range_slice_tests {
         b.push_position(100);
         b.push_position(110);
 
-        let long_len = (Segment::MAX_LIST_LEN + 10) as u64;
+        let long_len = Segment::MAX_LIST_LEN + 10;
         let start = 1010u64;
         let end = start + long_len;
 
@@ -1073,7 +1075,7 @@ mod extend_from_range_slice_tests {
         let mut b = SegmentBuilder::new(span.clone());
 
         // First, force Ranges mode with a long run
-        let long_len = (Segment::MAX_LIST_LEN + 20) as u64;
+        let long_len = Segment::MAX_LIST_LEN + 20;
         let base = 10_000u64;
         let s = [base..(base + long_len)];
         let first = rls(&s);
@@ -1102,7 +1104,7 @@ mod extend_from_range_slice_tests {
         let mut b = SegmentBuilder::new(span.clone());
 
         // Force ranges with first slice
-        let long_len = (Segment::MAX_LIST_LEN + 10) as u64;
+        let long_len = Segment::MAX_LIST_LEN + 10;
         let start = 5000u64;
         let mid = start + long_len;
         let _ = b.extend_from_range_slice(rls(&[start..mid]));

@@ -32,6 +32,11 @@ impl Run {
     }
 
     #[inline]
+    pub fn is_empty(&self) -> bool {
+        false // A Run always represents at least one position (first <= last)
+    }
+
+    #[inline]
     pub fn translated(segment_start: u64, range: Range<u64>) -> Run {
         Run::from(range.start - segment_start..range.end - segment_start)
     }
@@ -399,7 +404,7 @@ impl RangeSegment {
                 if r.first == last.last + 1 {
                     last.last = r.last;
                 } else {
-                    self.runs.push(r.clone());
+                    self.runs.push(r);
                 }
             }
         }
@@ -532,7 +537,7 @@ impl RangeSegment {
         let mut prev: Option<&Run> = None;
         for r in &self.runs {
             // In-bounds and non-empty
-            assert!(r.first <= r.last, "Valid range: {:?}", r);
+            assert!(r.first <= r.last, "Valid range: {r:?}");
             assert!(
                 (r.last as usize) < span_len,
                 "Run end {} must be less than span_len {}",
@@ -543,9 +548,7 @@ impl RangeSegment {
             if let Some(p) = prev {
                 assert!(
                     p.last < r.first && r.first - p.last > 1,
-                    "Runs must be sorted strictly disjoint: prev={:?}, next={:?}",
-                    p,
-                    r
+                    "Runs must be sorted strictly disjoint: prev={p:?}, next={r:?}"
                 );
             }
             prev = Some(r);
@@ -560,7 +563,7 @@ impl RangeSegment {
         span: Range<u64>,
         it: impl Iterator<Item = Range<u32>>,
     ) -> RangeSegment {
-        let runs = it.map(|r| Run::from(r)).collect::<Vec<_>>();
+        let runs = it.map(Run::from).collect::<Vec<_>>();
         RangeSegment::new(span, runs)
     }
 }

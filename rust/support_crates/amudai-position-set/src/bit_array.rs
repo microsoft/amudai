@@ -380,8 +380,8 @@ impl<S: AsMut<[u64]>> BitArrayBase<S> {
             mask_fn(&mut bits[start_word], first_mask);
 
             // Process all bits in complete middle words
-            for word_idx in (start_word + 1)..end_word {
-                mask_fn(&mut bits[word_idx], u64::MAX);
+            for item in bits.iter_mut().take(end_word).skip(start_word + 1) {
+                mask_fn(item, u64::MAX);
             }
 
             // Process partial bits in the last word (from bit 0 to end_bit-1)
@@ -442,8 +442,8 @@ impl<S: AsRef<[u64]>> BitArrayBase<S> {
     ///
     /// * `bits` - The existing storage to wrap (LSB-ordered `u64` words).
     /// * `len`  - Optional logical bit-length. When `None`, uses the full capacity
-    ///            (`bits.as_ref().len() * 64`). When `Some(len)`, `len` must be
-    ///            within the last word of `bits`.
+    ///   (`bits.as_ref().len() * 64`). When `Some(len)`, `len` must be
+    ///   within the last word of `bits`.
     ///
     /// # Panics
     ///
@@ -1157,7 +1157,7 @@ impl<'a> BitArrayRangesIter<'a> {
                 self.next_word_index += 1;
                 (self.base_index < self.len).then_some(word)
             }
-            None => return None,
+            None => None,
         }
     }
 

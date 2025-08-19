@@ -288,7 +288,7 @@ fn test_mmap_buffer_debug() {
     let size = 1024;
     let buffer = MmapBuffer::allocate_regular(size).expect("Failed to allocate buffer");
 
-    let debug_str = format!("{:?}", buffer);
+    let debug_str = format!("{buffer:?}");
     assert!(debug_str.contains("MmapBuffer"));
     assert!(debug_str.contains("ptr"));
     assert!(debug_str.contains("len"));

@@ -1064,9 +1064,8 @@ mod tests {
         // Estimated count should be around 5 (with wider tolerance for HLL estimation error)
         let estimated_count = cardinality_info.count.unwrap();
         assert!(
-            estimated_count >= 3 && estimated_count <= 8,
-            "Expected count around 5, got {}",
-            estimated_count
+            (3..=8).contains(&estimated_count),
+            "Expected count around 5, got {estimated_count}"
         );
 
         // Check HLL sketch is present and has expected structure
@@ -1096,9 +1095,8 @@ mod tests {
 
         // Should estimate around 3 unique values despite 6 total values (wider tolerance)
         assert!(
-            estimated_count >= 2 && estimated_count <= 5,
-            "Expected count around 3, got {}",
-            estimated_count
+            (2..=5).contains(&estimated_count),
+            "Expected count around 3, got {estimated_count}"
         );
     }
 
@@ -1123,11 +1121,11 @@ mod tests {
         // Generate a large dataset with known cardinality
         let mut values = Vec::new();
         for i in 0..1000 {
-            values.push(format!("value_{}", i));
+            values.push(format!("value_{i}"));
         }
         // Add some duplicates to test cardinality estimation with larger datasets
         for i in 0..100 {
-            values.push(format!("value_{}", i)); // Duplicate first 100 values
+            values.push(format!("value_{i}")); // Duplicate first 100 values
         }
 
         let string_refs: Vec<&str> = values.iter().map(|s| s.as_str()).collect();
@@ -1147,9 +1145,8 @@ mod tests {
         // With default bits (likely 12), error is about 1.04/sqrt(4096) ≈ 1.6%
         // But in practice, we should allow for wider tolerance
         assert!(
-            estimated_count >= 800 && estimated_count <= 1200,
-            "Expected count around 1000, got {}",
-            estimated_count
+            (800..=1200).contains(&estimated_count),
+            "Expected count around 1000, got {estimated_count}"
         );
 
         assert_eq!(stats.count, 1100); // Total count including duplicates

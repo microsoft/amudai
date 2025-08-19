@@ -131,6 +131,7 @@ impl<R: ReadAt> std::io::Seek for ReadAdapter<R> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unused_io_amount)]
 mod tests {
     use super::*;
     use amudai_bytes::Bytes;

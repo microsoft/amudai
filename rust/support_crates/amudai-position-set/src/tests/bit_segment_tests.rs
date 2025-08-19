@@ -1,3 +1,5 @@
+#![allow(clippy::reversed_empty_ranges)]
+
 use crate::segment::bits::BitSegment;
 
 #[test]

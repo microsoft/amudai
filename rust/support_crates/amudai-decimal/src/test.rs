@@ -17,6 +17,11 @@ use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
 #[cfg(test)]
+#[allow(clippy::needless_borrows_for_generic_args)]
+#[allow(clippy::uninlined_format_args)]
+#[allow(clippy::len_zero)]
+#[allow(clippy::op_ref)]
+#[allow(clippy::legacy_numeric_constants)]
 mod comprehensive_tests {
     use super::*;
 

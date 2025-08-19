@@ -162,6 +162,8 @@ impl PrimitiveBufferDecoder {
 pub type PrimitiveBufferReader = GenericBufferReader<PrimitiveBlockDecoder>;
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
+#[allow(clippy::needless_range_loop)]
 mod tests {
     use std::ops::Range;
 

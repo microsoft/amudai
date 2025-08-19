@@ -1,3 +1,5 @@
+#![allow(clippy::approx_constant)]
+
 use crate::write::stripe_builder::{StripeBuilder, StripeBuilderParams};
 use amudai_common::{Result, error::Error};
 use amudai_decimal::d128;

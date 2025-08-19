@@ -210,7 +210,7 @@ where
                 }
                 Some(r) => {
                     // Treat empty/degenerate ranges as no-op
-                    if !(r.start < r.end) {
+                    if r.start >= r.end {
                         self.it.next();
                         continue;
                     }
@@ -256,6 +256,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod tests {
     use super::*;
 

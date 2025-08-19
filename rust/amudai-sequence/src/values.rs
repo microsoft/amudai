@@ -359,6 +359,7 @@ impl Default for Values {
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::*;
     use std::mem::size_of;

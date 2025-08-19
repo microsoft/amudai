@@ -499,7 +499,7 @@ impl Segment {
     ///
     /// Semantics
     /// - Positions are written in the same order as [`Segment::positions`] and
-    ///  [`Segment::for_each_position`] would produce them.
+    ///   [`Segment::for_each_position`] would produce them.
     /// - Writes exactly `self.count_positions()` items.
     ///
     /// Contracts
@@ -701,8 +701,7 @@ impl Segment {
             Segment::Full(full) => Segment::Empty(full.complement()),
             Segment::List(list) => {
                 let complement_bits = list.complement_as_bits();
-                let result = Segment::Bits(complement_bits);
-                result
+                Segment::Bits(complement_bits)
             }
             Segment::Bits(bits) => {
                 let complement_bits = bits.complement();

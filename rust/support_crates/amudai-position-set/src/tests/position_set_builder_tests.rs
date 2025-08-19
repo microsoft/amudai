@@ -279,7 +279,7 @@ fn test_push_dense_mix() {
                 memo.set(pos);
                 builder.push_position(pos as u64);
 
-                pos = pos + fastrand::usize(1..15);
+                pos += fastrand::usize(1..15);
             }
             1 => {
                 let end = pos + fastrand::usize(1..40);
@@ -288,7 +288,7 @@ fn test_push_dense_mix() {
                 builder.push_range(pos as u64..end as u64);
 
                 pos = end;
-                pos = pos + fastrand::usize(1..50);
+                pos += fastrand::usize(1..50);
             }
             2 => {
                 let count = fastrand::usize(1..100);

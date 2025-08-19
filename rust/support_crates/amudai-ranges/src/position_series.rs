@@ -255,8 +255,8 @@ mod tests {
         assert_eq!(compute([2, 3, 8, 10]), 9);
         assert_eq!(compute_slow([2, 3, 8, 10]), 9);
 
-        assert_eq!(compute(&[2, 3, 8, 10]), 9);
-        assert_eq!(compute_slow(&[2, 3, 8, 10]), 9);
+        assert_eq!(compute([2, 3, 8, 10]), 9);
+        assert_eq!(compute_slow([2, 3, 8, 10]), 9);
 
         assert_eq!(compute([10..20, 30..40]), 30);
         assert_eq!(compute_slow([10..20, 30..40]), 30);
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(compute((10..20).map(|i| i * 10..i * 100)), 1800);
         assert_eq!(compute_slow((10..20).map(|i| i * 10..i * 100)), 1800);
 
-        let v = vec![2u64, 3, 4, 5, 7, 9];
+        let v = [2u64, 3, 4, 5, 7, 9];
         assert_eq!(compute(v.iter()), 8);
         assert_eq!(compute_slow(v.iter()), 8);
 

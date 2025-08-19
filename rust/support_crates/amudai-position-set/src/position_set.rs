@@ -61,14 +61,14 @@ impl PositionSet {
     ///
     /// All membership tests return false for positions in range.
     pub fn empty(span: u64) -> PositionSet {
-        Self::new_with_segment_fn(span, |range| Segment::empty(range))
+        Self::new_with_segment_fn(span, Segment::empty)
     }
 
     /// Create a full set over [0, span).
     ///
     /// All positions in [0, span) are present.
     pub fn full(span: u64) -> PositionSet {
-        Self::new_with_segment_fn(span, |range| Segment::full(range))
+        Self::new_with_segment_fn(span, Segment::full)
     }
 
     /// Build a set from an iterator of positions.
@@ -155,7 +155,7 @@ impl PositionSet {
     ///
     /// Behavior is delegated to the underlying segment that owns `pos`:
     /// - [`SegmentKind::Bits`]: O(1) bit set.
-    /// - [`SegmentKind::Full`]: no-op.
+    /// - [`SegmentKind::Full`][]: no-op.
     /// - [`SegmentKind::Empty`]: converts that segment to bits and sets the bit
     ///   (allocates a fixed `SPAN/8` bytes once).
     /// - [`SegmentKind::List`] or [`SegmentKind::Ranges`]: this will panic (see
@@ -347,10 +347,7 @@ impl PositionSet {
 
         let chunk_outputs = output.split_at_sizes_mut(chunk_pos_counts.iter().copied());
 
-        let items = self
-            .segments
-            .chunks(segments_per_chunk)
-            .zip(chunk_outputs.into_iter());
+        let items = self.segments.chunks(segments_per_chunk).zip(chunk_outputs);
 
         amudai_workflow::data_parallel::for_each(None, items, |(segments, output)| {
             let mut offset = 0usize;
@@ -435,11 +432,13 @@ impl PositionSet {
     /// segment kinds). This does not mutate the set.
     pub fn compute_stats(&self) -> PositionSetStats {
         self.check_basic_invariants();
-        let mut stats = PositionSetStats::default();
-        stats.span = self.span;
-        stats.position_count = self.count_positions();
-        stats.total_segments = self.segments.len();
-        stats.heap_size = self.heap_size_bytes();
+        let mut stats = PositionSetStats {
+            span: self.span,
+            position_count: self.count_positions(),
+            total_segments: self.segments.len(),
+            heap_size: self.heap_size_bytes(),
+            ..Default::default()
+        };
         for segment in &self.segments {
             match segment.kind() {
                 SegmentKind::Empty => stats.empty_segments += 1,
@@ -515,7 +514,7 @@ impl PositionSet {
     fn par_unary<R: Send>(&self, f: impl Fn(&Segment) -> R + Send + Sync) -> Vec<R> {
         let chunk_size = self.get_par_chunk_size();
         amudai_workflow::data_parallel::map(None, self.segments.chunks(chunk_size), |chunk| {
-            chunk.iter().map(|segment| f(segment)).collect::<Vec<_>>()
+            chunk.iter().map(&f).collect::<Vec<_>>()
         })
         .flatten()
         .collect()

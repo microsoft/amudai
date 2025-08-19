@@ -94,11 +94,7 @@ fn run_hll_test(dcount: usize, num_hlls: usize, bits_per_index: u32) {
     let error = ((estimation as f64) / (dcount as f64) - 1.0).abs();
     assert!(
         error <= max_error,
-        "HLL estimation error {:.4} exceeds maximum allowed error {:.4} for {} elements with {} bits",
-        error,
-        max_error,
-        dcount,
-        bits_per_index
+        "HLL estimation error {error:.4} exceeds maximum allowed error {max_error:.4} for {dcount} elements with {bits_per_index} bits"
     );
 
     // Test serialization round-trip accuracy

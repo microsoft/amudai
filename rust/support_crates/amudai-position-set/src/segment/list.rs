@@ -285,8 +285,7 @@ impl ListSegment {
             Some(&last_pos) if rel_pos <= last_pos => {
                 debug_assert_eq!(
                     rel_pos, last_pos,
-                    "Attempted to insert position {} which is less than last position {}",
-                    rel_pos, last_pos
+                    "Attempted to insert position {rel_pos} which is less than last position {last_pos}"
                 );
             }
             _ => self.values.push(rel_pos),

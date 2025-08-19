@@ -866,6 +866,7 @@ pub fn empty_hint() -> std::iter::Empty<u64> {
 }
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod tests {
     use std::ops::Range;
 
@@ -1035,10 +1036,10 @@ mod tests {
             max_io_size: 64 * 1024,
         };
         let block_ranges = block_list
-            .map_position_ranges_to_block_ranges(vec![0..value_count].into_iter(), &profile)
+            .map_position_ranges_to_block_ranges(vec![0..value_count], &profile)
             .unwrap();
         let block_ranges = block_list
-            .compute_read_optimized_block_ranges(block_ranges.into_iter(), &profile)
+            .compute_read_optimized_block_ranges(block_ranges, &profile)
             .unwrap();
         assert!(block_ranges.len() > 3);
 

@@ -1,3 +1,5 @@
+#![allow(clippy::approx_constant)]
+
 //! Consolidated tests for field encoders
 //!
 //! This module contains all field encoder tests moved from individual encoder files

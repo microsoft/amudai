@@ -622,6 +622,7 @@ impl_ffor!(u64);
 impl_ffor_unimpl!(u128);
 
 #[cfg(test)]
+#[allow(clippy::needless_range_loop)]
 mod test {
     use core::array;
     use core::fmt::Debug;

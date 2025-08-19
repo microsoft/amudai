@@ -361,8 +361,7 @@ impl SegmentBuilder {
                 let count = self.bits.count_runs();
                 self.runs.clear();
                 self.runs.reserve(count);
-                self.runs
-                    .extend(self.bits.ranges_iter().map(|v| Run::from(v)));
+                self.runs.extend(self.bits.ranges_iter().map(Run::from));
                 self.bits = BitArray::empty(0);
             }
             (SegmentKind::Bits, SegmentKind::Bits) => (),
@@ -391,7 +390,7 @@ impl SegmentBuilder {
             SegmentKind::List => {
                 if self.values.len() + range_len > Segment::MAX_LIST_LEN as usize {
                     let runs = count_runs(&self.values);
-                    if runs + 1 <= Segment::MAX_RANGES_LEN as usize {
+                    if runs < Segment::MAX_RANGES_LEN as usize {
                         self.switch_representation(SegmentKind::Ranges);
                         self.push_relative_range(range);
                     } else {
