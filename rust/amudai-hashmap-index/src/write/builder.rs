@@ -756,7 +756,7 @@ pub(crate) mod tests {
             .unwrap();
         // Builder decides partition count: ensure it's power-of-two and non-zero
         assert!(sealed_index.partitions.len().is_power_of_two());
-        assert!(sealed_index.partitions.len() > 0);
+        assert!(!sealed_index.partitions.is_empty());
         assert_eq!(
             get_buckets_count(unique_entries) as u64,
             sealed_index

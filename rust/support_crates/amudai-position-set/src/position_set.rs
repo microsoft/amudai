@@ -348,7 +348,7 @@ impl PositionSet {
         assert_eq!(self.span, other.span);
         self.segments
             .iter_mut()
-            .zip(other.segments.into_iter())
+            .zip(other.segments)
             .for_each(|(this, other)| this.merge_with(other));
     }
 

@@ -148,7 +148,7 @@ fn test_intersect_with_basic() {
         Segment::SPAN + 1,
         Segment::SPAN * 2 + 10,
     ];
-    let positions_b = vec![
+    let positions_b = [
         5,
         Segment::SPAN,
         Segment::SPAN * 2 + 9,
@@ -190,7 +190,7 @@ fn test_intersect_with_full_other() {
 fn test_merge_with_basic() {
     let span = Segment::SPAN * 3;
     let positions_a = vec![0, Segment::SPAN - 1, Segment::SPAN + 5];
-    let positions_b = vec![1, Segment::SPAN, Segment::SPAN * 2 + 3];
+    let positions_b = [1, Segment::SPAN, Segment::SPAN * 2 + 3];
     let a = PositionSet::from_positions(span, positions_a.iter().copied());
     let b = PositionSet::from_positions(span, positions_b.iter().copied());
 
