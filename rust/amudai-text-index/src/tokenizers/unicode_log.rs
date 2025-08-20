@@ -1,6 +1,7 @@
 //! Unicode Log Tokenizer - extends word tokenizer with IPv4 address recognition.
 
 use super::{DEFAULT_MAX_TERM_LENGTH, DEFAULT_MIN_TERM_LENGTH, Tokenizer, truncate_str};
+use crate::tokenizers::TokenizerKind;
 
 /// Log Tokenizer - extends word tokenizer with IPv4 address recognition.
 ///
@@ -174,8 +175,8 @@ impl Tokenizer for UnicodeLogTokenizer {
         LogTokenIterator::new(input, self.max_term_length, self.min_term_length)
     }
 
-    fn name(&self) -> &'static str {
-        "unicode-log"
+    fn kind(&self) -> TokenizerKind {
+        TokenizerKind::UnicodeLog
     }
 
     fn max_term_length(&self) -> usize {

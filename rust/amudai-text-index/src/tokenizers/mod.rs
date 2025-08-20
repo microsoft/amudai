@@ -33,7 +33,7 @@ pub const DEFAULT_MIN_TERM_LENGTH: usize = 1;
 /// This trait returns an iterator of string slices to avoid memory allocations.
 /// Terms longer than the maximum length are truncated at UTF-8 character boundaries.
 /// Terms shorter than the minimum length are excluded entirely.
-pub trait Tokenizer {
+pub trait Tokenizer: Send + Sync {
     /// The iterator type returned by tokenize.
     type TokenIter<'a>: Iterator<Item = &'a str>
     where
@@ -43,8 +43,13 @@ pub trait Tokenizer {
     /// Returns an iterator that yields references to substrings of the input.
     fn tokenize<'a>(&'a self, input: &'a str) -> Self::TokenIter<'a>;
 
-    /// Get the name of this tokenizer as used in index properties.
-    fn name(&self) -> &'static str;
+    /// Get the kind of the tokenizer.
+    fn kind(&self) -> TokenizerKind;
+
+    /// Get the name of the tokenizer kind as a static string.
+    fn name(&self) -> &'static str {
+        self.kind().name()
+    }
 
     /// Maximum length of a single term in bytes before exclusion.
     /// Terms longer than this will be excluded from the results entirely.
@@ -53,6 +58,29 @@ pub trait Tokenizer {
     /// Minimum length of a single term in bytes before exclusion.
     /// Terms shorter than this will be excluded from the results entirely.
     fn min_term_length(&self) -> usize;
+}
+
+/// Creates a tokenizer instance based on the provided name string.
+///
+/// This factory function provides a convenient way to create tokenizer instances
+/// by name, which is useful for configuration-driven tokenizer selection.
+///
+/// # Arguments
+/// * `name` - The name of the tokenizer to create (case-sensitive)
+///
+/// # Returns
+/// * `Ok(TokenizerType)` - The requested tokenizer wrapped in a `TokenizerType` enum
+/// * `Err(Error)` - If the tokenizer name is not recognized
+///
+/// # Errors
+/// Returns an [`Error::invalid_arg`] if the provided tokenizer name is not recognized.
+///
+pub fn create_tokenizer(name: &str) -> Result<TokenizerType> {
+    match name.try_into()? {
+        TokenizerKind::Trivial => Ok(TokenizerType::Trivial(TrivialTokenizer::new())),
+        TokenizerKind::UnicodeWord => Ok(TokenizerType::UnicodeWord(UnicodeWordTokenizer::new())),
+        TokenizerKind::UnicodeLog => Ok(TokenizerType::UnicodeLog(UnicodeLogTokenizer::new())),
+    }
 }
 
 /// Truncate a string slice to the maximum allowed length at a codepoint boundary.
@@ -75,6 +103,47 @@ pub(crate) fn truncate_str(input: &str, max_term_length: usize) -> &str {
     &input[..boundary]
 }
 
+/// Enum representing the different tokenizer kinds available.
+/// This enum is used to identify the type of tokenizer being used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenizerKind {
+    /// A tokenizer that does not perform any processing, simply returns the input as a single term.
+    Trivial,
+    /// A tokenizer that splits input into terms based on Unicode word boundaries.
+    UnicodeWord,
+    /// A tokenizer that splits input into terms based on Unicode word boundaries. In addition, it
+    /// recognizes IPv4 addresses and treats them as single terms.
+    UnicodeLog,
+}
+
+/// Convert a string name to a TokenizerKind enum variant.
+impl TryFrom<&str> for TokenizerKind {
+    type Error = amudai_common::error::Error;
+
+    fn try_from(name: &str) -> Result<Self> {
+        match name {
+            "trivial" => Ok(TokenizerKind::Trivial),
+            "unicode-word" => Ok(TokenizerKind::UnicodeWord),
+            "unicode-log" => Ok(TokenizerKind::UnicodeLog),
+            _ => Err(Error::invalid_arg(
+                "name",
+                format!("Unrecognized tokenizer: {name}"),
+            )),
+        }
+    }
+}
+
+impl TokenizerKind {
+    /// Get the name of the tokenizer kind as a static string.
+    const fn name(&self) -> &'static str {
+        match self {
+            TokenizerKind::Trivial => "trivial",
+            TokenizerKind::UnicodeWord => "unicode-word",
+            TokenizerKind::UnicodeLog => "unicode-log",
+        }
+    }
+}
+
 /// Enum that holds all available tokenizer types.
 /// This allows for dynamic dispatch while maintaining the iterator-based API.
 pub enum TokenizerType {
@@ -94,11 +163,11 @@ impl Tokenizer for TokenizerType {
         }
     }
 
-    fn name(&self) -> &'static str {
+    fn kind(&self) -> TokenizerKind {
         match self {
-            TokenizerType::Trivial(tokenizer) => tokenizer.name(),
-            TokenizerType::UnicodeWord(tokenizer) => tokenizer.name(),
-            TokenizerType::UnicodeLog(tokenizer) => tokenizer.name(),
+            TokenizerType::Trivial(tokenizer) => tokenizer.kind(),
+            TokenizerType::UnicodeWord(tokenizer) => tokenizer.kind(),
+            TokenizerType::UnicodeLog(tokenizer) => tokenizer.kind(),
         }
     }
 
@@ -116,38 +185,6 @@ impl Tokenizer for TokenizerType {
             TokenizerType::UnicodeWord(tokenizer) => tokenizer.min_term_length(),
             TokenizerType::UnicodeLog(tokenizer) => tokenizer.min_term_length(),
         }
-    }
-}
-
-/// Creates a tokenizer instance based on the provided name string.
-///
-/// This factory function provides a convenient way to create tokenizer instances
-/// by name, which is useful for configuration-driven tokenizer selection.
-///
-/// # Supported tokenizers
-/// * `"trivial"` - Creates a [`TrivialTokenizer`] that returns the entire input as a single token
-/// * `"unicode-word"` - Creates a [`UnicodeWordTokenizer`] that extracts Unicode alphanumeric words
-/// * `"unicode-log"` - Creates a [`UnicodeLogTokenizer`] that extracts both IPv4 addresses and Unicode words
-///
-/// # Arguments
-/// * `name` - The name of the tokenizer to create (case-sensitive)
-///
-/// # Returns
-/// * `Ok(TokenizerType)` - The requested tokenizer wrapped in a `TokenizerType` enum
-/// * `Err(Error)` - If the tokenizer name is not recognized
-///
-/// # Errors
-/// Returns an [`Error::invalid_arg`] if the provided tokenizer name is not recognized.
-///
-pub fn create_tokenizer(name: &str) -> Result<TokenizerType> {
-    match name {
-        "trivial" => Ok(TokenizerType::Trivial(TrivialTokenizer::new())),
-        "unicode-word" => Ok(TokenizerType::UnicodeWord(UnicodeWordTokenizer::new())),
-        "unicode-log" => Ok(TokenizerType::UnicodeLog(UnicodeLogTokenizer::new())),
-        _ => Err(Error::invalid_arg(
-            name,
-            format!("Unrecognized tokenizer: {name}"),
-        )),
     }
 }
 

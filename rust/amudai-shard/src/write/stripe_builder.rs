@@ -279,6 +279,19 @@ impl StripeBuilder {
         self.batch_pos = pos as usize;
     }
 
+    /// Returns the next logical record position in the stripe.
+    ///
+    /// This method provides the current logical position of the next record
+    /// that will be added to the stripe. It is useful for tracking how many records
+    /// have been added so far and where the next record will be placed.
+    ///
+    /// # Returns
+    ///
+    /// The next logical record position as a `u64`.
+    pub fn next_record_position(&self) -> u64 {
+        self.batch_pos as u64
+    }
+
     /// Returns a reference to the stripe properties builder.
     ///
     /// This method provides read-only access to the `StripePropertiesBuilder`

@@ -122,50 +122,75 @@ The selected position list type for a specific term/stripe/field is included in 
 
 ### Index Storage Format
 
-The index storage is organized into two main components: "terms" and "positions." The "terms" component encodes the B-tree structure of the terms, while the "positions" component contains all the position lists, compressed and concatenated together. Each entry in the "terms" component points to the corresponding position slice in the "positions" component.
+The index storage is organized into two main components: "terms" and "positions." The "terms" component encodes the B-tree structure of the terms, while the "positions" component contains all the position lists, compressed and concatenated together. Each leaf page in the "terms" component carries a page-level `pos_list_start_offset` that marks the starting offset in the "positions" component for that page. Within a leaf page, every field entry stores only its `pos_list_end_offset`; the starting offset for the first entry on the page is the page-level value, and for subsequent entries it is the previous entry’s end offset. This design eliminates cross-page dependency during reads and simplifies iterators.
 
-Amudai utilizes its own shard format to manage the data structures for both "terms" and "positions." Consequently, both components are stored as Amudai shards with minimal set of features, each using a single-blob layout. Whether these utility shards contain their own indexes is left as a thought-provoking challenge for the reader.
+#### Terms Shard
 
-"Terms" shard is defined by the following schema:
+The terms shard contains the B-tree structure with terms and navigation information. Each record in the shard represents a B-tree page (either interior or leaf). The shard uses the following schema:
 ```
-// Reference to a position list for given field within a stripe.
-type FieldPositions ::=
+type FieldPosition ::=
     Struct<
-        field_schema_id: u32,
-        repr_type: u8,
-        pos_list_end_offset: u64
+        field_schema_id: i32,
+        repr_type: i8,
+        pos_list_end_offset: i64
     >;
 
-// Collection of position lists per-stripe.
-type StripeFieldPositions ::=
-    List<
-        Struct<
-            stripe_id: u32,
-            fields: FieldPositions
-        >
+type TermPosition ::=
+    Struct<
+        stripe_id: i16,
+        fields: List<FieldPosition>
     >;
 
-// Single term entry
-type TermEntry ::=
-    PackedStruct<
+type Entry ::=
+    Struct<
         term: binary,
-        stripes: List<StripeFieldPositions>
+        child_position: i64,
+        term_positions: List<TermPosition>
     >;
 
-type Leaf ::= List<TermEntry>;
-
-type Level2 ::= List<Struct<term: binary, leaf: Leaf>>;
-
-type Level1 ::= List<Struct<term: binary, next: Level2>>;
-
-type Root ::= Struct<term: binary, next: Level1>;
+type BTreePage ::=
+    Struct<
+        level: i8,
+        entries: List<Entry>,
+        pos_list_start_offset: i64
+    >;
 ```
 
-The "Positions" shard consists of a single `u64` field. Logical ranges are indicated by the "Terms" shard. How the numbers are interpreted depends on the representation type:
+Each B-tree page contains:
+- **`level`**: The tree level (0 for leaf pages, >0 for interior pages)
+- **`entries`**: List of entries, where each entry contains:
+  - **`term`**: The term as binary data (for leaf pages) or separator key (for interior pages)
+  - **`child_position`**: For interior pages, the child page number; for leaf pages, unused
+  - **`term_positions`**: For leaf pages only, the position data organized by stripe and field
+- **`pos_list_start_offset`**: For leaf pages only, the starting offset in the positions shard for this page
 
-- Position List: Each `u64` value represents the logical record position within the relevant stripe.
-  
-- Position Ranges (exact or approximate): This sequence includes an even number of `u64` values. Each pair forms an `inclusive..exclusive` range, signifying the logical record positions within the relevant stripe.
+Within each `TermPosition`, position data is referenced through:
+- **`stripe_id`**: The stripe identifier where the term appears
+- **`fields`**: List of field references, each containing:
+  - **`field_schema_id`**: The schema ID of the field containing the term
+  - **`repr_type`**: How the position data is represented (0=positions, 1=exact ranges, 2=approximate ranges)
+  - **`pos_list_end_offset`**: The ending offset in the positions shard for this field's position data
+
+The starting offset for position data is computed as either the page-level `pos_list_start_offset` (for the first field entry on a page) or the previous field entry's `pos_list_end_offset`.
+
+#### Positions Shard
+
+The positions shard stores the actual position lists as a simple sequence of 64-bit integers. The shard has a minimal schema:
+
+```
+type PositionsData ::=
+    Struct<
+        position: i64
+    >;
+```
+
+Position data is stored as a continuous stream of integers, with interpretation determined by the `repr_type` field in the corresponding terms shard entry:
+
+- **Position List** (`repr_type = 0`): Each `i64` value represents an individual logical record position within the stripe.
+- **Exact Ranges** (`repr_type = 1`): Values are stored in pairs (start, end) representing precise `inclusive..exclusive` ranges of logical record positions.
+- **Approximate Ranges** (`repr_type = 2`): Values are stored in pairs (start, end) representing approximate `inclusive..exclusive` ranges where positions might contain the term.
+
+Both shards use Amudai's standard shard format with single-stripe organization and minimal compression for optimal access patterns during queries.
 
 ### Mandatory Index Properties
 

@@ -1,7 +1,9 @@
 //! Unicode Word Tokenizer - extracts alphanumeric words using Unicode properties.
 
-use super::{DEFAULT_MAX_TERM_LENGTH, DEFAULT_MIN_TERM_LENGTH, Tokenizer, truncate_str};
 use std::str::CharIndices;
+
+use super::{DEFAULT_MAX_TERM_LENGTH, DEFAULT_MIN_TERM_LENGTH, Tokenizer, truncate_str};
+use crate::tokenizers::TokenizerKind;
 
 /// Word Tokenizer - extracts alphanumeric words from text.
 ///
@@ -114,8 +116,8 @@ impl Tokenizer for UnicodeWordTokenizer {
         WordTokenIterator::new(input, self.max_term_length, self.min_term_length)
     }
 
-    fn name(&self) -> &'static str {
-        "unicode-word"
+    fn kind(&self) -> TokenizerKind {
+        TokenizerKind::UnicodeWord
     }
 
     fn max_term_length(&self) -> usize {

@@ -916,6 +916,23 @@ impl ValueSequence {
         let range = offsets[index] as usize..offsets[index + 1] as usize;
         std::str::from_utf8(&self.values.as_bytes()[range]).expect("invalid utf8")
     }
+
+    /// Clears the sequence, removing all values and resetting its state.
+    ///
+    /// This method empties the values buffer, clears the offsets (if present),
+    /// and resets the presence information to its default state.
+    ///
+    /// # Note
+    ///
+    /// This method does not deallocate the underlying buffers,
+    /// it simply clears their contents. The sequence can be reused after calling this method.
+    pub fn clear(&mut self) {
+        self.values.clear();
+        if let Some(ref mut offsets) = self.offsets {
+            offsets.clear();
+        }
+        self.presence = Presence::default();
+    }
 }
 
 impl ValueSequence {

@@ -1,7 +1,9 @@
 //! Trivial Tokenizer - returns the input unchanged.
 
-use super::{DEFAULT_MAX_TERM_LENGTH, DEFAULT_MIN_TERM_LENGTH, Tokenizer, truncate_str};
 use std::iter;
+
+use super::{DEFAULT_MAX_TERM_LENGTH, DEFAULT_MIN_TERM_LENGTH, Tokenizer, truncate_str};
+use crate::tokenizers::TokenizerKind;
 
 /// Trivial Tokenizer - returns the input unchanged or truncated.
 ///
@@ -52,8 +54,8 @@ impl Tokenizer for TrivialTokenizer {
         }
     }
 
-    fn name(&self) -> &'static str {
-        "trivial"
+    fn kind(&self) -> TokenizerKind {
+        TokenizerKind::Trivial
     }
 
     fn max_term_length(&self) -> usize {

@@ -1,37 +1,68 @@
-//! Inverted text index implementation.
+//! High-performance inverted text index for Amudai storage format.
 //!
-//! This crate provides text tokenization functionality for building inverted text indices.
-//! It offers various tokenization strategies for extracting searchable terms from text data.
+//! This crate provides a complete inverted text index implementation optimized for
+//! the Amudai storage format. It supports both writing (indexing) and reading
+//! (querying) text data with efficient storage, compression, and retrieval.
 //!
-//! # Overview
+//! # Main Entry Points
 //!
-//! The crate is primarily focused on tokenizers that break text into searchable terms.
-//! These tokenizers are used in two key scenarios:
+//! This crate exposes two primary interfaces for text indexing operations:
 //!
-//! 1. **Index Creation**: When building an inverted text index, tokenizers extract
-//!    searchable terms from document text values.
-//! 2. **Query Processing**: When searching the index, tokenizers process query strings
-//!    to extract terms for matching.
+//! ## Building Indexes: [`write::builder::TextIndexBuilder`]
 //!
-//! # Available Tokenizers
+//! The [`TextIndexBuilder`] is the main entry point for constructing searchable text indexes.
+//! It provides a high-level API for processing text data and building optimized indexes
+//! with automatic memory management and disk spilling. The builder supports configurable
+//! tokenizers, collation strategies, and memory limits for efficient processing of large
+//! datasets through a fragment-based architecture with automatic spilling to disk.
 //!
-//! - **Trivial Tokenizer** (`"trivial"`): Returns the input unchanged, useful for exact matches
-//! - **Unicode Word Tokenizer** (`"unicode-word"`): Extracts alphanumeric words from text
-//! - **Unicode Log Tokenizer** (`"unicode-log"`): Extracts both IPv4 addresses and words from log data
+//! ## Querying Indexes: [`read::index::TextIndex`]
 //!
-//! # Quick Start
+//! The [`TextIndex`] provides the primary interface for querying existing text indexes.
+//! It supports both exact term lookups and prefix matching with efficient streaming results.
+//! The index operates on the two-shard architecture and provides memory-efficient access
+//! to indexed text data through lazy loading and streaming iterators.
 //!
-//! ```rust
-//! use amudai_text_index::{create_tokenizer, Tokenizer};
+//! # Architecture Overview
 //!
-//! // Create a word tokenizer
-//! let tokenizer = create_tokenizer("unicode-word").unwrap();
+//! The text index uses a two-shard architecture:
+//! - **Terms Shard**: Contains the B-Tree structure with terms and navigation information
+//! - **Positions Shard**: Contains the actual position lists referenced by terms
 //!
-//! // Tokenize some text
-//! let terms: Vec<&str> = tokenizer.tokenize("Hello, world! This is a test.").collect();
-//! // Results in: ["Hello", "world", "This", "is", "a", "test"]
-//! ```
+//! This separation enables optimal compression and query performance by keeping
+//! the navigation structure compact while allowing efficient access to detailed
+//! position information only when needed.
+//!
+//! # Supporting Components
+//!
+//! ## Text Processing
+//! - [`tokenizers`]: Text tokenization strategies for different content types
+//! - [`collation`]: Text comparison and normalization strategies
+//!
+//! ## Position Handling
+//! - [`pos_list`]: Position list representations with precision/space tradeoffs
+//!
+//! ## Low-Level APIs
+//! - [`mod@write`]: Low-level encoding components and internal builders
+//! - [`read`]: Low-level decoding components and internal decoders
+//!
+//! # Usage Patterns
+//!
+//! The index is designed for scenarios requiring:
+//! - High-volume text indexing with memory efficiency
+//! - Fast exact and prefix term lookups
+//! - Position-aware text search (phrase queries, proximity)
+//! - Horizontally partitioned data (stripes) across multiple fields
+//!
+//! All operations are designed to work efficiently with the Amudai storage
+//! format's columnar layout and compression strategies.
 
-mod tokenizers;
+// Re-export main entry points for convenient access
+pub use read::index::TextIndex;
+pub use write::builder::{TextIndexBuilder, TextIndexBuilderConfig};
 
-pub use tokenizers::{Tokenizer, create_tokenizer};
+pub mod collation;
+pub mod pos_list;
+pub mod read;
+pub mod tokenizers;
+pub mod write;
