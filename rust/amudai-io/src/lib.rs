@@ -95,10 +95,8 @@ pub trait WriteAt: Send + Sync + 'static {
 ///
 /// # Thread Safety
 ///
-/// Implementations must be [`Send`] to support transfer between threads, though
-/// the trait does not require [`Sync`] as writers typically require exclusive
-/// access through `&mut self`.
-pub trait SealingWrite: Send {
+/// Implementations do not promise thread safety.
+pub trait SealingWrite {
     /// Writes the entire buffer to the underlying storage, appending it to any
     /// previously written data.
     ///
