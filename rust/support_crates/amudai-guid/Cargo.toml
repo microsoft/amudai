@@ -1,0 +1,13 @@
+[package]
+name = "amudai-guid"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+uuid = {  workspace = true, features = ["v4", "serde"] }
+uuid-simd = { workspace = true }
