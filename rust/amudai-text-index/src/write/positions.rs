@@ -283,7 +283,7 @@ mod tests {
             let (_, offset) = builder
                 .push(PositionList::Positions((0..i).collect()))
                 .expect("Failed to append positions");
-            positions_written += i as u64;
+            positions_written += i;
             assert_eq!(offset, positions_written);
         }
         let final_offset = builder.offset;

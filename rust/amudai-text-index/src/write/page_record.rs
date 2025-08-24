@@ -746,7 +746,7 @@ mod tests {
         builder.set_page_positions_start_offset(0);
 
         for term_idx in 0..100 {
-            let term = format!("term{:03}", term_idx).into_bytes(); // term000, term000, ..., term009, term099
+            let term = format!("term{term_idx:03}").into_bytes(); // term000, term000, ..., term009, term099
             for stripe_idx in 0..5 {
                 for field_idx in 0..7 {
                     builder.push(

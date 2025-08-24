@@ -369,7 +369,7 @@ impl FieldEntryCollector {
 
                     sorted[target_pos] = TermEntry {
                         id: entry.id,
-                        stripe: self.stripe as u16,
+                        stripe: self.stripe,
                         field: schema_id,
                         pos: entry.pos,
                     };
@@ -556,7 +556,7 @@ impl IndexFragment {
         field: SchemaId,
         pos: u32,
     ) -> amudai_common::Result<()> {
-        assert!(text.len() <= std::u32::MAX as usize);
+        assert!(text.len() <= u32::MAX as usize);
 
         if text.is_empty() {
             return Ok(());
@@ -645,7 +645,7 @@ impl IndexFragment {
         // index_offsets flag (u32)
         writer.write_all(&0u32.to_le_bytes())?;
         // stripe id (u16)
-        writer.write_all(&(self.stripe as u16).to_le_bytes())?;
+        writer.write_all(&self.stripe.to_le_bytes())?;
 
         let mut counted_terms = 0;
         // Temporary buffer that will be re-used during serialization
@@ -1011,8 +1011,7 @@ impl IndexFragmentDecoder {
         self.postings.clear();
         let values = self.scratch.typed_data::<u32>();
 
-        for i in 0..entry_count {
-            let pos = values[i];
+        for &pos in values.iter().take(entry_count) {
             self.postings.push(TermPosting {
                 stripe: self.stripe,
                 field: self.field,
@@ -1477,7 +1476,7 @@ mod tests {
             ("artificial intelligence data analytics", field4, 270),
         ];
 
-        let stripe_boundaries = vec![0, 8, 16]; // Documents per stripe
+        let stripe_boundaries = [0, 8, 16]; // Documents per stripe
 
         for stripe in 0..3 {
             fragment.set_stripe(stripe);
@@ -1489,8 +1488,7 @@ mod tests {
                 stripe_boundaries[stripe as usize + 1]
             };
 
-            for i in start_idx..end_idx {
-                let (text, field, pos) = &documents[i];
+            for (text, field, pos) in documents.iter().take(end_idx).skip(start_idx) {
                 fragment
                     .process_text(text, &tokenizer, *field, *pos)
                     .unwrap();
@@ -1511,7 +1509,7 @@ mod tests {
             let boxed_cursor = Box::new(cursor) as Box<dyn Read>;
             let mut decoder = IndexFragmentDecoder::new(boxed_cursor).unwrap();
 
-            assert_eq!(decoder.stripe, stripe as u16);
+            assert_eq!(decoder.stripe, stripe);
 
             // Collect all terms and verify comprehensive indexing
             let mut terms_found = vec![];
@@ -1530,7 +1528,7 @@ mod tests {
 
                     // Verify all postings have correct stripe and field
                     for posting in postings {
-                        assert_eq!(posting.stripe, stripe as u16);
+                        assert_eq!(posting.stripe, stripe);
                         assert_eq!(posting.field, field);
                     }
                 }
@@ -1549,8 +1547,7 @@ mod tests {
             sorted_terms.sort();
             assert_eq!(
                 terms_found, sorted_terms,
-                "Terms should be sorted in stripe {}",
-                stripe
+                "Terms should be sorted in stripe {stripe}"
             );
 
             // Verify multiple fields are used
@@ -1564,9 +1561,7 @@ mod tests {
             // Verify substantial number of postings (multiple positions)
             assert!(
                 total_postings > 30,
-                "Stripe {} should have >30 postings, got {}",
-                stripe,
-                total_postings
+                "Stripe {stripe} should have >30 postings, got {total_postings}"
             );
 
             println!(
@@ -1694,7 +1689,7 @@ mod tests {
 
         // Extract serialized data from all streams
         let mut serialized_fragments = Vec::new();
-        for boxed_buffer in vec![
+        for boxed_buffer in [
             boxed_buffer1a,
             boxed_buffer1b,
             boxed_buffer2a,
@@ -1732,9 +1727,7 @@ mod tests {
             let curr_term = std::str::from_utf8(&sink.terms[i].2).unwrap();
             assert!(
                 collation_for_test.compare(prev_term, curr_term) != std::cmp::Ordering::Greater,
-                "Terms should be in lexicographic order: '{}' should not come after '{}'",
-                prev_term,
-                curr_term
+                "Terms should be in lexicographic order: '{prev_term}' should not come after '{curr_term}'"
             );
         }
 
@@ -1750,7 +1743,7 @@ mod tests {
         for &(term_ordinal, posting) in &sink.postings {
             postings_by_term
                 .entry(term_ordinal)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(posting);
         }
 
@@ -1786,8 +1779,7 @@ mod tests {
         for expected in expected_terms {
             assert!(
                 term_strings.contains(&expected.to_string()),
-                "Expected term '{}' should be present in merged results",
-                expected
+                "Expected term '{expected}' should be present in merged results"
             );
         }
 
@@ -1808,8 +1800,7 @@ mod tests {
 
             assert!(
                 apple_postings.len() >= 2,
-                "Apple should have postings from multiple fragments, got: {:?}",
-                apple_postings
+                "Apple should have postings from multiple fragments, got: {apple_postings:?}"
             );
 
             // Should have postings from different stripes (0 and 2)

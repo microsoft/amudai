@@ -130,9 +130,7 @@ impl PositionListBuilder {
                 if let Some(&last_pos) = positions.last() {
                     assert!(
                         position > last_pos,
-                        "Positions must be added in sorted order: {} <= {}",
-                        position,
-                        last_pos
+                        "Positions must be added in sorted order: {position} <= {last_pos}"
                     );
                 }
                 positions.push(position);
@@ -488,8 +486,10 @@ mod tests {
 
     #[test]
     fn test_conversion_to_ranges() {
-        let mut config = PositionListBuilderConfig::default();
-        config.max_positions = 5; // Force conversion early
+        let config = PositionListBuilderConfig {
+            max_positions: 5, // Force conversion early
+            ..Default::default()
+        };
 
         let mut builder = PositionListBuilder::with_config(config);
 
@@ -510,10 +510,11 @@ mod tests {
 
     #[test]
     fn test_conversion_to_approximate() {
-        let mut config = PositionListBuilderConfig::default();
-        config.max_positions = 3;
-        config.max_exact_ranges = 2;
-        config.max_approximate_gap = 10;
+        let config = PositionListBuilderConfig {
+            max_positions: 3,
+            max_exact_ranges: 2,
+            max_approximate_gap: 10,
+        };
 
         let mut builder = PositionListBuilder::with_config(config);
 
@@ -532,8 +533,10 @@ mod tests {
 
     #[test]
     fn test_merge_consecutive_positions() {
-        let mut config = PositionListBuilderConfig::default();
-        config.max_positions = 3;
+        let config = PositionListBuilderConfig {
+            max_positions: 3,
+            ..Default::default()
+        };
 
         let mut builder = PositionListBuilder::with_config(config);
         builder.insert_many(vec![10, 11, 12, 20]); // 10-12 are consecutive, 20 is separate
@@ -564,9 +567,11 @@ mod tests {
     #[test]
     fn test_exact_vs_approximate_behavior() {
         // Test that exact ranges only merge consecutive positions
-        let mut config_exact = PositionListBuilderConfig::default();
-        config_exact.max_positions = 3; // Force conversion to ranges
-        config_exact.max_exact_ranges = 10; // Stay in exact mode
+        let config_exact = PositionListBuilderConfig {
+            max_positions: 3,     // Force conversion to ranges
+            max_exact_ranges: 10, // Stay in exact mode
+            ..Default::default()
+        };
 
         let mut builder_exact = PositionListBuilder::with_config(config_exact);
         builder_exact.insert_many(vec![10, 12, 20]); // gaps present
@@ -581,10 +586,11 @@ mod tests {
         assert!(pos_list_exact.definitely_contains(20));
 
         // Test that approximate ranges can merge with gaps
-        let mut config_approx = PositionListBuilderConfig::default();
-        config_approx.max_positions = 1; // Force conversion to ranges 
-        config_approx.max_exact_ranges = 1; // Force conversion to approximate quickly
-        config_approx.max_approximate_gap = 10; // Allow gap merging
+        let config_approx = PositionListBuilderConfig {
+            max_positions: 1,        // Force conversion to ranges
+            max_exact_ranges: 1,     // Force conversion to approximate quickly
+            max_approximate_gap: 10, // Allow gap merging
+        };
 
         let mut builder_approx = PositionListBuilder::with_config(config_approx);
         builder_approx.insert(10);
@@ -604,10 +610,11 @@ mod tests {
     #[test]
     fn test_optimization_stays_exact_when_no_merging_possible() {
         // Test the optimization: if gaps are too large, stay in exact ranges
-        let mut config = PositionListBuilderConfig::default();
-        config.max_positions = 2; // Force conversion to ranges quickly
-        config.max_exact_ranges = 2; // Force attempt to convert to approximate
-        config.max_approximate_gap = 5; // Small gap - won't allow merging of large gaps
+        let config = PositionListBuilderConfig {
+            max_positions: 2,       // Force conversion to ranges quickly
+            max_exact_ranges: 2,    // Force attempt to convert to approximate
+            max_approximate_gap: 5, // Small gap - won't allow merging of large gaps
+        };
 
         let mut builder = PositionListBuilder::with_config(config);
         builder.insert(10);
@@ -653,8 +660,10 @@ mod tests {
     fn test_optimization_stays_positions_when_no_merging_possible() {
         // Test the optimization: if no consecutive positions exist, stay as positions
         // (unless there are too many positions)
-        let mut config = PositionListBuilderConfig::default();
-        config.max_positions = 3; // Force attempt to convert to ranges
+        let config = PositionListBuilderConfig {
+            max_positions: 3, // Force attempt to convert to ranges
+            ..Default::default()
+        };
 
         let mut builder = PositionListBuilder::with_config(config);
         builder.insert(10);
@@ -678,8 +687,10 @@ mod tests {
     #[test]
     fn test_forces_conversion_with_too_many_positions() {
         // Test that with too many positions, we force conversion even without consecutive positions
-        let mut config = PositionListBuilderConfig::default();
-        config.max_positions = 3; // threshold * 2 = 6
+        let config = PositionListBuilderConfig {
+            max_positions: 3, // threshold * 2 = 6
+            ..Default::default()
+        };
 
         let mut builder = PositionListBuilder::with_config(config);
         // Add 7 scattered positions (more than threshold * 2)
@@ -697,8 +708,10 @@ mod tests {
     #[test]
     fn test_converts_to_ranges_when_merging_possible() {
         // Test that when consecutive positions exist, conversion to ranges still happens
-        let mut config = PositionListBuilderConfig::default();
-        config.max_positions = 3; // Force attempt to convert to ranges
+        let config = PositionListBuilderConfig {
+            max_positions: 3, // Force attempt to convert to ranges
+            ..Default::default()
+        };
 
         let mut builder = PositionListBuilder::with_config(config);
         builder.insert(10);
@@ -732,7 +745,8 @@ mod tests {
         assert!(builder.can_merge_any_ranges(&ranges2, 100)); // max_gap=100 > gap=89
 
         // Test case 3: single range
-        let ranges3 = vec![10..11];
+        let single_range = 10..11;
+        let ranges3 = vec![single_range];
         assert!(!builder.can_merge_any_ranges(&ranges3, 100)); // no merging possible
 
         // Test case 4: empty ranges

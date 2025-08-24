@@ -202,7 +202,7 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         match self.entries_iter.next() {
             Some(Ok(entry)) => match self.positions.read(entry.repr_type, entry.range) {
-                Err(e) => return Some(Err(e)),
+                Err(e) => Some(Err(e)),
                 Ok(pos_list) => Some(Ok(TermPositions {
                     stripe: entry.stripe,
                     field: entry.field,
@@ -270,10 +270,7 @@ mod tests {
             // Process multiple records in field 0 with terms including "apple" and "apples"
             for i in 0..15 {
                 // Include both singular and plural to exercise prefix queries (e.g., "app" -> apple, apples)
-                let text = format!(
-                    "apple apples juice document number {} in stripe {}",
-                    i, stripe
-                );
+                let text = format!("apple apples juice document number {i} in stripe {stripe}");
                 builder
                     .process_text_field(&text, SchemaId::from(0u32), i + 1)
                     .expect("Failed to process field 0");
@@ -283,12 +280,9 @@ mod tests {
             for i in 0..15 {
                 // Ensure that in stripe 0 we also mention "apple" so that apple appears in multiple fields there
                 let text = if stripe == 0 {
-                    format!(
-                        "banana smoothie content number {} stripe {} with apple",
-                        i, stripe
-                    )
+                    format!("banana smoothie content number {i} stripe {stripe} with apple")
                 } else {
-                    format!("banana smoothie content number {} stripe {}", i, stripe)
+                    format!("banana smoothie content number {i} stripe {stripe}")
                 };
                 builder
                     .process_text_field(&text, SchemaId::from(1u32), i + 1)
@@ -298,10 +292,8 @@ mod tests {
             // Process multiple records in field 2 (tags) with different terms
             for i in 0..15 {
                 // Include terms to satisfy prefix and field-isolation tests: healthy, fruit, fruits
-                let text = format!(
-                    "orange citrus tag healthy fruit fruits number {} stripe {}",
-                    i, stripe
-                );
+                let text =
+                    format!("orange citrus tag healthy fruit fruits number {i} stripe {stripe}");
                 builder
                     .process_text_field(&text, SchemaId::from(2u32), i + 1)
                     .expect("Failed to process field 2");
@@ -323,20 +315,20 @@ mod tests {
         )
         .expect("Failed to create TextIndex reader");
 
-        let mut all_terms_results = text_index
+        let all_terms_results = text_index
             .lookup_term_prefix("")
             .expect("Failed to lookup all terms");
 
         let mut term_count = 0;
         let mut seen_terms = std::collections::HashSet::new();
-        while let Some(result) = all_terms_results.next() {
+        for result in all_terms_results {
             match result {
                 Ok(term_positions) => {
                     seen_terms.insert((term_positions.stripe, term_positions.field));
                     term_count += 1;
                 }
                 Err(e) => {
-                    panic!("Error reading term positions: {}", e);
+                    panic!("Error reading term positions: {e}");
                 }
             }
             if term_count > 20 {
@@ -346,12 +338,12 @@ mod tests {
         }
 
         // Test 1: Exact term lookup for "apple" - should appear in multiple stripes and fields
-        let mut apple_results = text_index
+        let apple_results = text_index
             .lookup_term("apple")
             .expect("Failed to lookup term 'apple'");
 
         let mut apple_occurrences = Vec::new();
-        while let Some(result) = apple_results.next() {
+        for result in apple_results {
             let term_positions = result.expect("Failed to get term position");
             apple_occurrences.push((
                 term_positions.stripe,
@@ -381,7 +373,10 @@ mod tests {
             .iter()
             .filter(|(stripe, _, _)| *stripe == 1)
             .collect();
-        assert!(stripe_1_apple.len() >= 1, "Apple should appear in stripe 1");
+        assert!(
+            !stripe_1_apple.is_empty(),
+            "Apple should appear in stripe 1"
+        );
 
         // Verify position data integrity - all position lists should be valid
         for (_, _, positions) in &apple_occurrences {
@@ -413,12 +408,12 @@ mod tests {
         }
 
         // Test 2: Exact term lookup for "juice" - should appear in multiple contexts
-        let mut juice_results = text_index
+        let juice_results = text_index
             .lookup_term("juice")
             .expect("Failed to lookup term 'juice'");
 
         let mut juice_occurrences = Vec::new();
-        while let Some(result) = juice_results.next() {
+        for result in juice_results {
             let term_positions = result.expect("Failed to get juice term position");
             juice_occurrences.push((term_positions.stripe, term_positions.field));
         }
@@ -436,19 +431,19 @@ mod tests {
         );
 
         // Test 3: Exact term lookup for a term that appears only once
-        let mut banana_results = text_index
+        let banana_results = text_index
             .lookup_term("banana")
             .expect("Failed to lookup term 'banana'");
 
         let mut banana_occurrences = Vec::new();
-        while let Some(result) = banana_results.next() {
+        for result in banana_results {
             let term_positions = result.expect("Failed to get banana term position");
             banana_occurrences.push((term_positions.stripe, term_positions.field));
         }
 
         // Verify banana appears in stripe 1 (where we added banana content)
         assert!(
-            banana_occurrences.len() >= 1,
+            !banana_occurrences.is_empty(),
             "Banana should appear at least once"
         );
         let has_stripe_1 = banana_occurrences.iter().any(|(stripe, _)| *stripe == 1);
@@ -466,12 +461,12 @@ mod tests {
         );
 
         // Test 5: Prefix search for "app" - should match "apple" and "apples"
-        let mut app_prefix_results = text_index
+        let app_prefix_results = text_index
             .lookup_term_prefix("app")
             .expect("Failed to lookup prefix 'app'");
 
         let mut app_prefix_occurrences = Vec::new();
-        while let Some(result) = app_prefix_results.next() {
+        for result in app_prefix_results {
             let term_positions = result.expect("Failed to get app prefix term position");
             app_prefix_occurrences.push((term_positions.stripe, term_positions.field));
         }
@@ -483,13 +478,13 @@ mod tests {
         );
 
         // Test 6: Prefix search for "fruit" - should match "fruit" and "fruits"
-        let mut fruit_prefix_results = text_index
+        let fruit_prefix_results = text_index
             .lookup_term_prefix("fruit")
             .expect("Failed to lookup prefix 'fruit'");
 
         let mut fruit_prefix_count = 0;
         let mut fruit_stripes = std::collections::HashSet::new();
-        while let Some(result) = fruit_prefix_results.next() {
+        for result in fruit_prefix_results {
             let term_positions = result.expect("Failed to get fruit prefix term position");
             fruit_prefix_count += 1;
             fruit_stripes.insert(term_positions.stripe);
@@ -516,13 +511,13 @@ mod tests {
         );
 
         // Test 8: Prefix search with empty string - should match all terms
-        let mut all_terms_results = text_index
+        let all_terms_results = text_index
             .lookup_term_prefix("")
             .expect("Failed to lookup empty prefix");
 
         let mut all_terms_count = 0;
         let mut seen_terms = std::collections::HashSet::new();
-        while let Some(result) = all_terms_results.next() {
+        for result in all_terms_results {
             let _term_positions = result.expect("Failed to get term position for empty prefix");
             all_terms_count += 1;
             seen_terms.insert((_term_positions.stripe, _term_positions.field));
@@ -538,12 +533,12 @@ mod tests {
         );
 
         // Test 9: Verify field isolation - terms should be properly associated with correct fields
-        let mut healthy_results = text_index
+        let healthy_results = text_index
             .lookup_term("healthy")
             .expect("Failed to lookup term 'healthy'");
 
         let mut healthy_fields = std::collections::HashSet::new();
-        while let Some(result) = healthy_results.next() {
+        for result in healthy_results {
             let term_positions = result.expect("Failed to get healthy term position");
             healthy_fields.insert(term_positions.field);
         }

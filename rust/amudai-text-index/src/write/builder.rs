@@ -237,8 +237,7 @@ impl TextIndexBuilder {
     pub fn process_text_field(&mut self, text: &str, field: SchemaId, position: u32) -> Result<()> {
         let tokenizer = self.field_tokenizers.get(field.as_usize()).ok_or_else(|| {
             Error::invalid_operation(format!(
-                "No tokenizer configured for field schema ID {}",
-                field
+                "No tokenizer configured for field schema ID {field}"
             ))
         })?;
 
@@ -340,7 +339,7 @@ mod tests {
         for i in 0..500 {
             builder
                 .process_text_field(
-                    &format!("sample text number {} with some content", i),
+                    &format!("sample text number {i} with some content"),
                     SchemaId::from(0u32),
                     i + 10,
                 )

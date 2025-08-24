@@ -166,9 +166,7 @@ impl PositionsDecoder {
         let seq = reader.read_range(range)?;
         let positions = seq.values.as_slice::<u64>();
         match repr_type {
-            PositionsReprType::Positions => Ok(PositionList::Positions(
-                positions.iter().map(|&p| p).collect(),
-            )),
+            PositionsReprType::Positions => Ok(PositionList::Positions(positions.to_vec())),
             PositionsReprType::ExactRanges => Ok(PositionList::ExactRanges(
                 positions.chunks_exact(2).map(|p| p[0]..p[1]).collect(),
             )),

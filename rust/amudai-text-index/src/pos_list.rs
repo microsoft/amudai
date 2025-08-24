@@ -44,7 +44,7 @@ use std::ops::Range;
 /// - Dense term occurrences can use exact ranges to reduce memory usage
 /// - Sparse term occurrences use individual positions for precision
 /// - Very common terms may use approximate ranges or unknown representation for efficiency
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum PositionList {
     /// Exact Position List: A list of precise positions, such as `[10, 100, 101, ...]`.
     /// Each record at these positions is confirmed to contain the specified term.
@@ -60,6 +60,7 @@ pub enum PositionList {
 
     /// Unknown Position List: Any record within the stripe might contain the specified term.
     /// No specific position information is available.
+    #[default]
     Unknown,
 }
 
@@ -231,12 +232,6 @@ impl PositionList {
                 PositionList::new_approximate_ranges(approx_ranges)
             }
         }
-    }
-}
-
-impl Default for PositionList {
-    fn default() -> Self {
-        PositionList::Unknown
     }
 }
 

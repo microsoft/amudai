@@ -94,8 +94,7 @@ impl TextIndexEncoder {
     /// are properly stored in the index.
     fn flush_positions(&mut self) -> Result<()> {
         if !self.position_builder.is_empty() {
-            let position_list =
-                std::mem::replace(&mut self.position_builder, PositionListBuilder::new()).build();
+            let position_list = std::mem::take(&mut self.position_builder).build();
 
             let positions_start = self.positions.current_offset();
             let (repr_type, positions_end) = self.positions.push(position_list)?;
@@ -215,10 +214,10 @@ impl PreparedTextIndex {
     pub fn seal(self, index_url: &str) -> Result<SealedTextIndex> {
         let terms_shard = self
             .terms_shard
-            .seal(format!("{}/terms.shard", index_url).as_str())?;
+            .seal(format!("{index_url}/terms.shard").as_str())?;
         let positions_shard = self
             .positions_shard
-            .seal(format!("{}/positions.shard", index_url).as_str())?;
+            .seal(format!("{index_url}/positions.shard").as_str())?;
         Ok(SealedTextIndex {
             terms_shard,
             positions_shard,
@@ -252,7 +251,7 @@ mod tests {
             TextIndexEncoder::new(object_store, temp_store).expect("Failed to create IndexEncoder");
 
         // Test data with multiple terms, stripes, and fields
-        let test_data = vec![
+        let test_data = [
             // Term "apple" - multiple stripes and fields
             (
                 "apple",

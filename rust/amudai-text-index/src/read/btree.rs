@@ -1470,7 +1470,7 @@ mod tests {
                         range,
                         PositionsReprType::Positions,
                     )
-                    .expect(&format!("Failed to push term: {}", term));
+                    .unwrap_or_else(|_| panic!("Failed to push term: {term}"));
 
                 // Add second field for some terms
                 if idx % 2 == 0 {
@@ -1486,7 +1486,7 @@ mod tests {
                             range,
                             PositionsReprType::ExactRanges,
                         )
-                        .expect(&format!("Failed to push term: {}", term));
+                        .unwrap_or_else(|_| panic!("Failed to push term: {term}"));
                 }
             }
         }
@@ -1506,11 +1506,11 @@ mod tests {
             .expect("Failed to create BTreeDecoder");
 
         // Test exact term lookup for "alpha"
-        let mut results = decoder
+        let results = decoder
             .lookup_term("alpha")
             .expect("Failed to lookup 'alpha'");
         let mut entries = Vec::new();
-        while let Some(entry_result) = results.next() {
+        for entry_result in results {
             let entry = entry_result.expect("Failed to get entry");
             entries.push(entry);
         }
@@ -1637,7 +1637,7 @@ mod tests {
                         range,
                         PositionsReprType::Positions,
                     )
-                    .expect(&format!("Failed to push term: {}", term));
+                    .unwrap_or_else(|_| panic!("Failed to push term: {term}"));
 
                 if idx % 2 == 0 {
                     let range_start = next_off;
@@ -1652,7 +1652,7 @@ mod tests {
                             range,
                             PositionsReprType::ExactRanges,
                         )
-                        .expect(&format!("Failed to push term: {}", term));
+                        .unwrap_or_else(|_| panic!("Failed to push term: {term}"));
                 }
             }
         }
@@ -1721,7 +1721,7 @@ mod tests {
                     range,
                     PositionsReprType::Positions,
                 )
-                .expect(&format!("Failed to push term: {}", term));
+                .unwrap_or_else(|_| panic!("Failed to push term: {term}"));
         }
 
         let prepared = encoder.finish().expect("Failed to finish BTreeEncoder");
@@ -1804,7 +1804,7 @@ mod tests {
                     range,
                     PositionsReprType::Positions,
                 )
-                .expect(&format!("Failed to push term: {}", term));
+                .unwrap_or_else(|_| panic!("Failed to push term: {term}"));
         }
 
         let prepared = encoder.finish().expect("Failed to finish BTreeEncoder");
@@ -1824,37 +1824,33 @@ mod tests {
         for term in unicode_terms {
             let results = decoder
                 .lookup_term(term)
-                .expect(&format!("Failed to lookup '{}'", term));
+                .unwrap_or_else(|_| panic!("Failed to lookup '{term}'"));
             let entries: Vec<_> = results.collect();
             let valid_entries: Vec<_> = entries.into_iter().filter_map(|r| r.ok()).collect();
             assert_eq!(
                 valid_entries.len(),
                 1,
-                "Expected 1 entry for Unicode term '{}'",
-                term
+                "Expected 1 entry for Unicode term '{term}'"
             );
 
             // Validate the range is correct
             let entry = &valid_entries[0];
             assert!(
                 entry.range.start < entry.range.end,
-                "Entry range should be valid for term '{}'",
-                term
+                "Entry range should be valid for term '{term}'"
             );
 
             // Validate position data fields
             assert_eq!(
                 entry.field,
                 SchemaId::from(1u32),
-                "Field should be 1 for term '{}'",
-                term
+                "Field should be 1 for term '{term}'"
             );
-            assert_eq!(entry.stripe, 0, "Stripe should be 0 for term '{}'", term);
+            assert_eq!(entry.stripe, 0, "Stripe should be 0 for term '{term}'");
             assert_eq!(
                 entry.repr_type,
                 PositionsReprType::Positions,
-                "Repr type should be Positions for term '{}'",
-                term
+                "Repr type should be Positions for term '{term}'"
             );
         }
     }
@@ -1891,7 +1887,7 @@ mod tests {
                     range,
                     PositionsReprType::Positions,
                 )
-                .expect(&format!("Failed to push term: {}", term));
+                .unwrap_or_else(|_| panic!("Failed to push term: {term}"));
         }
 
         let prepared = encoder.finish().expect("Failed to finish BTreeEncoder");
@@ -1987,6 +1983,7 @@ mod tests {
         // With 10 stripes and 4 fields, we'll get 40 entries per term = 1M total entries
 
         // Store expected ranges for validation
+        #[allow(clippy::type_complexity)]
         let mut expected_ranges: std::collections::HashMap<
             String,
             Vec<(u16, SchemaId, Range<u64>, PositionsReprType)>,
@@ -1995,7 +1992,7 @@ mod tests {
         let mut total_entries = 0;
 
         for i in 0..25000 {
-            let term = format!("term_{:06}", i); // term_000000, term_000001, etc.
+            let term = format!("term_{i:06}"); // term_000000, term_000001, etc.
             let mut term_ranges = Vec::new();
 
             // Add 10 stripes for each term to get more entries
@@ -2014,7 +2011,7 @@ mod tests {
 
                     encoder
                         .push(term.as_bytes(), stripe, field, range.clone(), repr_type)
-                        .expect(&format!("Failed to push term: {}", term));
+                        .unwrap_or_else(|_| panic!("Failed to push term: {term}"));
 
                     term_ranges.push((stripe, field, range, repr_type));
                     total_entries += 1;
@@ -2027,8 +2024,7 @@ mod tests {
         // Verify we have approximately 1M entries
         assert!(
             total_entries >= 1_000_000,
-            "Expected at least 1M entries, got {}",
-            total_entries
+            "Expected at least 1M entries, got {total_entries}"
         );
 
         let prepared = encoder.finish().expect("Failed to finish BTreeEncoder");
@@ -2050,8 +2046,7 @@ mod tests {
         // With 5000 terms, we should definitely have multiple B-Tree levels
         assert!(
             total_pages > 10,
-            "Expected many pages for large B-Tree, got {}",
-            total_pages
+            "Expected many pages for large B-Tree, got {total_pages}"
         );
 
         // Test exact lookups for selected terms and validate all position data
@@ -2066,13 +2061,13 @@ mod tests {
         for term in test_terms {
             let results = decoder
                 .lookup_term(term)
-                .expect(&format!("Failed to lookup '{}'", term));
+                .unwrap_or_else(|_| panic!("Failed to lookup '{term}'"));
             let entries: Vec<_> = results.collect();
             let valid_entries: Vec<_> = entries.into_iter().filter_map(|r| r.ok()).collect();
 
             let expected = expected_ranges
                 .get(term)
-                .expect(&format!("Missing expected ranges for term '{}'", term));
+                .unwrap_or_else(|| panic!("Missing expected ranges for term '{term}'"));
 
             // Should have exactly the expected number of entries
             assert_eq!(
@@ -2088,11 +2083,10 @@ mod tests {
             for (stripe, field, expected_range, expected_repr_type) in expected {
                 let matching_entry = valid_entries
                     .iter()
-                    .find(|e| e.stripe == (*stripe as u16) && e.field == *field)
-                    .expect(&format!(
-                        "Missing entry for term '{}', stripe {}, field {:?}",
-                        term, stripe, field
-                    ));
+                    .find(|e| e.stripe == *stripe && e.field == *field)
+                    .unwrap_or_else(|| {
+                        panic!("Missing entry for term '{term}', stripe {stripe}, field {field:?}")
+                    });
 
                 // Validate range matches exactly
                 assert_eq!(
