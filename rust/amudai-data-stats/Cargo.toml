@@ -24,3 +24,4 @@ amudai-encodings = { workspace = true }
 amudai-format = { workspace = true }
 amudai-hll = { workspace = true }
 amudai-io = { workspace = true }
+amudai-unicode = { workspace = true }

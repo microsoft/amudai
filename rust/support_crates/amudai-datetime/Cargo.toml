@@ -1,0 +1,16 @@
+[package]
+name = "amudai-datetime"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+chrono = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+smallvec = { workspace = true, features = ["write"] }
+num-traits = { workspace = true }
+
+amudai-unicode = { workspace = true }

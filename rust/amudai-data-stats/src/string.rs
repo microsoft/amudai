@@ -4,6 +4,7 @@ use amudai_common::Result;
 use amudai_encodings::block_encoder::BlockEncodingProfile;
 use amudai_format::defs::shard::StringStats as ProtoStringStats;
 use amudai_hll::HllSketch;
+use amudai_unicode::ascii_check::IsAsciiFast;
 use arrow_array::{Array, LargeStringArray, StringArray, StringViewArray, cast::AsArray};
 use std::cmp;
 
@@ -263,7 +264,7 @@ impl StringStatsCollector {
         }
 
         // Check if string contains only ASCII characters
-        if string_val.is_ascii() {
+        if string_val.is_ascii_fast() {
             self.ascii_count += count;
         }
 

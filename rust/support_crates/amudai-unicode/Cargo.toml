@@ -1,0 +1,23 @@
+[package]
+name = "amudai-unicode"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+description.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+itoa =  { workspace = true }
+simdutf8 = { workspace = true }
+itertools = { workspace = true }
+unicode-segmentation = { workspace = true }
+widestring = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true, features = ["small_rng"] }
+criterion = { workspace = true, features = ["html_reports"] }
+
+[[bench]]
+name = "ascii_vs_stdlib"
+harness = false

@@ -1,0 +1,6 @@
+The files were generated from `core::unicode::conversions::UPPERCASE_TABLE` and
+`core::unicode::conversions::LOWERCASE_TABLE` respectively by taking
+only regular conversion cases into account (a single char is converted to a single char).
+
+Support for 'ß' (223) and 'ẞ' (7838) is added manually (the case conversion
+is defined by the new standard since 2017).
