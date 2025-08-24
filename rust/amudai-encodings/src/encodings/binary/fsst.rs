@@ -56,7 +56,7 @@ impl StringEncoding for FSSTEncoding {
         let values_data = values.values();
         let compressor = fsst::Compressor::train(&vec![values_data]);
 
-        // TODO: Check how to reuse compresesed values vector here.
+        // TODO: Check how to reuse compressed values vector here.
         let compressed_values = compressor.compress(values_data);
 
         encoded_size += compressor.symbol_table().len() * std::mem::size_of::<u64>();
@@ -98,7 +98,7 @@ impl StringEncoding for FSSTEncoding {
         metadata.symbols_count = symbols.len();
 
         // Write FSST encoded values.
-        // TODO: Check how to reuse compresesed values vector here.
+        // TODO: Check how to reuse compressed values vector here.
         let compressed_values = compressor.compress(values_data);
         target.write_values(&compressed_values);
         metadata.values_size = compressed_values.len();

@@ -330,8 +330,8 @@ fn log_bloom_filter_size_info(
         .as_ref()
         .ok_or("Field descriptor should exist")?;
 
-    // Get SSBF bytes to analyze size
-    if let Some(ssbf_bytes) = field_descriptor.try_get_sbbf_bytes() {
+    // Get SSBF data to analyze size
+    if let Some((ssbf_bytes, hash_seed)) = field_descriptor.try_get_sbbf_data() {
         let ssbf_size_bytes = ssbf_bytes.len();
         let ssbf_size_kb = ssbf_size_bytes as f64 / 1024.0;
 
@@ -341,7 +341,7 @@ fn log_bloom_filter_size_info(
         println!("     Size: {ssbf_size_bytes} bytes ({ssbf_size_kb:.2} KB)");
 
         // Try to get more detailed information from the SSBF decoder
-        match SbbfDecoder::from_aligned_data(ssbf_bytes) {
+        match SbbfDecoder::from_aligned_data(ssbf_bytes, hash_seed) {
             Ok(_decoder) => {
                 // The decoder doesn't expose internal structure directly, but we can infer some info
                 println!("     Successfully decoded SSBF structure");
@@ -892,15 +892,16 @@ fn test_bloom_filter_field_extensions() -> Result<(), Box<dyn std::error::Error>
             .as_ref()
             .ok_or("Field descriptor should exist")?;
 
-        // Test SSBF bytes access
-        let ssbf_bytes = field_descriptor.try_get_sbbf_bytes();
+        // Test SSBF data access
+        let ssbf_data = field_descriptor.try_get_sbbf_data();
         assert!(
-            ssbf_bytes.is_some(),
-            "Field should have SSBF bytes in stripe {stripe_idx}"
+            ssbf_data.is_some(),
+            "Field should have SSBF data in stripe {stripe_idx}"
         );
 
         // Test SSBF decoder functionality
-        let ssbf_decoder = SbbfDecoder::from_aligned_data(ssbf_bytes.unwrap())?;
+        let (ssbf_bytes, hash_seed) = ssbf_data.unwrap();
+        let ssbf_decoder = SbbfDecoder::from_aligned_data(ssbf_bytes, hash_seed)?;
 
         // Test with a value that definitely exists
         let known_value = setup.known_value();

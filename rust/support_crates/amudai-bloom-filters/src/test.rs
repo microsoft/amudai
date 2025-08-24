@@ -25,13 +25,15 @@ fn build_filter_with_values(
     for value in values {
         builder.add_hash(xxhash_rust::xxh3::xxh3_64_with_seed(
             value.as_bytes(),
-            crate::config::BLOOM_FILTER_HASH_SEED,
+            BloomFilterConfig::default().hash_seed,
         ));
     }
 
     builder.finish();
     let filter_data = Bytes::copy_from_slice(builder.filter_data_as_bytes()).align(32);
-    let decoder = SbbfDecoder::from_aligned_data(filter_data).unwrap();
+    let decoder =
+        SbbfDecoder::from_aligned_data(filter_data, BloomFilterConfig::default().hash_seed)
+            .unwrap();
 
     (builder, decoder)
 }
@@ -66,7 +68,9 @@ fn build_filter_with_string_values(
     }
 
     let filter_data = Bytes::copy_from_slice(builder.filter_data_as_bytes()).align(32);
-    let decoder = SbbfDecoder::from_aligned_data(filter_data).unwrap();
+    let decoder =
+        SbbfDecoder::from_aligned_data(filter_data, BloomFilterConfig::default().hash_seed)
+            .unwrap();
 
     (builder, decoder)
 }
@@ -173,6 +177,7 @@ mod builder_tests {
             target_fpp: 0.01,
             max_filter_size: 1024,
             hash_algorithm: XXH3_64_ALGORITHM.to_string(),
+            hash_seed: BloomFilterConfig::default().hash_seed,
         };
 
         let mut collector = BloomFilterCollector::new(config);
@@ -198,6 +203,7 @@ mod builder_tests {
             target_fpp: 0.01,
             max_filter_size: 1024,
             hash_algorithm: XXH3_64_ALGORITHM.to_string(),
+            hash_seed: BloomFilterConfig::default().hash_seed,
         };
 
         let mut collector = BloomFilterCollector::new(config);
@@ -224,6 +230,7 @@ mod builder_tests {
             target_fpp: 0.01,
             max_filter_size: 1024,
             hash_algorithm: XXH3_64_ALGORITHM.to_string(),
+            hash_seed: BloomFilterConfig::default().hash_seed,
         };
 
         let mut collector = BloomFilterCollector::new(config);
@@ -265,7 +272,9 @@ mod decoder_tests {
 
         // Create decoder from builder data
         let filter_data = Bytes::copy_from_slice(builder.filter_data_as_bytes()).align(32);
-        let decoder = SbbfDecoder::from_aligned_data(filter_data).unwrap();
+        let decoder =
+            SbbfDecoder::from_aligned_data(filter_data, BloomFilterConfig::default().hash_seed)
+                .unwrap();
 
         // Test probing for inserted values using probe_hash with the same hashes we inserted
         assert!(decoder.probe_hash(xxhash_rust::xxh3::xxh3_64(v1.as_bytes())));
@@ -284,7 +293,9 @@ mod decoder_tests {
 
         builder.finish();
         let filter_data = Bytes::copy_from_slice(builder.filter_data_as_bytes()).align(32);
-        let decoder = SbbfDecoder::from_aligned_data(filter_data).unwrap();
+        let decoder =
+            SbbfDecoder::from_aligned_data(filter_data, BloomFilterConfig::default().hash_seed)
+                .unwrap();
 
         assert!(decoder.probe_hash(xxhash_rust::xxh3::xxh3_64(v1.as_bytes())));
         assert!(decoder.probe_hash(xxhash_rust::xxh3::xxh3_64(v2.as_bytes())));
@@ -472,6 +483,7 @@ mod integration_tests {
             target_fpp: 0.01,
             max_filter_size: 1024,
             hash_algorithm: XXH3_64_ALGORITHM.to_string(),
+            hash_seed: BloomFilterConfig::default().hash_seed,
         };
 
         let mut collector = BloomFilterCollector::new(config);
@@ -487,7 +499,7 @@ mod integration_tests {
 
         // Create decoder from collector data
         let filter_data = Bytes::copy_from_slice(collector.filter_data_as_bytes()).align(32);
-        let decoder = SbbfDecoder::from_aligned_data(filter_data).unwrap();
+        let decoder = SbbfDecoder::from_aligned_data(filter_data, collector.hash_seed()).unwrap();
 
         // Verify all values can be found
         for value in &test_values {
@@ -814,6 +826,7 @@ mod false_positive_rate_tests {
             target_fpp: 0.01,
             max_filter_size: 8192,
             hash_algorithm: XXH3_64_ALGORITHM.to_string(),
+            hash_seed: BloomFilterConfig::default().hash_seed,
         };
 
         let mut collector = BloomFilterCollector::new(config);
@@ -831,7 +844,7 @@ mod false_positive_rate_tests {
 
         // Create decoder
         let filter_data = Bytes::copy_from_slice(collector.filter_data_as_bytes()).align(32);
-        let decoder = SbbfDecoder::from_aligned_data(filter_data).unwrap();
+        let decoder = SbbfDecoder::from_aligned_data(filter_data, collector.hash_seed()).unwrap();
 
         // Verify all inserted values are found
         for value in &inserted_values {

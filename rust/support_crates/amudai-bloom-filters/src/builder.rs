@@ -1,9 +1,6 @@
 //! Bloom filter builder implementation.
 
-use crate::{
-    CARDINALITY_THRESHOLD,
-    config::{BLOOM_FILTER_HASH_SEED, BloomFilterConfig},
-};
+use crate::{CARDINALITY_THRESHOLD, config::BloomFilterConfig};
 use amudai_collections::identity_hash::IdentityHashSet;
 use xxhash_rust::xxh3::xxh3_64_with_seed;
 
@@ -138,7 +135,7 @@ impl BloomFilterCollector {
     /// Returns true if the value was successfully added, false if filter construction was abandoned.
     pub fn process_value(&mut self, value: &[u8]) -> bool {
         if self.bloom_filter_builder.is_some() {
-            let hash = xxh3_64_with_seed(value, BLOOM_FILTER_HASH_SEED);
+            let hash = xxh3_64_with_seed(value, self.config.hash_seed);
             self.process_hash(hash)
         } else {
             // Filter construction already abandoned or not enabled
@@ -221,5 +218,10 @@ impl BloomFilterCollector {
     /// Returns the hash algorithm name.
     pub fn hash_algorithm(&self) -> &str {
         &self.config.hash_algorithm
+    }
+
+    /// Returns the hash seed.
+    pub fn hash_seed(&self) -> u64 {
+        self.config.hash_seed
     }
 }

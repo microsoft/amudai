@@ -290,10 +290,11 @@ message SplitBlockBloomFilter {
     // Hash algorithm used (e.g., "xxh3_64")
     string hash_algorithm = 4;
 
-    // TODO: add here :
-    // fixed64 hash_seed = 5;
+    // Hash function seed
+    fixed64 hash_seed = 5;
+    
     // The filter data as a sequence of 256-bit blocks
-    bytes data = 5;
+    bytes data = 6;
 }
 
 // Stripe-level field descriptor: stats and encoding.

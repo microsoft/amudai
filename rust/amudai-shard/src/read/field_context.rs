@@ -306,8 +306,10 @@ impl FieldContext {
                 self.descriptor
                     .field
                     .as_ref()
-                    .and_then(|field_desc| field_desc.try_get_sbbf_bytes())
-                    .and_then(|sbbf_bytes| SbbfDecoder::from_aligned_data(sbbf_bytes).ok())
+                    .and_then(|field_desc| field_desc.try_get_sbbf_data())
+                    .and_then(|(sbbf_bytes, hash_seed)| {
+                        SbbfDecoder::from_aligned_data(sbbf_bytes, hash_seed).ok()
+                    })
             })
             .as_ref()
     }

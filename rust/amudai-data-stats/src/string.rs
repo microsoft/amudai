@@ -190,6 +190,7 @@ impl StringStatsCollector {
                         target_fpp: collector.target_fpp(),
                         num_values: collector.num_values(),
                         hash_algorithm: collector.hash_algorithm().to_string(),
+                        hash_seed: collector.hash_seed(),
                         data: filter_data.to_vec(),
                     }
                 })

@@ -506,7 +506,8 @@ message SplitBlockBloomFilter {
     double target_fpp = 2;
     fixed64 num_values = 3;
     string hash_algorithm = 4;
-    bytes data = 5;
+    fixed64 hash_seed = 5;
+    bytes data = 6;
 }
 ```
 
@@ -598,8 +599,9 @@ message SplitBlockBloomFilter {
 - `num_blocks`: The number of 256-bit (32-byte) blocks in the filter. Must be a power of 2
 - `target_fpp`: The target false positive probability used when sizing the filter (e.g., 0.01 for 1%)
 - `num_values`: The number of distinct values that were inserted into the filter during construction
-- `data`: The raw filter data as a sequence of 256-bit blocks stored in little-endian byte order
 - `hash_algorithm`: Identifier for the hash algorithm used (e.g., "xxh3_64"). Must produce consistent results across architectures
+- `hash_seed`: Seed value used by the hash function for bloom filter operations. Ensures consistent hashing behavior across different instances
+- `data`: The raw filter data as a sequence of 256-bit blocks stored in little-endian byte order
 
 
 ## Stripe Field Descriptor

@@ -353,10 +353,11 @@ pub struct SplitBlockBloomFilter {
     /// Hash algorithm used (e.g., "xxh3_64")
     #[prost(string, tag = "4")]
     pub hash_algorithm: ::prost::alloc::string::String,
-    /// TODO: add here :
-    /// fixed64 hash_seed = 5;
+    /// Hash function seed
+    #[prost(fixed64, tag = "5")]
+    pub hash_seed: u64,
     /// The filter data as a sequence of 256-bit blocks
-    #[prost(bytes = "vec", tag = "5")]
+    #[prost(bytes = "vec", tag = "6")]
     pub data: ::prost::alloc::vec::Vec<u8>,
 }
 /// Stripe-level field descriptor: stats and encoding.
