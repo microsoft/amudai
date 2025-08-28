@@ -6,3 +6,4 @@ mod position_set_tests;
 mod range_segment_tests;
 mod segment_builder_tests;
 mod segment_tests;
+mod ternary_position_set_tests;
