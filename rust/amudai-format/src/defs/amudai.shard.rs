@@ -166,10 +166,7 @@ pub struct FieldDescriptor {
     ///    - 1000 all-null values: 0 bytes
     #[prost(fixed64, optional, tag = "41")]
     pub raw_data_size: ::core::option::Option<u64>,
-    #[prost(
-        oneof = "field_descriptor::TypeSpecific",
-        tags = "20, 21, 22, 23, 24, 25"
-    )]
+    #[prost(oneof = "field_descriptor::TypeSpecific", tags = "20, 21, 22, 23, 24, 25")]
     pub type_specific: ::core::option::Option<field_descriptor::TypeSpecific>,
 }
 /// Nested message and enum types in `FieldDescriptor`.

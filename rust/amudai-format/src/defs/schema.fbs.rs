@@ -1,18 +1,18 @@
 pub use root::*;
 
-const _: () = ::planus::check_version_compatibility("planus-1.1.1");
+const _: () = ::planus::check_version_compatibility("planus-1.2.0");
 
 /// The root namespace
 ///
 /// Generated from these locations:
-/// * File `C:\dev\amudai\proto_defs\shard_format\schema.fbs`
+/// * File `/workspace/dev/Azure-Kusto-Amudai/proto_defs/shard_format/schema.fbs`
 #[no_implicit_prelude]
 #[allow(dead_code, clippy::needless_lifetimes)]
 mod root {
     /// The enum `BasicType`
     ///
     /// Generated from these locations:
-    /// * Enum `BasicType` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:1`
+    /// * Enum `BasicType` in the file `/workspace/dev/Azure-Kusto-Amudai/proto_defs/shard_format/schema.fbs:1`
     #[derive(
         Copy,
         Clone,
@@ -260,7 +260,7 @@ mod root {
     /// The table `DataType`
     ///
     /// Generated from these locations:
-    /// * Table `DataType` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:23`
+    /// * Table `DataType` in the file `/workspace/dev/Azure-Kusto-Amudai/proto_defs/shard_format/schema.fbs:23`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -672,17 +672,17 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAsDefault<self::BasicType, self::BasicType>,
-        T1: ::planus::WriteAsDefault<u32, u32>,
-        T2: ::planus::WriteAsDefault<u32, u32>,
-        T3: ::planus::WriteAs<::planus::Offset<str>>,
-        T4: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
-        T5: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
-        T6: ::planus::WriteAsDefault<bool, bool>,
-        T7: ::planus::WriteAsDefault<u64, u64>,
-        T8: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
-        T9: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
-    > ::planus::WriteAs<::planus::Offset<DataType>>
+            T0: ::planus::WriteAsDefault<self::BasicType, self::BasicType>,
+            T1: ::planus::WriteAsDefault<u32, u32>,
+            T2: ::planus::WriteAsDefault<u32, u32>,
+            T3: ::planus::WriteAs<::planus::Offset<str>>,
+            T4: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
+            T5: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
+            T6: ::planus::WriteAsDefault<bool, bool>,
+            T7: ::planus::WriteAsDefault<u64, u64>,
+            T8: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
+            T9: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
+        > ::planus::WriteAs<::planus::Offset<DataType>>
         for DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9)>
     {
         type Prepared = ::planus::Offset<DataType>;
@@ -694,17 +694,17 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAsDefault<self::BasicType, self::BasicType>,
-        T1: ::planus::WriteAsDefault<u32, u32>,
-        T2: ::planus::WriteAsDefault<u32, u32>,
-        T3: ::planus::WriteAs<::planus::Offset<str>>,
-        T4: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
-        T5: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
-        T6: ::planus::WriteAsDefault<bool, bool>,
-        T7: ::planus::WriteAsDefault<u64, u64>,
-        T8: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
-        T9: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
-    > ::planus::WriteAsOptional<::planus::Offset<DataType>>
+            T0: ::planus::WriteAsDefault<self::BasicType, self::BasicType>,
+            T1: ::planus::WriteAsDefault<u32, u32>,
+            T2: ::planus::WriteAsDefault<u32, u32>,
+            T3: ::planus::WriteAs<::planus::Offset<str>>,
+            T4: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
+            T5: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
+            T6: ::planus::WriteAsDefault<bool, bool>,
+            T7: ::planus::WriteAsDefault<u64, u64>,
+            T8: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
+            T9: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
+        > ::planus::WriteAsOptional<::planus::Offset<DataType>>
         for DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9)>
     {
         type Prepared = ::planus::Offset<DataType>;
@@ -719,17 +719,17 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAsDefault<self::BasicType, self::BasicType>,
-        T1: ::planus::WriteAsDefault<u32, u32>,
-        T2: ::planus::WriteAsDefault<u32, u32>,
-        T3: ::planus::WriteAs<::planus::Offset<str>>,
-        T4: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
-        T5: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
-        T6: ::planus::WriteAsDefault<bool, bool>,
-        T7: ::planus::WriteAsDefault<u64, u64>,
-        T8: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
-        T9: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
-    > ::planus::WriteAsOffset<DataType>
+            T0: ::planus::WriteAsDefault<self::BasicType, self::BasicType>,
+            T1: ::planus::WriteAsDefault<u32, u32>,
+            T2: ::planus::WriteAsDefault<u32, u32>,
+            T3: ::planus::WriteAs<::planus::Offset<str>>,
+            T4: ::planus::WriteAsOptional<::planus::Offset<[::planus::Offset<str>]>>,
+            T5: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::DataType>]>>,
+            T6: ::planus::WriteAsDefault<bool, bool>,
+            T7: ::planus::WriteAsDefault<u64, u64>,
+            T8: ::planus::WriteAsOptional<::planus::Offset<self::ExtendedTypeAnnotation>>,
+            T9: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
+        > ::planus::WriteAsOffset<DataType>
         for DataTypeBuilder<(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9)>
     {
         #[inline]
@@ -963,7 +963,7 @@ mod root {
     /// The table `Field`
     ///
     /// Generated from these locations:
-    /// * Table `Field` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:60`
+    /// * Table `Field` in the file `/workspace/dev/Azure-Kusto-Amudai/proto_defs/shard_format/schema.fbs:60`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -1104,9 +1104,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<self::DataType>>,
-        T1: ::planus::WriteAsOptional<::planus::Offset<self::InternalFieldAnnotation>>,
-    > ::planus::WriteAs<::planus::Offset<Field>> for FieldBuilder<(T0, T1)>
+            T0: ::planus::WriteAs<::planus::Offset<self::DataType>>,
+            T1: ::planus::WriteAsOptional<::planus::Offset<self::InternalFieldAnnotation>>,
+        > ::planus::WriteAs<::planus::Offset<Field>> for FieldBuilder<(T0, T1)>
     {
         type Prepared = ::planus::Offset<Field>;
 
@@ -1117,9 +1117,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<self::DataType>>,
-        T1: ::planus::WriteAsOptional<::planus::Offset<self::InternalFieldAnnotation>>,
-    > ::planus::WriteAsOptional<::planus::Offset<Field>> for FieldBuilder<(T0, T1)>
+            T0: ::planus::WriteAs<::planus::Offset<self::DataType>>,
+            T1: ::planus::WriteAsOptional<::planus::Offset<self::InternalFieldAnnotation>>,
+        > ::planus::WriteAsOptional<::planus::Offset<Field>> for FieldBuilder<(T0, T1)>
     {
         type Prepared = ::planus::Offset<Field>;
 
@@ -1133,9 +1133,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<self::DataType>>,
-        T1: ::planus::WriteAsOptional<::planus::Offset<self::InternalFieldAnnotation>>,
-    > ::planus::WriteAsOffset<Field> for FieldBuilder<(T0, T1)>
+            T0: ::planus::WriteAs<::planus::Offset<self::DataType>>,
+            T1: ::planus::WriteAsOptional<::planus::Offset<self::InternalFieldAnnotation>>,
+        > ::planus::WriteAsOffset<Field> for FieldBuilder<(T0, T1)>
     {
         #[inline]
         fn prepare(&self, builder: &mut ::planus::Builder) -> ::planus::Offset<Field> {
@@ -1274,7 +1274,7 @@ mod root {
     /// The table `Schema`
     ///
     /// Generated from these locations:
-    /// * Table `Schema` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:67`
+    /// * Table `Schema` in the file `/workspace/dev/Azure-Kusto-Amudai/proto_defs/shard_format/schema.fbs:67`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -1449,10 +1449,10 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::Field>]>>,
-        T1: ::planus::WriteAsDefault<u32, u32>,
-        T2: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
-    > ::planus::WriteAs<::planus::Offset<Schema>> for SchemaBuilder<(T0, T1, T2)>
+            T0: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::Field>]>>,
+            T1: ::planus::WriteAsDefault<u32, u32>,
+            T2: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
+        > ::planus::WriteAs<::planus::Offset<Schema>> for SchemaBuilder<(T0, T1, T2)>
     {
         type Prepared = ::planus::Offset<Schema>;
 
@@ -1463,10 +1463,10 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::Field>]>>,
-        T1: ::planus::WriteAsDefault<u32, u32>,
-        T2: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
-    > ::planus::WriteAsOptional<::planus::Offset<Schema>> for SchemaBuilder<(T0, T1, T2)>
+            T0: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::Field>]>>,
+            T1: ::planus::WriteAsDefault<u32, u32>,
+            T2: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
+        > ::planus::WriteAsOptional<::planus::Offset<Schema>> for SchemaBuilder<(T0, T1, T2)>
     {
         type Prepared = ::planus::Offset<Schema>;
 
@@ -1480,10 +1480,10 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::Field>]>>,
-        T1: ::planus::WriteAsDefault<u32, u32>,
-        T2: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
-    > ::planus::WriteAsOffset<Schema> for SchemaBuilder<(T0, T1, T2)>
+            T0: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::Field>]>>,
+            T1: ::planus::WriteAsDefault<u32, u32>,
+            T2: ::planus::WriteAsOptional<::planus::Offset<self::HashLookup>>,
+        > ::planus::WriteAsOffset<Schema> for SchemaBuilder<(T0, T1, T2)>
     {
         #[inline]
         fn prepare(&self, builder: &mut ::planus::Builder) -> ::planus::Offset<Schema> {
@@ -1625,7 +1625,7 @@ mod root {
     /// The table `ExtendedTypeAnnotation`
     ///
     /// Generated from these locations:
-    /// * Table `ExtendedTypeAnnotation` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:75`
+    /// * Table `ExtendedTypeAnnotation` in the file `/workspace/dev/Azure-Kusto-Amudai/proto_defs/shard_format/schema.fbs:75`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -1763,9 +1763,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<str>>,
-        T1: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::ExtendedTypeProperty>]>>,
-    > ::planus::WriteAs<::planus::Offset<ExtendedTypeAnnotation>>
+            T0: ::planus::WriteAs<::planus::Offset<str>>,
+            T1: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::ExtendedTypeProperty>]>>,
+        > ::planus::WriteAs<::planus::Offset<ExtendedTypeAnnotation>>
         for ExtendedTypeAnnotationBuilder<(T0, T1)>
     {
         type Prepared = ::planus::Offset<ExtendedTypeAnnotation>;
@@ -1780,9 +1780,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<str>>,
-        T1: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::ExtendedTypeProperty>]>>,
-    > ::planus::WriteAsOptional<::planus::Offset<ExtendedTypeAnnotation>>
+            T0: ::planus::WriteAs<::planus::Offset<str>>,
+            T1: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::ExtendedTypeProperty>]>>,
+        > ::planus::WriteAsOptional<::planus::Offset<ExtendedTypeAnnotation>>
         for ExtendedTypeAnnotationBuilder<(T0, T1)>
     {
         type Prepared = ::planus::Offset<ExtendedTypeAnnotation>;
@@ -1797,9 +1797,10 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<str>>,
-        T1: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::ExtendedTypeProperty>]>>,
-    > ::planus::WriteAsOffset<ExtendedTypeAnnotation> for ExtendedTypeAnnotationBuilder<(T0, T1)>
+            T0: ::planus::WriteAs<::planus::Offset<str>>,
+            T1: ::planus::WriteAs<::planus::Offset<[::planus::Offset<self::ExtendedTypeProperty>]>>,
+        > ::planus::WriteAsOffset<ExtendedTypeAnnotation>
+        for ExtendedTypeAnnotationBuilder<(T0, T1)>
     {
         #[inline]
         fn prepare(
@@ -1933,7 +1934,7 @@ mod root {
     /// The table `ExtendedTypeProperty`
     ///
     /// Generated from these locations:
-    /// * Table `ExtendedTypeProperty` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:80`
+    /// * Table `ExtendedTypeProperty` in the file `/workspace/dev/Azure-Kusto-Amudai/proto_defs/shard_format/schema.fbs:80`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -2066,9 +2067,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<str>>,
-        T1: ::planus::WriteAs<::planus::Offset<self::PropertyValue>>,
-    > ::planus::WriteAs<::planus::Offset<ExtendedTypeProperty>>
+            T0: ::planus::WriteAs<::planus::Offset<str>>,
+            T1: ::planus::WriteAs<::planus::Offset<self::PropertyValue>>,
+        > ::planus::WriteAs<::planus::Offset<ExtendedTypeProperty>>
         for ExtendedTypePropertyBuilder<(T0, T1)>
     {
         type Prepared = ::planus::Offset<ExtendedTypeProperty>;
@@ -2083,9 +2084,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<str>>,
-        T1: ::planus::WriteAs<::planus::Offset<self::PropertyValue>>,
-    > ::planus::WriteAsOptional<::planus::Offset<ExtendedTypeProperty>>
+            T0: ::planus::WriteAs<::planus::Offset<str>>,
+            T1: ::planus::WriteAs<::planus::Offset<self::PropertyValue>>,
+        > ::planus::WriteAsOptional<::planus::Offset<ExtendedTypeProperty>>
         for ExtendedTypePropertyBuilder<(T0, T1)>
     {
         type Prepared = ::planus::Offset<ExtendedTypeProperty>;
@@ -2100,9 +2101,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<str>>,
-        T1: ::planus::WriteAs<::planus::Offset<self::PropertyValue>>,
-    > ::planus::WriteAsOffset<ExtendedTypeProperty> for ExtendedTypePropertyBuilder<(T0, T1)>
+            T0: ::planus::WriteAs<::planus::Offset<str>>,
+            T1: ::planus::WriteAs<::planus::Offset<self::PropertyValue>>,
+        > ::planus::WriteAsOffset<ExtendedTypeProperty> for ExtendedTypePropertyBuilder<(T0, T1)>
     {
         #[inline]
         fn prepare(
@@ -2231,7 +2232,7 @@ mod root {
     /// The enum `PropertyValueKind`
     ///
     /// Generated from these locations:
-    /// * Enum `PropertyValueKind` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:85`
+    /// * Enum `PropertyValueKind` in the file `/workspace/dev/Azure-Kusto-Amudai/proto_defs/shard_format/schema.fbs:85`
     #[derive(
         Copy,
         Clone,
@@ -2412,7 +2413,7 @@ mod root {
     /// The table `PropertyValue`
     ///
     /// Generated from these locations:
-    /// * Table `PropertyValue` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:96`
+    /// * Table `PropertyValue` in the file `/workspace/dev/Azure-Kusto-Amudai/proto_defs/shard_format/schema.fbs:96`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -2547,9 +2548,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAsDefault<self::PropertyValueKind, self::PropertyValueKind>,
-        T1: ::planus::WriteAs<::planus::Offset<[u8]>>,
-    > ::planus::WriteAs<::planus::Offset<PropertyValue>> for PropertyValueBuilder<(T0, T1)>
+            T0: ::planus::WriteAsDefault<self::PropertyValueKind, self::PropertyValueKind>,
+            T1: ::planus::WriteAs<::planus::Offset<[u8]>>,
+        > ::planus::WriteAs<::planus::Offset<PropertyValue>> for PropertyValueBuilder<(T0, T1)>
     {
         type Prepared = ::planus::Offset<PropertyValue>;
 
@@ -2560,9 +2561,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAsDefault<self::PropertyValueKind, self::PropertyValueKind>,
-        T1: ::planus::WriteAs<::planus::Offset<[u8]>>,
-    > ::planus::WriteAsOptional<::planus::Offset<PropertyValue>>
+            T0: ::planus::WriteAsDefault<self::PropertyValueKind, self::PropertyValueKind>,
+            T1: ::planus::WriteAs<::planus::Offset<[u8]>>,
+        > ::planus::WriteAsOptional<::planus::Offset<PropertyValue>>
         for PropertyValueBuilder<(T0, T1)>
     {
         type Prepared = ::planus::Offset<PropertyValue>;
@@ -2577,9 +2578,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAsDefault<self::PropertyValueKind, self::PropertyValueKind>,
-        T1: ::planus::WriteAs<::planus::Offset<[u8]>>,
-    > ::planus::WriteAsOffset<PropertyValue> for PropertyValueBuilder<(T0, T1)>
+            T0: ::planus::WriteAsDefault<self::PropertyValueKind, self::PropertyValueKind>,
+            T1: ::planus::WriteAs<::planus::Offset<[u8]>>,
+        > ::planus::WriteAsOffset<PropertyValue> for PropertyValueBuilder<(T0, T1)>
     {
         #[inline]
         fn prepare(&self, builder: &mut ::planus::Builder) -> ::planus::Offset<PropertyValue> {
@@ -2707,7 +2708,7 @@ mod root {
     /// The table `InternalFieldAnnotation`
     ///
     /// Generated from these locations:
-    /// * Table `InternalFieldAnnotation` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:101`
+    /// * Table `InternalFieldAnnotation` in the file `/workspace/dev/Azure-Kusto-Amudai/proto_defs/shard_format/schema.fbs:101`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -2973,7 +2974,7 @@ mod root {
     /// The table `HashLookup`
     ///
     /// Generated from these locations:
-    /// * Table `HashLookup` in the file `C:\dev\amudai\proto_defs\shard_format\schema.fbs:110`
+    /// * Table `HashLookup` in the file `/workspace/dev/Azure-Kusto-Amudai/proto_defs/shard_format/schema.fbs:110`
     #[derive(
         Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, ::serde::Serialize, ::serde::Deserialize,
     )]
@@ -3097,9 +3098,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<[u32]>>,
-        T1: ::planus::WriteAs<::planus::Offset<[u32]>>,
-    > ::planus::WriteAs<::planus::Offset<HashLookup>> for HashLookupBuilder<(T0, T1)>
+            T0: ::planus::WriteAs<::planus::Offset<[u32]>>,
+            T1: ::planus::WriteAs<::planus::Offset<[u32]>>,
+        > ::planus::WriteAs<::planus::Offset<HashLookup>> for HashLookupBuilder<(T0, T1)>
     {
         type Prepared = ::planus::Offset<HashLookup>;
 
@@ -3110,9 +3111,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<[u32]>>,
-        T1: ::planus::WriteAs<::planus::Offset<[u32]>>,
-    > ::planus::WriteAsOptional<::planus::Offset<HashLookup>> for HashLookupBuilder<(T0, T1)>
+            T0: ::planus::WriteAs<::planus::Offset<[u32]>>,
+            T1: ::planus::WriteAs<::planus::Offset<[u32]>>,
+        > ::planus::WriteAsOptional<::planus::Offset<HashLookup>> for HashLookupBuilder<(T0, T1)>
     {
         type Prepared = ::planus::Offset<HashLookup>;
 
@@ -3126,9 +3127,9 @@ mod root {
     }
 
     impl<
-        T0: ::planus::WriteAs<::planus::Offset<[u32]>>,
-        T1: ::planus::WriteAs<::planus::Offset<[u32]>>,
-    > ::planus::WriteAsOffset<HashLookup> for HashLookupBuilder<(T0, T1)>
+            T0: ::planus::WriteAs<::planus::Offset<[u32]>>,
+            T1: ::planus::WriteAs<::planus::Offset<[u32]>>,
+        > ::planus::WriteAsOffset<HashLookup> for HashLookupBuilder<(T0, T1)>
     {
         #[inline]
         fn prepare(&self, builder: &mut ::planus::Builder) -> ::planus::Offset<HashLookup> {
