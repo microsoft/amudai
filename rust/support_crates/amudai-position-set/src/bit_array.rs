@@ -795,6 +795,26 @@ impl<S> BitArrayBase<S> {
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
+
+    /// Returns `true` if this bit array is equal to another bit array.
+    ///
+    /// Two bit arrays are equal if they have the same length and the same
+    /// bit values at every position.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The bit array to compare with
+    ///
+    /// # Returns
+    ///
+    /// `true` if the arrays are equal, `false` otherwise
+    pub fn is_equal_to<S1>(&self, other: &BitArrayBase<S1>) -> bool
+    where
+        S: AsRef<[u64]>,
+        S1: AsRef<[u64]>,
+    {
+        self.len == other.len && self.storage() == other.storage()
+    }
 }
 
 impl<S> BitArrayBase<S> {

@@ -698,6 +698,24 @@ impl ListSegment {
         self.values.truncate(write);
     }
 
+    /// Checks if this segment is equal to another list segment.
+    ///
+    /// Two list segments are considered equal if they have the same span and
+    /// represent the same set of positions.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The list segment to compare with
+    ///
+    /// # Returns
+    ///
+    /// `true` if the segments represent the same set of positions within the same span,
+    /// `false` otherwise.
+    ///
+    pub fn is_equal_to(&self, other: &ListSegment) -> bool {
+        self.span == other.span && self.values == other.values
+    }
+
     /// Computes the complement (negation) within this segment's span.
     ///
     /// Returns all positions in the span that are NOT present in this segment.

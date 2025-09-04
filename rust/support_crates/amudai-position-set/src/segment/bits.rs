@@ -243,6 +243,24 @@ impl BitSegment {
         self.bits.negate();
     }
 
+    /// Checks if this segment is equal to another bit segment.
+    ///
+    /// Two bit segments are considered equal if they have the same span and
+    /// represent the same set of positions.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The bit segment to compare with
+    ///
+    /// # Returns
+    ///
+    /// `true` if the segments represent the same set of positions within the same span,
+    /// `false` otherwise.
+    ///
+    pub fn is_equal_to(&self, other: &BitSegment) -> bool {
+        self.span == other.span && self.bits.is_equal_to(&other.bits)
+    }
+
     /// Calls `f(rank, pos)` for every set position in ascending order.
     ///
     /// - `rank` is the 0-based index among set positions within this segment.

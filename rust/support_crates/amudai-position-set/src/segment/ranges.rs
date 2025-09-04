@@ -449,6 +449,24 @@ impl RangeSegment {
         RangeSegment::from_relative_ranges_u32(self.span(), ranges)
     }
 
+    /// Checks if this segment is equal to another range segment.
+    ///
+    /// Two range segments are considered equal if they have the same span and
+    /// represent the same set of positions.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The range segment to compare with
+    ///
+    /// # Returns
+    ///
+    /// `true` if the segments represent the same set of positions within the same span,
+    /// `false` otherwise.
+    ///
+    pub fn is_equal_to(&self, other: &RangeSegment) -> bool {
+        self.span == other.span && self.runs == other.runs
+    }
+
     /// Computes the complement within this segment's span.
     pub fn complement(&self) -> RangeSegment {
         if self.runs.is_empty() {

@@ -273,3 +273,243 @@ fn from_ranges_prefers_bits_for_dense_scattered() {
     assert!(matches!(seg, Segment::Bits(_)));
     assert_eq!(positions_of(&seg), expected);
 }
+
+// ==================== is_equal_to tests ====================
+
+#[test]
+fn is_equal_to_empty_segments() {
+    let span = 0u64..64u64;
+    let empty1 = Segment::empty(span.clone());
+    let empty2 = Segment::empty(span.clone());
+    let empty_list = Segment::List(ListSegment::empty(span.clone()));
+
+    assert!(empty1.is_equal_to(&empty2));
+    assert!(empty2.is_equal_to(&empty1));
+    assert!(empty1.is_equal_to(&empty_list));
+    assert!(empty_list.is_equal_to(&empty1));
+}
+
+#[test]
+fn is_equal_to_full_segments() {
+    let span = 0u64..64u64;
+    let full1 = Segment::full(span.clone());
+    let full2 = Segment::full(span.clone());
+    let full_bits = Segment::Bits(BitSegment::full(span.clone()));
+
+    assert!(full1.is_equal_to(&full2));
+    assert!(full2.is_equal_to(&full1));
+    assert!(full1.is_equal_to(&full_bits));
+    assert!(full_bits.is_equal_to(&full1));
+}
+
+#[test]
+fn is_equal_to_same_positions_different_representations() {
+    let span = 0u64..1024u64;
+    let positions = vec![5u64, 10u64, 100u64, 500u64];
+
+    // Create same logical content in different representations
+    let list_seg = Segment::List(ListSegment::from_positions(
+        span.clone(),
+        positions.clone().into_iter(),
+    ));
+    let bits_seg = Segment::Bits(BitSegment::from_positions(
+        span.clone(),
+        positions.clone().into_iter(),
+    ));
+    let ranges_seg = Segment::Ranges(RangeSegment::from_positions(
+        span.clone(),
+        positions.into_iter(),
+    ));
+
+    // All should be equal regardless of internal representation
+    assert!(list_seg.is_equal_to(&bits_seg));
+    assert!(bits_seg.is_equal_to(&list_seg));
+    assert!(list_seg.is_equal_to(&ranges_seg));
+    assert!(ranges_seg.is_equal_to(&list_seg));
+    assert!(bits_seg.is_equal_to(&ranges_seg));
+    assert!(ranges_seg.is_equal_to(&bits_seg));
+}
+
+#[test]
+fn is_equal_to_different_positions() {
+    let span = 0u64..64u64;
+    let seg1 = Segment::List(ListSegment::from_positions(
+        span.clone(),
+        [5u64, 10u64].into_iter(),
+    ));
+    let seg2 = Segment::List(ListSegment::from_positions(
+        span.clone(),
+        [5u64, 11u64].into_iter(),
+    ));
+    let seg3 = Segment::List(ListSegment::from_positions(
+        span.clone(),
+        [5u64, 10u64, 15u64].into_iter(),
+    ));
+
+    assert!(!seg1.is_equal_to(&seg2)); // Different positions
+    assert!(!seg2.is_equal_to(&seg1));
+    assert!(!seg1.is_equal_to(&seg3)); // Different position count
+    assert!(!seg3.is_equal_to(&seg1));
+}
+
+#[test]
+fn is_equal_to_empty_vs_non_empty() {
+    let span = 0u64..64u64;
+    let empty = Segment::empty(span.clone());
+    let non_empty = Segment::List(ListSegment::from_positions(
+        span.clone(),
+        [10u64].into_iter(),
+    ));
+
+    assert!(!empty.is_equal_to(&non_empty));
+    assert!(!non_empty.is_equal_to(&empty));
+}
+
+#[test]
+fn is_equal_to_full_vs_non_full() {
+    let span = 0u64..64u64;
+    let full = Segment::full(span.clone());
+    let almost_full = Segment::Bits(BitSegment::from_positions(
+        span.clone(),
+        (span.start..span.end - 1).collect::<Vec<_>>().into_iter(), // Missing last position
+    ));
+
+    assert!(!full.is_equal_to(&almost_full));
+    assert!(!almost_full.is_equal_to(&full));
+}
+
+#[test]
+fn is_equal_to_ranges_with_same_content() {
+    let span = 0u64..1024u64;
+    let ranges1 = vec![10u64..20u64, 30u64..40u64, 100u64..200u64];
+    let ranges2 = ranges1.clone();
+
+    let seg1 = Segment::Ranges(RangeSegment::from_ranges(span.clone(), ranges1.into_iter()));
+    let seg2 = Segment::Ranges(RangeSegment::from_ranges(span.clone(), ranges2.into_iter()));
+
+    assert!(seg1.is_equal_to(&seg2));
+    assert!(seg2.is_equal_to(&seg1));
+}
+
+#[test]
+fn is_equal_to_mixed_segment_types() {
+    let span = 0u64..128u64;
+
+    // Create a pattern that could be represented efficiently by different segment types
+    let run = 10u64..30u64; // A single long run
+
+    let bits_seg = Segment::Bits(BitSegment::from_ranges(
+        span.clone(),
+        std::iter::once(run.clone()),
+    ));
+    let ranges_seg = Segment::Ranges(RangeSegment::from_ranges(
+        span.clone(),
+        std::iter::once(run.clone()),
+    ));
+    let list_seg = Segment::List(ListSegment::from_positions(span.clone(), run.clone()));
+
+    // All should be equal since they represent the same logical content
+    assert!(bits_seg.is_equal_to(&ranges_seg));
+    assert!(ranges_seg.is_equal_to(&bits_seg));
+    assert!(bits_seg.is_equal_to(&list_seg));
+    assert!(list_seg.is_equal_to(&bits_seg));
+    assert!(ranges_seg.is_equal_to(&list_seg));
+    assert!(list_seg.is_equal_to(&ranges_seg));
+}
+
+#[test]
+fn is_equal_to_reflexive() {
+    let span = 0u64..64u64;
+    let positions = vec![1u64, 5u64, 10u64, 20u64];
+
+    let empty = Segment::empty(span.clone());
+    let full = Segment::full(span.clone());
+    let list = Segment::List(ListSegment::from_positions(
+        span.clone(),
+        positions.clone().into_iter(),
+    ));
+    let bits = Segment::Bits(BitSegment::from_positions(
+        span.clone(),
+        positions.clone().into_iter(),
+    ));
+    let ranges = Segment::Ranges(RangeSegment::from_positions(
+        span.clone(),
+        positions.into_iter(),
+    ));
+
+    // Every segment should be equal to itself
+    assert!(empty.is_equal_to(&empty));
+    assert!(full.is_equal_to(&full));
+    assert!(list.is_equal_to(&list));
+    assert!(bits.is_equal_to(&bits));
+    assert!(ranges.is_equal_to(&ranges));
+}
+
+#[test]
+fn is_equal_to_different_spans_mixed_types() {
+    // Test span checking when comparison falls through to bit conversion
+    let span1 = 0u64..64u64;
+    let span2 = Segment::SPAN..(Segment::SPAN + 64u64);
+    let positions = vec![5u64, 10u64, 20u64];
+
+    let list1 = Segment::List(ListSegment::from_positions(
+        span1.clone(),
+        positions.clone().into_iter(),
+    ));
+    // Adjust positions for the different span
+    let positions2: Vec<u64> = positions.iter().map(|&p| p + Segment::SPAN).collect();
+    let bits2 = Segment::Bits(BitSegment::from_positions(
+        span2.clone(),
+        positions2.into_iter(),
+    ));
+
+    // These should not be equal due to different spans
+    // This will convert both to BitSegment and compare, which checks spans
+    assert!(!list1.is_equal_to(&bits2));
+    assert!(!bits2.is_equal_to(&list1));
+}
+
+#[test]
+fn is_equal_to_symmetric() {
+    let span = 0u64..64u64;
+    let positions = vec![1u64, 5u64, 10u64];
+
+    let seg1 = Segment::List(ListSegment::from_positions(
+        span.clone(),
+        positions.clone().into_iter(),
+    ));
+    let seg2 = Segment::Bits(BitSegment::from_positions(
+        span.clone(),
+        positions.into_iter(),
+    ));
+
+    // If seg1.is_equal_to(&seg2), then seg2.is_equal_to(&seg1) should also be true
+    let eq1 = seg1.is_equal_to(&seg2);
+    let eq2 = seg2.is_equal_to(&seg1);
+    assert_eq!(eq1, eq2);
+    assert!(eq1); // They should actually be equal
+}
+
+#[test]
+fn is_equal_to_transitive() {
+    let span = 0u64..64u64;
+    let positions = vec![1u64, 5u64, 10u64];
+
+    let seg1 = Segment::List(ListSegment::from_positions(
+        span.clone(),
+        positions.clone().into_iter(),
+    ));
+    let seg2 = Segment::Bits(BitSegment::from_positions(
+        span.clone(),
+        positions.clone().into_iter(),
+    ));
+    let seg3 = Segment::Ranges(RangeSegment::from_positions(
+        span.clone(),
+        positions.into_iter(),
+    ));
+
+    // If seg1 == seg2 and seg2 == seg3, then seg1 == seg3
+    assert!(seg1.is_equal_to(&seg2));
+    assert!(seg2.is_equal_to(&seg3));
+    assert!(seg1.is_equal_to(&seg3));
+}

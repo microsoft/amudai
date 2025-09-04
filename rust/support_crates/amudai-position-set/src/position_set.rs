@@ -316,6 +316,37 @@ impl PositionSet {
             .for_each(|s| s.complement_in_place());
     }
 
+    /// Checks if this position set is equal to another position set.
+    ///
+    /// Two position sets are considered equal if they have the same span and
+    /// represent the same set of positions.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The position set to compare with
+    ///
+    /// # Returns
+    ///
+    /// `true` if the sets represent the same positions within the same span,
+    /// `false` otherwise.
+    ///
+    /// # Performance
+    ///
+    /// This method compares segments pairwise. In most cases this is very efficient:
+    /// - If spans differ, returns `false` immediately (O(1))
+    /// - If segments have different kinds but same logical content, the comparison
+    ///   may convert segments to a common representation for comparison
+    /// - For segments of the same type, comparison is typically O(n) in the segment size
+    ///
+    pub fn is_equal_to(&self, other: &PositionSet) -> bool {
+        self.span == other.span
+            && self
+                .segments
+                .iter()
+                .zip(other.segments.iter())
+                .all(|(a, b)| a.is_equal_to(b))
+    }
+
     /// Parallel logical complement using internal data-parallelism.
     ///
     /// Behavior matches [`invert`](Self::invert) but processes segments in parallel.

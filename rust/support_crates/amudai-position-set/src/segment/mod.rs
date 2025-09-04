@@ -885,6 +885,48 @@ impl Segment {
         }
     }
 
+    /// Checks if this segment is equal to another segment.
+    ///
+    /// Two segments are considered equal if they have the same span and represent
+    /// the same set of positions, regardless of their internal representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The segment to compare with
+    ///
+    /// # Returns
+    ///
+    /// `true` if the segments represent the same set of positions within the same span,
+    /// `false` otherwise.
+    ///
+    pub fn is_equal_to(&self, other: &Segment) -> bool {
+        if self.span() != other.span() {
+            return false;
+        }
+        match (self, other) {
+            (Segment::Empty(_), Segment::Empty(_)) => true,
+            (Segment::Empty(_), other) => other.count_positions() == 0,
+            (other, Segment::Empty(_)) => other.count_positions() == 0,
+            (Segment::Full(_), Segment::Full(_)) => true,
+            (Segment::Full(full), other) => {
+                let span_len = (full.span().end - full.span().start) as usize;
+                other.count_positions() == span_len
+            }
+            (other, Segment::Full(full)) => {
+                let span_len = (full.span().end - full.span().start) as usize;
+                other.count_positions() == span_len
+            }
+            (Segment::Bits(left), Segment::Bits(right)) => left.is_equal_to(right),
+            (Segment::List(left), Segment::List(right)) => left.is_equal_to(right),
+            (Segment::Ranges(left), Segment::Ranges(right)) => left.is_equal_to(right),
+            (left, right) => {
+                let left_bits = left.to_bits();
+                let right_bits = right.to_bits();
+                left_bits.is_equal_to(&*right_bits)
+            }
+        }
+    }
+
     /// Computes the most efficient [`SegmentKind`] for the current contents
     /// without modifying the segment.
     ///

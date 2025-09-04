@@ -283,3 +283,184 @@ fn test_invert_in_place_empty_span() {
     set.invert_in_place(); // should be a no-op logically
     assert_eq!(set.count_positions(), 0);
 }
+
+#[test]
+fn test_is_equal_to_identical_sets() {
+    let span = Segment::SPAN * 2 + 100;
+    let positions = vec![0, 5, 100, Segment::SPAN, Segment::SPAN + 50, span - 1];
+    let set1 = PositionSet::from_positions(span, positions.iter().copied());
+    let set2 = PositionSet::from_positions(span, positions.iter().copied());
+
+    assert!(set1.is_equal_to(&set2));
+    assert!(set2.is_equal_to(&set1));
+}
+
+#[test]
+fn test_is_equal_to_self() {
+    let span = Segment::SPAN + 50;
+    let positions = (0..span).step_by(7).collect::<Vec<_>>();
+    let set = PositionSet::from_positions(span, positions.iter().copied());
+
+    assert!(set.is_equal_to(&set));
+}
+
+#[test]
+fn test_is_equal_to_different_positions() {
+    let span = 1000;
+    let set1 = PositionSet::from_positions(span, [1, 5, 10, 50].iter().copied());
+    let set2 = PositionSet::from_positions(span, [1, 5, 10, 51].iter().copied());
+
+    assert!(!set1.is_equal_to(&set2));
+    assert!(!set2.is_equal_to(&set1));
+}
+
+#[test]
+fn test_is_equal_to_different_spans() {
+    let positions = vec![1, 5, 10, 50];
+    let set1 = PositionSet::from_positions(100, positions.iter().copied());
+    let set2 = PositionSet::from_positions(200, positions.iter().copied());
+
+    assert!(!set1.is_equal_to(&set2));
+    assert!(!set2.is_equal_to(&set1));
+}
+
+#[test]
+fn test_is_equal_to_empty_sets() {
+    let span1 = 1000;
+    let span2 = 1000;
+    let empty1 = PositionSet::empty(span1);
+    let empty2 = PositionSet::empty(span2);
+
+    assert!(empty1.is_equal_to(&empty2));
+    assert!(empty2.is_equal_to(&empty1));
+}
+
+#[test]
+fn test_is_equal_to_empty_sets_different_spans() {
+    let empty1 = PositionSet::empty(1000);
+    let empty2 = PositionSet::empty(2000);
+
+    assert!(!empty1.is_equal_to(&empty2));
+    assert!(!empty2.is_equal_to(&empty1));
+}
+
+#[test]
+fn test_is_equal_to_full_sets() {
+    let span = 1000;
+    let full1 = PositionSet::full(span);
+    let full2 = PositionSet::full(span);
+
+    assert!(full1.is_equal_to(&full2));
+    assert!(full2.is_equal_to(&full1));
+}
+
+#[test]
+fn test_is_equal_to_full_sets_different_spans() {
+    let full1 = PositionSet::full(1000);
+    let full2 = PositionSet::full(2000);
+
+    assert!(!full1.is_equal_to(&full2));
+    assert!(!full2.is_equal_to(&full1));
+}
+
+#[test]
+fn test_is_equal_to_empty_vs_non_empty() {
+    let span = 1000;
+    let empty = PositionSet::empty(span);
+    let non_empty = PositionSet::from_positions(span, [100].iter().copied());
+
+    assert!(!empty.is_equal_to(&non_empty));
+    assert!(!non_empty.is_equal_to(&empty));
+}
+
+#[test]
+fn test_is_equal_to_full_vs_non_full() {
+    let span = 100;
+    let full = PositionSet::full(span);
+    let non_full =
+        PositionSet::from_positions(span, (0..span - 1).collect::<Vec<_>>().iter().copied());
+
+    assert!(!full.is_equal_to(&non_full));
+    assert!(!non_full.is_equal_to(&full));
+}
+
+#[test]
+fn test_is_equal_to_different_segment_representations() {
+    // Create sets with the same logical content but potentially different internal representations
+    let span = Segment::SPAN * 3;
+
+    // Create via positions (likely to use List segments for sparse data)
+    let positions = vec![100, 200, Segment::SPAN + 100, Segment::SPAN * 2 + 50];
+    let set1 = PositionSet::from_positions(span, positions.iter().copied());
+
+    // Create via ranges (likely to use Range segments)
+    let ranges = vec![
+        100..101,
+        200..201,
+        (Segment::SPAN + 100)..(Segment::SPAN + 101),
+        (Segment::SPAN * 2 + 50)..(Segment::SPAN * 2 + 51),
+    ];
+    let set2 = PositionSet::from_ranges(span, ranges.into_iter());
+
+    // Despite potentially different internal representations, they should be equal
+    assert!(set1.is_equal_to(&set2));
+    assert!(set2.is_equal_to(&set1));
+}
+
+#[test]
+fn test_is_equal_to_after_operations() {
+    let span = Segment::SPAN * 2;
+    let positions1 = vec![0, 100, Segment::SPAN + 50];
+    let positions2 = vec![50, 200, Segment::SPAN + 100];
+
+    let set1 = PositionSet::from_positions(span, positions1.iter().copied());
+    let set2 = PositionSet::from_positions(span, positions2.iter().copied());
+
+    // Create union in two different ways
+    let union1 = set1.union(&set2);
+    let union2 = set2.union(&set1);
+
+    // Results should be equal
+    assert!(union1.is_equal_to(&union2));
+    assert!(union2.is_equal_to(&union1));
+}
+
+#[test]
+fn test_is_equal_to_large_sets() {
+    let span = Segment::SPAN * 5;
+    // Create large sets with the same positions
+    let positions: Vec<u64> = (0..span).step_by(1000).collect();
+
+    let set1 = PositionSet::from_positions(span, positions.iter().copied());
+    let set2 = PositionSet::from_positions(span, positions.iter().copied());
+
+    assert!(set1.is_equal_to(&set2));
+
+    // Modify one position
+    let mut modified_positions = positions;
+    modified_positions.push(span - 1);
+    let set3 = PositionSet::from_positions(span, modified_positions.iter().copied());
+
+    assert!(!set1.is_equal_to(&set3));
+}
+
+#[test]
+fn test_is_equal_to_zero_span() {
+    let empty1 = PositionSet::empty(0);
+    let empty2 = PositionSet::empty(0);
+
+    assert!(empty1.is_equal_to(&empty2));
+}
+
+#[test]
+fn test_is_equal_to_inverted_sets() {
+    let span = 1000;
+    let positions = vec![10, 50, 100, 500, 900];
+    let set = PositionSet::from_positions(span, positions.iter().copied());
+
+    let inverted1 = set.invert();
+    let inverted2 = set.invert();
+
+    assert!(inverted1.is_equal_to(&inverted2));
+    assert!(!set.is_equal_to(&inverted1));
+}
