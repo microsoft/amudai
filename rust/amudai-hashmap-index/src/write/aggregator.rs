@@ -1,12 +1,14 @@
-use crate::write::builder::get_entry_bucket_index;
-use amudai_collections::identity_hash::IdentityHashMap;
-use amudai_common::Result;
-use amudai_io::{IoStream, temp_file_store::TemporaryFileStore};
 use rayon::slice::ParallelSliceMut;
 use std::{
     io::{BufReader, BufWriter, Read, Write},
     sync::Arc,
 };
+
+use amudai_collections::identity_hash::IdentityHashMap;
+use amudai_common::Result;
+use amudai_io::{IoStream, temp_file_store::TemporaryFileStore};
+
+use crate::write::hashmap_index_builder::get_entry_bucket_index;
 
 /// Uses a single temporary file to store hash-position entries, making it suitable for
 /// large datasets that cannot fit in memory. Aggregation and sorting are performed
@@ -138,11 +140,17 @@ impl EntriesAggregator {
 
         let entries_count = entry_map.len();
         let mut temp_file = BufWriter::new(self.temp_store.allocate_stream(None)?);
-        for (hash, positions) in entry_map {
-            let positions_slice = positions.as_slice();
-            if positions_slice.is_empty() {
+        for (hash, mut positions) in entry_map {
+            if positions.is_empty() {
                 continue;
             }
+
+            // We assume that the positions are inserted in random order.
+            // If the order of inserted positions is monotonically increasing per-hash,
+            // then we may remove the following line:
+            positions.par_sort_unstable();
+
+            let positions_slice = positions.as_slice();
             temp_file.write_all(&hash.to_le_bytes())?;
             temp_file.write_all(&(positions_slice.len() as u64).to_le_bytes())?;
             for &position in positions_slice {

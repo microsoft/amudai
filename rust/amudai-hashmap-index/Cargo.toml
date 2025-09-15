@@ -8,9 +8,12 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+ahash = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 rayon = { workspace = true }
+serde_json = { workspace = true }
+xxhash-rust = { workspace = true }
 
 amudai-arrow = { workspace = true }
 amudai-arrow-compat = { workspace = true }
@@ -22,6 +25,8 @@ amudai-io = { workspace = true }
 amudai-objectstore = { workspace = true }
 amudai-ranges = { workspace = true }
 amudai-shard = { workspace = true }
+amudai-sequence = { workspace = true }
+amudai-position-set = { workspace = true }
 
 [dev-dependencies]
 fastrand = { workspace = true }

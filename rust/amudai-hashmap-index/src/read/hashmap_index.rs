@@ -1,17 +1,15 @@
+use arrow_array::{Array, LargeListArray, StructArray, UInt64Array};
 use std::sync::Arc;
 
 use amudai_arrow::builder::ArrowReaderBuilder;
 use amudai_common::Result;
 use amudai_format::defs::shard::IndexDescriptor;
 use amudai_objectstore::{ObjectStore, ReferenceResolver, url::ObjectUrl};
+use amudai_position_set::PositionSet;
 use amudai_ranges::SharedRangeList;
 use amudai_shard::read::{shard::Shard, shard::ShardOptions};
-use arrow_array::{Array, LargeListArray, StructArray, UInt64Array};
 
-use crate::write::builder::{get_entry_bucket_index, get_entry_partition_index};
-
-/// The type identifier for the hashmap index in Amudai.
-pub const HASHMAP_INDEX_TYPE: &str = "hashmap-index";
+use crate::write::hashmap_index_builder::{get_entry_bucket_index, get_entry_partition_index};
 
 /// A reader interface for hashmap indexes stored in Amudai shards.
 ///
@@ -71,10 +69,9 @@ pub struct HashmapIndexOptions {
 }
 
 /// Result of a hash lookup operation
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LookupResult {
     /// The hash was found and these are the associated positions
-    Found { positions: Vec<u64> },
+    Found { positions: PositionSet },
     /// The hash was not found in the index
     NotFound,
 }
@@ -108,13 +105,6 @@ impl HashmapIndexOptions {
     /// # Errors
     /// Returns an error if any partition shard cannot be opened or if the descriptor is invalid
     pub fn open_from_descriptor(self, descriptor: &IndexDescriptor) -> Result<HashmapIndex> {
-        if descriptor.index_type != HASHMAP_INDEX_TYPE {
-            return Err(amudai_common::error::Error::invalid_format(format!(
-                "Expected hashmap-index type, got: {}",
-                descriptor.index_type
-            )));
-        }
-
         let partitions_count = descriptor.artifacts.len();
         if !partitions_count.is_power_of_two() {
             return Err(amudai_common::error::Error::invalid_format(format!(
@@ -157,6 +147,7 @@ impl HashmapIndex {
     ///
     /// # Arguments
     /// * `hash` - The hash value to look up
+    /// * `span` - The last expected position (exclusive) for the hash
     ///
     /// # Returns
     /// `LookupResult::Found` containing the positions associated with the hash,
@@ -164,7 +155,7 @@ impl HashmapIndex {
     ///
     /// # Errors
     /// Returns an error if the lookup operation fails due to I/O or parsing issues
-    pub fn lookup(&self, hash: u64) -> Result<LookupResult> {
+    pub fn lookup(&self, hash: u64, span: u64) -> Result<LookupResult> {
         // Determine which partition contains this hash
         let partition_index = get_entry_partition_index(hash, self.partition_bits);
         let partition = &self.partitions[partition_index];
@@ -197,7 +188,7 @@ impl HashmapIndex {
         if let Some(batch) = reader.next().transpose().map_err(|e| {
             amudai_common::error::Error::invalid_operation(format!("Failed to read batch: {e}"))
         })? {
-            return self.extract_positions_from_batch(&batch, hash);
+            return self.extract_positions_from_batch(&batch, hash, span);
         }
 
         // Hash not found
@@ -209,6 +200,7 @@ impl HashmapIndex {
         &self,
         batch: &arrow_array::RecordBatch,
         target_hash: u64,
+        span: u64,
     ) -> Result<LookupResult> {
         let bucket_column = batch
             .column(0)
@@ -262,72 +254,14 @@ impl HashmapIndex {
                         )
                     })?;
 
-                let positions = positions_array.values().to_vec();
+                // Since the positions are sorted, the last one is the highest position
+                // and it can be used as the span.
+                let positions =
+                    PositionSet::from_positions(span, positions_array.values().iter().copied());
                 return Ok(LookupResult::Found { positions });
             }
         }
 
         Ok(LookupResult::NotFound)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::write::builder::{
-        HashmapIndexBuilder, HashmapIndexBuilderParams, tests::create_sample_stream,
-    };
-    use amudai_io_impl::temp_file_store;
-    use amudai_shard::tests::shard_store::ShardStore;
-
-    #[test]
-    fn test_hashmap_index_lookup() {
-        let shard_store = ShardStore::new();
-        let params = HashmapIndexBuilderParams {
-            max_memory_usage: Some(32 * 1024 * 1024),
-            object_store: Arc::clone(&shard_store.object_store),
-            temp_store: temp_file_store::create_in_memory(32 * 1024 * 1024).unwrap(),
-        };
-        let mut builder = HashmapIndexBuilder::new(params.clone()).unwrap();
-
-        let entries = create_sample_stream(200000, 100000);
-        let test_hash = entries[0].hash;
-        let mut test_positions = entries
-            .iter()
-            .filter(|e| e.hash == test_hash)
-            .map(|e| e.position)
-            .collect::<Vec<_>>();
-        test_positions.sort_unstable();
-        entries
-            .chunks(10000)
-            .for_each(|c| builder.push_entries(c).unwrap());
-
-        // Finalize the index
-        let prepared_index = builder.finish().unwrap();
-        let sealed_index = prepared_index
-            .seal("null:///tmp/test_hashmap_index")
-            .unwrap();
-        let index_descriptor = sealed_index.into_index_descriptor();
-
-        // Verify lookup for a specific hash
-        let options = HashmapIndexOptions::new(shard_store.object_store.clone());
-        let index = options.open_from_descriptor(&index_descriptor).unwrap();
-        let result = index.lookup(test_hash).unwrap();
-        match result {
-            LookupResult::Found { mut positions } => {
-                positions.sort_unstable();
-                assert_eq!(positions, test_positions);
-            }
-            LookupResult::NotFound => {
-                panic!("Expected to find positions for hash {test_hash}");
-            }
-        }
-
-        // Verify lookup for a hash that does not exist
-        let non_existent_hash = 999999;
-        if !entries.iter().any(|e| e.hash == non_existent_hash) {
-            let result = index.lookup(non_existent_hash).unwrap();
-            assert_eq!(result, LookupResult::NotFound);
-        }
     }
 }

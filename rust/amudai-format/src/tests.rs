@@ -3,6 +3,15 @@ use crate::{
     schema::{BasicType, DataType, SchemaId},
     schema_builder::{DataTypeBuilder, FieldBuilder, SchemaBuilder},
 };
+use std::collections::HashSet;
+use std::sync::Arc;
+
+fn to_string_paths(paths: Vec<Vec<Arc<str>>>) -> Vec<Vec<String>> {
+    paths
+        .into_iter()
+        .map(|p| p.into_iter().map(|s| s.to_string()).collect())
+        .collect()
+}
 
 #[test]
 fn test_filtered_schema_projection() {
@@ -262,6 +271,64 @@ fn test_schema_projection_builder() {
     builder.add_path(Vec::<&str>::new()).unwrap(); // Empty path should be no-op
     let projection = builder.build();
     assert_eq!(projection.fields().len(), 0);
+}
+
+#[test]
+fn test_leaf_paths_mixed_nested_subset() {
+    let schema = populate_test_schema().into_schema().unwrap();
+
+    let mut builder = SchemaProjectionBuilder::new(schema);
+    builder
+        .add_path(["user_profile", "address", "city"])
+        .unwrap();
+    builder.add_path(["user_profile", "email"]).unwrap();
+    builder.add_path(["orders", "item", "order_id"]).unwrap();
+    builder
+        .add_path(["metadata", "value", "string_value"])
+        .unwrap();
+
+    let projection = builder.build();
+    let got: HashSet<String> = to_string_paths(projection.leaf_paths())
+        .into_iter()
+        .map(|p| p.join("."))
+        .collect();
+
+    let expected: HashSet<String> = [
+        "user_profile.address.city",
+        "user_profile.email",
+        "orders.item.order_id",
+        "metadata.value.string_value",
+    ]
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    assert_eq!(got, expected);
+}
+
+#[test]
+fn test_leaf_paths_full_projection_contains_expected() {
+    let schema = populate_test_schema().into_schema().unwrap();
+    let projection = SchemaProjection::full(schema);
+
+    let got: HashSet<String> = to_string_paths(projection.leaf_paths())
+        .into_iter()
+        .map(|p| p.join("."))
+        .collect();
+
+    // Spot-check a diverse set of leaves across structs, lists, and maps
+    for expected in [
+        "name",
+        "price",
+        "user_profile.address.coordinates.latitude",
+        "orders.item.line_items.item.product_details.name",
+        "metadata.value.string_value",
+        "sensor_readings.item.measurements.value.raw_value",
+        "configuration.database.connection_pool.retry_policy.max_retries",
+        "configuration.api_endpoints.value.authentication.method",
+    ] {
+        assert!(got.contains(expected), "missing leaf path: {expected}");
+    }
 }
 
 #[test]

@@ -153,6 +153,48 @@ impl SchemaProjection {
     pub fn fields(&self) -> &ProjectedFields {
         &self.fields
     }
+
+    /// Returns all paths to leaf types within this projection.
+    ///
+    /// A "leaf" is any projected node that has no projected children. The returned
+    /// paths are sequences of field names from the root (top-level field) down to
+    /// each leaf node.
+    ///
+    /// Notes:
+    /// - Paths do not include an artificial root; they start at top-level fields.
+    /// - Field names are returned as `Arc<str>` to avoid unnecessary allocations.
+    pub fn leaf_paths(&self) -> Vec<Vec<Arc<str>>> {
+        let mut out: Vec<Vec<Arc<str>>> = Vec::new();
+        for field in self.fields.iter() {
+            let mut cur: Vec<Arc<str>> = Vec::new();
+            Self::collect_leaf_paths(field, &mut cur, &mut out);
+        }
+        out
+    }
+
+    fn collect_leaf_paths(
+        node: &TypeProjectionRef,
+        cur: &mut Vec<Arc<str>>,
+        out: &mut Vec<Vec<Arc<str>>>,
+    ) {
+        cur.push(node.name().clone());
+        if node.children().is_empty() {
+            out.push(cur.clone());
+        } else {
+            for child in node.children().iter() {
+                Self::collect_leaf_paths(child, cur, out);
+                // backtrack one level after returning from recursion on each child
+                // (push was done before descending)
+                // Note: we pop and then re-push for the next sibling by the caller logic.
+                // However, since we share `cur`, explicitly pop here after each child path.
+                // The push for the child happens inside the next recursive call.
+                // To maintain correct state for siblings, ensure we pop the child's name.
+                // The child's recursive call itself will push and then pop.
+            }
+        }
+        // pop this node before returning to the caller
+        cur.pop();
+    }
 }
 
 impl std::fmt::Display for SchemaProjection {

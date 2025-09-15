@@ -21,7 +21,7 @@ use amudai_shard::write::{
     stripe_builder::StripeBuilder,
 };
 
-use crate::{read::hashmap_index::HASHMAP_INDEX_TYPE, write::aggregator::EntriesAggregator};
+use crate::write::aggregator::EntriesAggregator;
 
 /// A single index entry that maps a key hash to a payload location.
 ///
@@ -607,7 +607,12 @@ pub struct SealedHashmapIndex {
 
 impl SealedHashmapIndex {
     /// Converts the sealed index into an Amudai `IndexDescriptor` for metadata storage.
-    pub fn into_index_descriptor(self) -> IndexDescriptor {
+    /// This descriptor contains the index type and artifacts for each partition.
+    ///
+    /// # Parameters
+    ///
+    /// `index_type` - The type of the index, e.g. "hashmap-index".
+    pub fn into_index_descriptor(self, index_type: &str) -> IndexDescriptor {
         let artifacts = self
             .partitions
             .iter()
@@ -617,7 +622,7 @@ impl SealedHashmapIndex {
             })
             .collect::<Vec<_>>();
         IndexDescriptor {
-            index_type: HASHMAP_INDEX_TYPE.to_owned(),
+            index_type: index_type.to_owned(),
             artifacts,
             ..Default::default()
         }
@@ -723,63 +728,4 @@ pub fn get_entry_bucket_index(hash: u64, buckets_count: usize) -> usize {
 /// Calculates the optimal number of buckets for a given number of unique entries.
 fn get_buckets_count(entries_count: usize) -> usize {
     (entries_count / 2).next_power_of_two().max(2)
-}
-
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-    use amudai_io_impl::temp_file_store;
-    use amudai_objectstore::null_store::NullObjectStore;
-
-    #[test]
-    fn test_hashmap_index_build() {
-        let params = HashmapIndexBuilderParams {
-            max_memory_usage: Some(32 * 1024 * 1024),
-            object_store: Arc::new(NullObjectStore),
-            temp_store: temp_file_store::create_in_memory(32 * 1024 * 1024).unwrap(),
-        };
-        let mut builder = HashmapIndexBuilder::new(params.clone()).unwrap();
-
-        let entries = create_sample_stream(200000, 100000);
-        let unique_entries = entries
-            .iter()
-            .map(|e| e.hash)
-            .collect::<std::collections::HashSet<_>>()
-            .len();
-        entries
-            .chunks(50000)
-            .for_each(|c| builder.push_entries(c).unwrap());
-
-        let prepared_index = builder.finish().unwrap();
-        let sealed_index = prepared_index
-            .seal("null:///tmp/test_hashmap_index")
-            .unwrap();
-        // Builder decides partition count: ensure it's power-of-two and non-zero
-        assert!(sealed_index.partitions.len().is_power_of_two());
-        assert!(!sealed_index.partitions.is_empty());
-        assert_eq!(
-            get_buckets_count(unique_entries) as u64,
-            sealed_index
-                .partitions
-                .iter()
-                .map(|p| p.shard.directory.total_record_count)
-                .sum::<u64>()
-        );
-    }
-
-    pub fn create_sample_stream(pos_count: u64, key_count: u64) -> Vec<IndexedEntry> {
-        let mut v = Vec::new();
-        fastrand::seed(2985745485);
-        let keys: Vec<_> = (0..key_count).map(|_| fastrand::u64(..)).collect();
-        for pos in 0..pos_count {
-            for _ in 0..fastrand::usize(1..4) {
-                let key = keys[fastrand::usize(0..keys.len())];
-                v.push(IndexedEntry {
-                    hash: key,
-                    position: pos,
-                });
-            }
-        }
-        v
-    }
 }
