@@ -23,6 +23,7 @@
 use std::cmp::Ordering;
 
 use amudai_common::{Result, error::Error};
+use amudai_unicode::case_conversions::CharCaseMapper;
 
 /// Trait defining comparison rules for text strings in index operations.
 ///
@@ -31,9 +32,11 @@ use amudai_common::{Result, error::Error};
 /// must be used consistently during both index construction and query operations.
 pub trait Collation: Send + Sync + 'static {
     /// Returns the collation kind for identification and configuration.
+    #[allow(dead_code)]
     fn kind(&self) -> CollationKind;
 
     /// Returns the human-readable name of this collation strategy.
+    #[allow(dead_code)]
     fn name(&self) -> &'static str {
         self.kind().name()
     }
@@ -121,11 +124,17 @@ impl Collation for UnicodeCaseInsensitiveCollation {
     }
 
     fn compare(&self, left: &str, right: &str) -> Ordering {
-        compare_strings(left, right, |&l, &r| to_upper(l).cmp(&to_upper(r)))
+        compare_strings(left, right, |&l, &r| {
+            l.to_uppercase_ignore_special()
+                .cmp(&r.to_uppercase_ignore_special())
+        })
     }
 
     fn starts_with(&self, text: &str, prefix: &str) -> bool {
-        string_has_prefix(text, prefix, |&l, &r| to_upper(l).cmp(&to_upper(r)))
+        string_has_prefix(text, prefix, |&l, &r| {
+            l.to_uppercase_ignore_special()
+                .cmp(&r.to_uppercase_ignore_special())
+        })
     }
 }
 
@@ -161,29 +170,6 @@ impl Collation for UnicodeCasePreservingCollation {
             return false;
         }
         string_has_prefix(text, prefix, char::cmp)
-    }
-}
-
-/// This function converts a character into its upper case variant, while ignoring special
-/// casing characters as described by https://www.unicode.org/Public/UCD/latest/ucd/SpecialCasing.txt
-/// document.
-///
-/// If the character is a special case char (i.e. it's expanded when converted into upper
-/// case), the method returns the character itself.
-///
-/// In addition, the method supports 'ß' (lower Eszett) that translates into 'ẞ'
-/// (upper Eszett, which officially exists since 2017).
-fn to_upper(c: char) -> char {
-    if c == 'ß' {
-        'ẞ'
-    } else if c.is_lowercase() {
-        let mut uppercase_char = c.to_uppercase();
-        match (uppercase_char.next(), uppercase_char.next()) {
-            (Some(ch), None) => ch,
-            _ => c, // If it maps to multiple code points, return the original character
-        }
-    } else {
-        c
     }
 }
 
@@ -341,30 +327,6 @@ mod tests {
         let mut terms = vec!["Abd", "abc", "aBc"];
         terms.sort_by(|a, b| collation.compare(a, b));
         assert_eq!(terms, vec!["aBc", "abc", "Abd"]);
-    }
-
-    #[test]
-    fn test_to_upper() {
-        // Test basic ASCII
-        assert_eq!(to_upper('a'), 'A');
-        assert_eq!(to_upper('z'), 'Z');
-        assert_eq!(to_upper('A'), 'A'); // already uppercase
-        assert_eq!(to_upper('1'), '1'); // not a letter
-
-        // Test Unicode
-        assert_eq!(to_upper('ñ'), 'Ñ');
-        assert_eq!(to_upper('é'), 'É');
-
-        // Test special Eszett handling - corrected implementation:
-        // to_upper('ß') = 'ẞ' (lowercase ß to uppercase ẞ)
-        // to_upper('ẞ') = 'ẞ' (already uppercase, stays the same)
-        assert_eq!(to_upper('ß'), 'ẞ'); // Lowercase ß -> uppercase ẞ
-        assert_eq!(to_upper('ẞ'), 'ẞ'); // Already uppercase, stays the same
-
-        // Test characters that expand to multiple codepoints (should return original)
-        let result = to_upper('ﬀ'); // ligature ff
-        // The exact result depends on Unicode implementation, but it should not panic
-        assert!(result == 'ﬀ' || result.is_lowercase() || result.is_uppercase());
     }
 
     #[test]

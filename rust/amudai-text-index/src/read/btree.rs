@@ -45,8 +45,17 @@ use crate::{collation::Collation, pos_list::PositionsReprType};
 ///
 /// ## Thread Safety
 ///
-/// Not thread-safe. The decoder maintains mutable state and should not be
-/// shared across threads without external synchronization.
+/// `BTreeDecoder` is thread-safe for concurrent, read-only use. All public
+/// methods take `&self` and the only internal mutable state is the lazily
+/// initialized `Shard`, managed by a `OnceLock` with fallible initialization.
+/// Multiple threads can safely call lookup methods concurrently, including the
+/// first access that triggers shard loading.
+///
+/// The returned iterators (`EntryIterator`, `ByPrefixEntryIterator`) are
+/// stateful and not designed to be shared *between* threads after creation;
+/// however they can each be used on a single thread while other threads create
+/// and use their own iterators simultaneously. Clone or create a new iterator
+/// per thread if needed.
 pub struct BTreeDecoder {
     /// URL of the shard containing B-Tree pages with terms and tree structure.
     shard_url: String,
@@ -112,7 +121,7 @@ impl BTreeDecoder {
     /// ## Thread Safety
     ///
     /// Uses `OnceLock` to ensure thread-safe initialization even in concurrent scenarios.
-    /// However, the decoder itself is not designed for concurrent use across multiple threads.
+    /// The decoder supports concurrent access from multiple threads safely.
     ///
     /// # Returns
     ///
@@ -127,20 +136,22 @@ impl BTreeDecoder {
     /// - The shard file is corrupted, incomplete, or in an incompatible format
     /// - Network or storage I/O errors occur during shard opening
     fn shard(&self) -> Result<&Shard> {
-        if let Some(shard) = self.shard.get() {
-            return Ok(shard);
+        if let Some(s) = self.shard.get() {
+            return Ok(s);
         }
 
-        let options = ShardOptions::new(Arc::clone(&self.object_store));
         let url = ObjectUrl::parse(&self.shard_url)
             .map_err(|e| Error::invalid_format(format!("Invalid terms shard URL: {e}")))?;
+
+        let options = ShardOptions::new(Arc::clone(&self.object_store));
+
         let shard = options
             .open(url)
             .map_err(|e| Error::invalid_format(format!("Failed to open terms shard: {e}")))?;
 
-        if self.shard.set(shard).is_err() {
-            panic!("Terms shard already set");
-        }
+        // If another thread won the race, we ignore our shard (they should be equivalent).
+        let _ = self.shard.set(shard);
+
         Ok(self.shard.get().unwrap())
     }
 
@@ -215,7 +226,7 @@ impl BTreeDecoder {
     /// - Pages cannot be loaded from the object store
     /// - The terms shard is inaccessible or malformed
     /// - Navigation encounters unexpected data formats
-    pub fn lookup_term(&mut self, term: &str) -> Result<EntryIterator<'_>> {
+    pub fn lookup_term(&self, term: &str) -> Result<EntryIterator<'_>> {
         let root_position = self.root_page_position()?;
         self.lookup_term_recursive(term, root_position)
     }
@@ -271,7 +282,7 @@ impl BTreeDecoder {
     /// - Pages cannot be loaded from the object store
     /// - The terms shard is inaccessible or malformed
     /// - Navigation encounters unexpected data formats
-    pub fn lookup_term_prefix(&mut self, prefix: &str) -> Result<ByPrefixEntryIterator<'_>> {
+    pub fn lookup_term_prefix(&self, prefix: &str) -> Result<ByPrefixEntryIterator<'_>> {
         let root_position = self.root_page_position()?;
         self.lookup_term_prefix_recursive(prefix, root_position)
     }
@@ -386,7 +397,7 @@ impl BTreeDecoder {
     /// Returns an error if pages cannot be loaded, the B-Tree structure is inconsistent,
     /// or navigation encounters corrupted data.
     fn lookup_term_recursive(
-        &mut self,
+        &self,
         term: &str,
         mut page_position: u64,
     ) -> Result<EntryIterator<'_>> {
@@ -406,14 +417,14 @@ impl BTreeDecoder {
                     return if let Some(start_index) =
                         Self::find_leftmost_equal(&entries, term, &*self.collation, |e| &e.term)
                     {
-                        Ok(EntryIterator::new(
+                        EntryIterator::new(
                             self,
                             term.to_owned(),
                             page_position,
                             start_offset,
                             entries,
                             start_index,
-                        ))
+                        )
                     } else {
                         Ok(EntryIterator::empty(self))
                     };
@@ -443,7 +454,7 @@ impl BTreeDecoder {
     /// Returns an error if pages cannot be loaded, the B-Tree structure is inconsistent,
     /// or navigation encounters corrupted data.
     fn lookup_term_prefix_recursive(
-        &mut self,
+        &self,
         prefix: &str,
         mut page_position: u64,
     ) -> Result<ByPrefixEntryIterator<'_>> {
@@ -460,14 +471,14 @@ impl BTreeDecoder {
                 BTreePage::LeafPage(start_offset, entries) => {
                     let start_index =
                         Self::find_leftmost_ge(&entries, prefix, &*self.collation, |e| &e.term);
-                    return Ok(ByPrefixEntryIterator::new(
+                    return ByPrefixEntryIterator::new(
                         self,
                         prefix.to_owned(),
                         page_position,
                         start_offset,
                         entries,
                         start_index,
-                    ));
+                    );
                 }
             }
         }
@@ -504,7 +515,7 @@ impl BTreeDecoder {
 /// performance during large result set iteration.
 pub struct EntryIterator<'a> {
     /// Reference to the decoder for accessing shard data and performing page loads
-    decoder: &'a mut BTreeDecoder,
+    decoder: &'a BTreeDecoder,
     /// The exact term being searched for, stored for comparison during iteration
     term: String,
     /// Current leaf page position within the terms shard being processed
@@ -542,19 +553,28 @@ impl<'a> EntryIterator<'a> {
     ///
     /// A new BTreeEntriesIterator ready for iteration over matching entries
     fn new(
-        decoder: &'a mut BTreeDecoder,
+        decoder: &'a BTreeDecoder,
         term: String,
         page_pos: u64,
         page_start_offset: u64,
         entries: Vec<BTreeLeafEntry>,
         start_index: usize,
-    ) -> Self {
+    ) -> Result<Self> {
         let curr_position_offset = if start_index == 0 {
             page_start_offset
         } else {
-            entries[start_index - 1].last_position_offset()
+            let prev = entries.get(start_index - 1).ok_or_else(|| {
+                Error::invalid_format(
+                    "Corrupted B-Tree leaf: missing prior entry for offset computation",
+                )
+            })?;
+            prev.last_position_offset().ok_or_else(|| {
+                Error::invalid_format(
+                    "Corrupted B-Tree leaf entry: missing term positions or fields",
+                )
+            })?
         };
-        Self {
+        Ok(Self {
             decoder,
             term,
             curr_page_pos: page_pos,
@@ -564,10 +584,10 @@ impl<'a> EntryIterator<'a> {
             done: false,
             within_stripe_idx: 0,
             within_field_idx: 0,
-        }
+        })
     }
 
-    pub fn empty(decoder: &'a mut BTreeDecoder) -> Self {
+    pub fn empty(decoder: &'a BTreeDecoder) -> Self {
         Self {
             decoder,
             term: String::new(),
@@ -716,7 +736,7 @@ impl<'a> Iterator for EntryIterator<'a> {
 /// ordering and ensuring all matching entries are processed.
 pub struct ByPrefixEntryIterator<'a> {
     /// Reference to the decoder for accessing shard data and performing page operations
-    decoder: &'a mut BTreeDecoder,
+    decoder: &'a BTreeDecoder,
     /// The prefix string that terms must start with to be included in results
     prefix: String,
     /// Current leaf page position within the terms shard being processed
@@ -754,21 +774,28 @@ impl<'a> ByPrefixEntryIterator<'a> {
     ///
     /// A new BTreeByPrefixEntriesIterator ready for iteration over prefix-matching entries
     fn new(
-        decoder: &'a mut BTreeDecoder,
+        decoder: &'a BTreeDecoder,
         prefix: String,
         page_pos: u64,
         page_start_offset: u64,
         entries: Vec<BTreeLeafEntry>,
         start_index: usize,
-    ) -> Self {
-        assert!(start_index <= entries.len());
-        // Pre-compute starting offset for the starting index (if within entries)
+    ) -> Result<Self> {
         let curr_position_offset = if start_index == 0 {
             page_start_offset
         } else {
-            entries[start_index - 1].last_position_offset()
+            let prev = entries.get(start_index - 1).ok_or_else(|| {
+                Error::invalid_format(
+                    "Corrupted B-Tree leaf: missing prior entry for offset computation",
+                )
+            })?;
+            prev.last_position_offset().ok_or_else(|| {
+                Error::invalid_format(
+                    "Corrupted B-Tree leaf entry: missing term positions or fields",
+                )
+            })?
         };
-        Self {
+        Ok(Self {
             decoder,
             prefix,
             curr_page_pos: page_pos,
@@ -778,7 +805,7 @@ impl<'a> ByPrefixEntryIterator<'a> {
             done: false,
             within_stripe_idx: 0,
             within_field_idx: 0,
-        }
+        })
     }
 
     /// Advances the iterator to the next leaf page for continued prefix matching.
@@ -1333,14 +1360,11 @@ struct BTreeLeafEntry {
 }
 
 impl BTreeLeafEntry {
-    pub fn last_position_offset(&self) -> u64 {
+    pub fn last_position_offset(&self) -> Option<u64> {
         self.term_positions
             .last()
-            .expect("Non-empty entries must have at least one term position")
-            .fields
-            .last()
-            .expect("Non-empty term positions must have at least one field")
-            .pos_list_end_offset
+            .and_then(|tp| tp.fields.last())
+            .map(|f| f.pos_list_end_offset)
     }
 }
 
@@ -1502,7 +1526,7 @@ mod tests {
 
         // Now test the decoder
         let collation = Box::new(UnicodeCasePreservingCollation);
-        let mut decoder = BTreeDecoder::new(shard_url.to_string(), object_store, collation)
+        let decoder = BTreeDecoder::new(shard_url.to_string(), object_store, collation)
             .expect("Failed to create BTreeDecoder");
 
         // Test exact term lookup for "alpha"
@@ -1667,7 +1691,7 @@ mod tests {
             .expect("Failed to seal terms shard");
 
         let collation = Box::new(UnicodeCasePreservingCollation);
-        let mut decoder = BTreeDecoder::new(shard_url.to_string(), object_store, collation)
+        let decoder = BTreeDecoder::new(shard_url.to_string(), object_store, collation)
             .expect("Failed to create BTreeDecoder");
 
         // Test lookup for non-existent term
@@ -1734,7 +1758,7 @@ mod tests {
             .expect("Failed to seal terms shard");
 
         let collation = Box::new(UnicodeCasePreservingCollation);
-        let mut decoder = BTreeDecoder::new(shard_url.to_string(), object_store, collation)
+        let decoder = BTreeDecoder::new(shard_url.to_string(), object_store, collation)
             .expect("Failed to create BTreeDecoder");
 
         // Test prefix lookup for "a" - should match "alpha"
@@ -1817,7 +1841,7 @@ mod tests {
             .expect("Failed to seal terms shard");
 
         let collation = Box::new(UnicodeCasePreservingCollation);
-        let mut decoder = BTreeDecoder::new(shard_url.to_string(), object_store, collation)
+        let decoder = BTreeDecoder::new(shard_url.to_string(), object_store, collation)
             .expect("Failed to create BTreeDecoder");
 
         // Test exact lookup for Unicode terms
@@ -1901,7 +1925,7 @@ mod tests {
 
         // Test case-sensitive collation
         let collation = Box::new(UnicodeCasePreservingCollation);
-        let mut decoder = BTreeDecoder::new(shard_url.to_string(), object_store.clone(), collation)
+        let decoder = BTreeDecoder::new(shard_url.to_string(), object_store.clone(), collation)
             .expect("Failed to create BTreeDecoder");
 
         // Test case-sensitive exact lookups - different cases should be treated as different terms
@@ -1934,7 +1958,7 @@ mod tests {
 
         // Test case-insensitive collation
         let collation = Box::new(UnicodeCaseInsensitiveCollation);
-        let mut decoder = BTreeDecoder::new(shard_url.to_string(), object_store, collation)
+        let decoder = BTreeDecoder::new(shard_url.to_string(), object_store, collation)
             .expect("Failed to create BTreeDecoder");
 
         // With case-insensitive collation, should find same terms regardless of case
@@ -2038,7 +2062,7 @@ mod tests {
 
         // Create decoder and verify we have multiple levels
         let collation = Box::new(UnicodeCasePreservingCollation);
-        let mut decoder = BTreeDecoder::new(shard_url.to_string(), object_store, collation)
+        let decoder = BTreeDecoder::new(shard_url.to_string(), object_store, collation)
             .expect("Failed to create BTreeDecoder");
 
         let total_pages = decoder.pages_count().expect("Failed to get pages count");

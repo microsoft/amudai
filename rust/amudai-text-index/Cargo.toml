@@ -8,6 +8,7 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+ahash = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 bytemuck = { workspace = true }
@@ -21,15 +22,18 @@ amudai-bytes = { workspace = true }
 amudai-collections = { workspace = true }
 amudai-common = { workspace = true }
 amudai-encodings = { workspace = true }
+amudai-index-core = { workspace = true }
 amudai-io = { workspace = true }
 amudai-io-impl = { workspace = true }
 amudai-keyed-vector = { workspace = true }
 amudai-format = { workspace = true }
 amudai-objectstore = { workspace = true }
+amudai-position-set = { workspace = true }
 amudai-ranges = { workspace = true }
 amudai-sequence = { workspace = true }
 amudai-shard = { workspace = true }
 amudai-value-conversions = { workspace = true }
+amudai-unicode = { workspace = true }
 
 [dev-dependencies]
 fastrand = { workspace = true }

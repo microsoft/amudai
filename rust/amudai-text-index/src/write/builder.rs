@@ -33,9 +33,22 @@
 use std::{io::Read, sync::Arc};
 
 use amudai_common::{Result, error::Error};
-use amudai_format::schema::SchemaId;
+use amudai_format::{
+    property_bag::PropertyBagBuilder,
+    schema::{BasicType, SchemaId},
+};
+use amudai_index_core::{
+    IndexBuilder, IndexType,
+    builder::{ArtifactData, Parameters, PreparedArtifact, PreparedIndex},
+    metadata::Scope,
+    shard_markers::DynPreparedShard,
+};
 use amudai_io::TemporaryFileStore;
 use amudai_objectstore::ObjectStore;
+use amudai_sequence::{
+    frame::{Frame, FrameLocation},
+    sequence::AsSequence,
+};
 
 use crate::{
     collation,
@@ -74,39 +87,39 @@ pub struct TextIndexBuilderConfig {
 /// The builder operates on a stripe-based architecture where data is organized into stripes,
 /// and each stripe can contain multiple text fields that are tokenized and indexed.
 pub struct TextIndexBuilder {
+    /// Reference to the index type implementation that created this builder.
+    index_type: Arc<dyn IndexType>,
     /// Storage backend for persisting the final constructed text index.
     /// Used during the finalization phase to store the merged and optimized index data.
     object_store: Arc<dyn ObjectStore>,
-
     /// Temporary storage facility for intermediate fragment data during index construction.
     /// When in-memory fragments exceed size limits, they are spilled to this temporary store
     /// until the final merge phase.
     temp_store: Arc<dyn TemporaryFileStore>,
-
     /// Collation strategy used for comparing and ordering text terms within the index.
     /// Determines the sorting behavior and equality semantics for indexed terms, supporting
     /// different linguistic and cultural text comparison rules.
     collation: Box<dyn collation::Collation>,
-
     /// Maximum allowed size in bytes for in-memory fragments before they are spilled to disk.
     /// Controls memory usage during index construction by triggering fragment persistence
     /// when this threshold is exceeded.
     max_fragment_size: usize,
-
     /// Collection of tokenizers, one for each field schema ID, used to break text content
     /// into searchable terms. The tokenizer at index N corresponds to schema field ID N,
     /// allowing different fields to use different tokenization strategies.
     field_tokenizers: Vec<TokenizerType>,
-
     /// The currently active in-memory fragment that accumulates tokenized terms and their
     /// positions. When this fragment grows too large or when switching stripes, it gets
     /// spilled to temporary storage.
     current_fragment: IndexFragment,
-
     /// Collection of readers for fragments that have been spilled to disk storage.
     /// During finalization, these readers are used to access and merge all fragment data
     /// into the final consolidated index.
     fragments: Vec<Box<dyn Read>>,
+    /// Scope of fields being indexed (used for mapping frames to schema ids during process_frame).
+    scope: Scope,
+    /// Builder for index level properties carried into PreparedIndex.
+    properties: PropertyBagBuilder,
 }
 
 impl TextIndexBuilder {
@@ -130,9 +143,19 @@ impl TextIndexBuilder {
     /// validation fails, such as invalid tokenizer names or unsupported collation.
     pub fn new(
         config: TextIndexBuilderConfig,
-        object_store: Arc<dyn ObjectStore>,
-        temp_store: Arc<dyn TemporaryFileStore>,
+        index_type: Arc<dyn IndexType>,
+        mut params: Parameters,
     ) -> Result<Self> {
+        // We require an object_store in parameters for encoding shards.
+        let object_store: Arc<dyn ObjectStore> =
+            params.object_store.as_ref().cloned().ok_or_else(|| {
+                Error::invalid_arg(
+                    "object_store",
+                    "TextIndexBuilder requires object_store in Parameters",
+                )
+            })?;
+        let temp_store: Arc<dyn TemporaryFileStore> = Arc::clone(&params.temp_store);
+
         let max_fragment_size = config
             .max_fragment_size
             .unwrap_or(Self::DEFAULT_MAX_FRAGMENT_SIZE);
@@ -147,7 +170,11 @@ impl TextIndexBuilder {
 
         let current_fragment = IndexFragment::new(collation.clone_boxed());
 
+        let scope = params.scope.clone();
+        let properties = std::mem::take(&mut params.properties);
+
         Ok(Self {
+            index_type,
             object_store,
             temp_store,
             collation,
@@ -155,6 +182,8 @@ impl TextIndexBuilder {
             field_tokenizers,
             current_fragment,
             fragments: vec![],
+            scope,
+            properties,
         })
     }
 
@@ -178,7 +207,7 @@ impl TextIndexBuilder {
     ///
     /// Panics in debug builds if the new stripe index is not greater than the current one,
     /// as this would violate the expected stripe ordering.
-    pub fn set_stripe(&mut self, stripe_idx: u16) -> Result<()> {
+    fn set_stripe(&mut self, stripe_idx: u16) -> Result<()> {
         if stripe_idx != self.current_fragment.stripe() {
             assert!(stripe_idx > self.current_fragment.stripe());
             if self.current_fragment.entry_count() != 0 {
@@ -234,7 +263,7 @@ impl TextIndexBuilder {
     /// - No tokenizer is configured for the provided field schema ID
     /// - Text tokenization fails
     /// - Fragment size estimation or spilling operations fail
-    pub fn process_text_field(&mut self, text: &str, field: SchemaId, position: u32) -> Result<()> {
+    fn process_text_field(&mut self, text: &str, field: SchemaId, position: u32) -> Result<()> {
         let tokenizer = self.field_tokenizers.get(field.as_usize()).ok_or_else(|| {
             Error::invalid_operation(format!(
                 "No tokenizer configured for field schema ID {field}"
@@ -273,7 +302,7 @@ impl TextIndexBuilder {
     /// - Text index encoder initialization fails
     /// - Fragment merging process encounters errors
     /// - Final index preparation fails
-    pub fn finish(mut self) -> Result<PreparedTextIndex> {
+    fn finish(&mut self) -> Result<PreparedTextIndex> {
         if self.current_fragment.entry_count() != 0 {
             self.spill_current_fragment()?;
         }
@@ -284,72 +313,100 @@ impl TextIndexBuilder {
             decoders.push(IndexFragmentDecoder::new(reader)?);
         }
 
-        let mut encoder = TextIndexEncoder::new(self.object_store, self.temp_store)?;
-        fragments::merge_fragment_decoders(decoders, self.collation, &mut encoder)?;
-
+        let mut encoder =
+            TextIndexEncoder::new(Arc::clone(&self.object_store), Arc::clone(&self.temp_store))?;
+        fragments::merge_fragment_decoders(decoders, self.collation.clone_boxed(), &mut encoder)?;
         encoder.finish()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use amudai_format::schema::SchemaId;
-    use amudai_io_impl::temp_file_store;
-    use amudai_objectstore::null_store::NullObjectStore;
+impl IndexBuilder for TextIndexBuilder {
+    fn index_type(&self) -> &Arc<dyn IndexType> {
+        &self.index_type
+    }
 
-    #[test]
-    fn test_text_index_builder_basic_functionality() {
-        // Create test stores
-        let object_store = Arc::new(NullObjectStore);
-        let temp_store = temp_file_store::create_in_memory(10 * 1024 * 1024)
-            .expect("Failed to create temporary file store");
+    fn process_frame(&mut self, frame: &Frame, location: &FrameLocation) -> Result<()> {
+        if frame.is_empty() {
+            return Ok(());
+        }
+        // Determine the stripe from location (fallback to 0 if unspecified / empty range)
+        let stripe = location.stripe_ordinal as u16;
+        self.set_stripe(stripe)?;
 
-        // Create a basic configuration
-        let config = TextIndexBuilderConfig {
-            max_fragment_size: Some(1024), // Small size to test fragment spilling
-            tokenizers: vec!["trivial".to_string(), "unicode-word".to_string()],
-            collation: "unicode-case-insensitive".to_string(),
+        // Collect field schema ids from scope; we only index those.
+        let field_schema_ids: Vec<SchemaId> = match &self.scope {
+            Scope::StripeField(f) | Scope::ShardField(f) => {
+                f.schema_ids.iter().map(|&id| SchemaId::from(id)).collect()
+            }
+            Scope::MultiStripeField(fields) | Scope::MultiShardField(fields) => fields
+                .iter()
+                .flat_map(|f| f.schema_ids.iter())
+                .map(|&id| SchemaId::from(id))
+                .collect(),
         };
 
-        // Create the builder
-        let mut builder = TextIndexBuilder::new(config, object_store, temp_store)
-            .expect("Failed to create TextIndexBuilder");
-
-        // Test setting stripe and processing text fields
-        builder.set_stripe(0).expect("Failed to set stripe 0");
-
-        // Process some text for different fields
-        builder
-            .process_text_field("hello world", SchemaId::from(0u32), 1)
-            .expect("Failed to process text for field 0");
-
-        builder
-            .process_text_field("rust programming", SchemaId::from(1u32), 1)
-            .expect("Failed to process text for field 1");
-
-        // Switch to another stripe
-        builder.set_stripe(1).expect("Failed to set stripe 1");
-
-        builder
-            .process_text_field("another text", SchemaId::from(0u32), 2)
-            .expect("Failed to process text for field 0 in stripe 1");
-
-        // Process enough text to trigger fragment spilling
-        for i in 0..500 {
-            builder
-                .process_text_field(
-                    &format!("sample text number {i} with some content"),
-                    SchemaId::from(0u32),
-                    i + 10,
-                )
-                .expect("Failed to process bulk text");
+        // Fast exit if none
+        if field_schema_ids.is_empty() {
+            return Ok(());
         }
 
-        // Finish the builder and create the index
-        let prepared_index = builder.finish().expect("Failed to finish building index");
-        let _sealed_index = prepared_index
-            .seal("null:///tmp/test_text_index")
-            .expect("Failed to seal text index");
+        // Build a set for membership (small; linear scan fine)
+        for (field_idx, sequence) in frame.fields.iter().enumerate() {
+            let schema_id = SchemaId::from(field_idx as u32); // Assumption: frame field order matches schema ids 0..N
+            if !field_schema_ids.iter().any(|sid| *sid == schema_id) {
+                continue;
+            }
+            // Only index string fields (BasicType::String)
+            if sequence.basic_type().basic_type != BasicType::String {
+                continue; // Skip non-string.
+            }
+            let value_seq = sequence.as_value_opt().ok_or_else(|| {
+                Error::invalid_operation("Expected value sequence for string field")
+            })?;
+            // Derive starting position within shard
+            let base_pos = location.shard_range.start;
+            for row in 0..frame.len() {
+                if value_seq.presence.is_null(row) {
+                    continue;
+                }
+                let s = value_seq.string_at(row);
+                let position = base_pos + row as u64;
+                let logical_pos = base_pos + row as u64;
+                if logical_pos > u32::MAX as u64 {
+                    return Err(Error::invalid_operation("position exceeds u32 range"));
+                }
+                self.process_text_field(s, schema_id, position as u32)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn seal(self: Box<Self>) -> Result<PreparedIndex> {
+        // We need a mutable reference to run finish because it mutates internal buffers.
+        let mut this = self;
+        let prepared_index = this.finish()?;
+
+        // Convert the two prepared shards into artifacts.
+        let mut artifacts = Vec::with_capacity(2);
+        let terms_shard: Box<dyn DynPreparedShard> = prepared_index.terms_shard.into();
+        artifacts.push(PreparedArtifact {
+            name: "terms".to_string(),
+            properties: Default::default(),
+            data: ArtifactData::PreparedShard(terms_shard),
+        });
+        let positions_shard: Box<dyn DynPreparedShard> = prepared_index.positions_shard.into();
+        artifacts.push(PreparedArtifact {
+            name: "positions".to_string(),
+            properties: Default::default(),
+            data: ArtifactData::PreparedShard(positions_shard),
+        });
+
+        Ok(PreparedIndex {
+            index_type: this.index_type.name().to_string(),
+            artifacts,
+            scope: this.scope.clone(),
+            properties: this.properties.clone(),
+            size: None,
+        })
     }
 }

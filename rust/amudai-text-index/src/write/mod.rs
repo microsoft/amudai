@@ -48,7 +48,7 @@ use std::cmp::Ordering;
 use amudai_format::schema::SchemaId;
 
 pub(crate) mod btree;
-pub mod builder;
+pub(crate) mod builder;
 mod encoder;
 mod fragments;
 mod page_record;

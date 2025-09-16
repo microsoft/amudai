@@ -47,6 +47,7 @@ pub trait Tokenizer: Send + Sync {
     fn kind(&self) -> TokenizerKind;
 
     /// Get the name of the tokenizer kind as a static string.
+    #[allow(dead_code)]
     fn name(&self) -> &'static str {
         self.kind().name()
     }

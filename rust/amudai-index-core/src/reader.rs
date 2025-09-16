@@ -28,7 +28,10 @@ use std::sync::Arc;
 use amudai_common::Result;
 use amudai_position_set::TernaryPositionSet;
 
-use crate::{IndexType, metadata::IndexMetadata};
+use crate::{
+    IndexType,
+    metadata::{IndexMetadata, QueryKind},
+};
 
 /// A trait for reading and querying index data.
 ///
@@ -106,6 +109,22 @@ pub enum IndexQuery {
     /// exact-match queries on specific fields. The hash index provides O(1)
     /// average-case lookup performance for equality comparisons.
     FieldHashing(FieldHashingQuery),
+
+    /// An inverted text index query over one or more terms.
+    ///
+    /// This variant is used by inverted / full-text style indexes (implemented
+    /// in the `amudai-text-index` crate). A [`TermQuery`] query packs the parameters
+    /// needed to execute common textual operations including:
+    ///
+    /// - Single term lookup (`QueryKind::Term`)
+    /// - Multiple OR-term lookup (`QueryKind::TermSet`)
+    /// - Term prefix lookup (`QueryKind::TermPrefix`)
+    /// - Multiple term prefixes (`QueryKind::TermPrefixSet`)
+    ///
+    /// The specific semantics are dictated by the `query_kind` field contained
+    /// in the wrapped [`TermQuery`] struct. Implementations should validate that the
+    /// provided `query_kind` is one they advertised in their [`IndexMetadata`].
+    Term(TermQuery),
 }
 
 /// Parameters for a field hashing index query.
@@ -171,4 +190,32 @@ pub struct FieldHashingQuery {
     ///   HashmapIndex::lookup, which then builds a PositionSet via
     ///   PositionSet::from_positions(span, positions_iter).
     pub span: u64,
+}
+
+/// Parameters for an inverted text index term-based query.
+///
+/// `TermQuery` encapsulates the inputs for executing a term, term-set, prefix,
+/// or related textual query against an inverted index. The interpretation of
+/// the `terms` field depends on the chosen `query_kind`:
+///
+/// - `QueryKind::Term`: `terms` must contain exactly 1 element (the term)
+/// - `QueryKind::TermSet`: `terms` contains N >= 1 exact terms (OR semantics)
+/// - `QueryKind::TermPrefix`: `terms` must contain exactly 1 element (the prefix)
+/// - `QueryKind::TermPrefixSet`: `terms` contains N >= 1 prefixes (OR semantics)
+///
+/// The `span` field follows the same semantics as in [`FieldHashingQuery`]: it
+/// defines the exclusive upper bound for the logical position domain of the
+/// returned position set.
+pub struct TermQuery {
+    /// Exclusive upper bound of the positions domain (positions in [0, span)).
+    pub span: u64,
+
+    /// The collection of terms or prefixes involved in the query, whose
+    /// interpretation is governed by `query_kind`.
+    /// For a single term or prefix query, this vector must contain exactly
+    /// one element.
+    pub terms: Vec<Arc<str>>,
+
+    /// Specifies which textual query operation to perform.
+    pub query_kind: QueryKind,
 }

@@ -10,12 +10,12 @@ use amudai_common::Result;
 use amudai_format::schema::SchemaId;
 use amudai_io::TemporaryFileStore;
 use amudai_objectstore::ObjectStore;
+use amudai_shard::write::shard_builder::PreparedShard;
 
 use crate::write::{
     TermPosting, TermPostingSink, btree::BTreeEncoder, positions::PositionsEncoder,
     poslist_builder::PositionListBuilder,
 };
-use amudai_shard::write::shard_builder::{PreparedShard, SealedShard};
 
 /// High-level encoder for building complete inverted text indexes.
 ///
@@ -206,33 +206,6 @@ pub struct PreparedTextIndex {
     pub positions_shard: PreparedShard,
 }
 
-impl PreparedTextIndex {
-    /// Seals the index, finalizing its storage.
-    ///
-    /// # Errors
-    /// Returns an error if any partition fails to seal or storage issues occur
-    pub fn seal(self, index_url: &str) -> Result<SealedTextIndex> {
-        let terms_shard = self
-            .terms_shard
-            .seal(format!("{index_url}/terms.shard").as_str())?;
-        let positions_shard = self
-            .positions_shard
-            .seal(format!("{index_url}/positions.shard").as_str())?;
-        Ok(SealedTextIndex {
-            terms_shard,
-            positions_shard,
-        })
-    }
-}
-
-/// A sealed index that has been written to persistent storage and is ready for querying.
-pub struct SealedTextIndex {
-    /// The shard containing B-Tree structure with terms and navigation information.
-    pub terms_shard: SealedShard,
-    /// The shard containing position lists referenced by terms.
-    pub positions_shard: SealedShard,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,12 +352,6 @@ mod tests {
         }
 
         // Finish encoding and get prepared index
-        let prepared_index = encoder.finish().expect("Failed to finish encoding");
-
-        // Verify that both shards are created and can be accessed
-        // This test verifies that the TextIndexEncoder properly coordinates between
-        // the B-Tree encoder and positions encoder to create separate shards
-        let _terms_shard = prepared_index.terms_shard;
-        let _positions_shard = prepared_index.positions_shard;
+        encoder.finish().expect("Failed to finish encoding");
     }
 }

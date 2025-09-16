@@ -33,8 +33,8 @@ use amudai_format::schema::SchemaId;
 use crate::pos_list::PositionList;
 
 mod btree;
-pub mod index;
 mod positions;
+pub(crate) mod reader;
 
 /// Represents a single term occurrence with its detailed position information.
 ///
@@ -59,14 +59,14 @@ pub struct TermPositions {
     /// Stripes represent horizontal partitions of the data, enabling parallel
     /// processing and efficient storage organization. This field identifies
     /// which specific data partition contains the term occurrences.
-    pub stripe: u16,
+    pub _stripe: u16,
 
     /// The field identifier within the document schema where the term appears.
     ///
     /// This references a specific field in the document schema, allowing
     /// queries to distinguish between occurrences of the same term in
     /// different fields (e.g., title vs. content vs. metadata fields).
-    pub field: SchemaId,
+    pub _field: SchemaId,
 
     /// The positions of the term within the specified field.
     ///

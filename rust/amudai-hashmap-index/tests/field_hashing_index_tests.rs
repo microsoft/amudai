@@ -18,6 +18,7 @@ use amudai_sequence::sequence::Sequence;
 use amudai_sequence::struct_sequence::StructSequence;
 use amudai_sequence::value_sequence::ValueSequence;
 use amudai_shard::tests::shard_store::ShardStore;
+use amudai_shard::write::shard_builder::PreparedShard;
 
 #[test]
 fn test_field_hashing_index_lookup() {
@@ -163,8 +164,7 @@ fn test_field_hashing_index_lookup() {
         match art.data {
             ArtifactData::PreparedShard(prep) => {
                 // Downcast to concrete PreparedShard and seal
-                let prep: amudai_shard::write::shard_builder::PreparedShard = match prep.try_into()
-                {
+                let prep: PreparedShard = match prep.try_into() {
                     Ok(p) => p,
                     Err(_) => panic!("downcast PreparedShard"),
                 };

@@ -34,6 +34,8 @@
 
 use std::ops::Range;
 
+use amudai_position_set::{PositionSet, TernaryPositionSet};
+
 /// Represents the occurrence positions of a term within indexed data.
 ///
 /// A position list is the final result of an index query, detailing the record locations
@@ -87,11 +89,13 @@ impl PositionList {
     }
 
     /// Creates a new unknown position list.
+    #[allow(dead_code)]
     pub fn new_unknown() -> Self {
         PositionList::Unknown
     }
 
     /// Returns true if this position list represents exact positions or ranges.
+    #[allow(dead_code)]
     pub fn is_exact(&self) -> bool {
         matches!(
             self,
@@ -100,17 +104,20 @@ impl PositionList {
     }
 
     /// Returns true if this position list represents approximate information.
+    #[allow(dead_code)]
     pub fn is_approximate(&self) -> bool {
         matches!(self, PositionList::ApproximateRanges(_))
     }
 
     /// Returns true if this position list has no specific position information.
+    #[allow(dead_code)]
     pub fn is_unknown(&self) -> bool {
         matches!(self, PositionList::Unknown)
     }
 
     /// Returns the total number of positions or ranges in this list.
     /// Returns 0 for Unknown position lists.
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         match self {
             PositionList::Positions(positions) => positions.len(),
@@ -121,6 +128,7 @@ impl PositionList {
     }
 
     /// Returns true if this position list is empty or unknown.
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         match self {
             PositionList::Positions(positions) => positions.is_empty(),
@@ -134,6 +142,7 @@ impl PositionList {
     /// For exact positions/ranges, this provides a definitive answer.
     /// For approximate ranges, this indicates possibility.
     /// For unknown lists, this always returns true.
+    #[allow(dead_code)]
     pub fn might_contain(&self, position: u64) -> bool {
         match self {
             PositionList::Positions(positions) => positions.binary_search(&position).is_ok(),
@@ -146,6 +155,7 @@ impl PositionList {
 
     /// For exact position lists, returns true if the position definitely contains the term.
     /// For approximate or unknown lists, returns false.
+    #[allow(dead_code)]
     pub fn definitely_contains(&self, position: u64) -> bool {
         match self {
             PositionList::Positions(positions) => positions.binary_search(&position).is_ok(),
@@ -159,6 +169,7 @@ impl PositionList {
     /// Returns an iterator over all individual positions in this list.
     /// For ranges, this expands all positions within the ranges.
     /// For unknown lists, this returns an empty iterator.
+    #[allow(dead_code)]
     pub fn iter_positions(&self) -> Box<dyn Iterator<Item = u64> + '_> {
         match self {
             PositionList::Positions(positions) => Box::new(positions.iter().copied()),
@@ -171,6 +182,7 @@ impl PositionList {
 
     /// Merges two position lists, preferring more specific information.
     /// The result will be the most specific representation possible.
+    #[allow(dead_code)]
     pub fn merge(self, other: PositionList) -> PositionList {
         match (self, other) {
             // If either is unknown, use the other
@@ -230,6 +242,43 @@ impl PositionList {
             ) => {
                 approx_ranges.extend(exact_ranges);
                 PositionList::new_approximate_ranges(approx_ranges)
+            }
+        }
+    }
+
+    /// Converts this `PositionList` to a `TernaryPositionSet` for the given span.
+    ///
+    /// This method handles the conversion between the text index's detailed position
+    /// information and the position sets used by the broader index infrastructure.
+    /// It respects the fidelity characteristics of different position list types.
+    ///
+    /// # Arguments
+    ///
+    /// * `span` - The domain size for the position set
+    ///
+    /// # Returns
+    ///
+    /// A `TernaryPositionSet` representing the positions with appropriate fidelity
+    pub fn into_ternary_set(self, span: u64) -> TernaryPositionSet {
+        match self {
+            PositionList::Positions(positions) => {
+                // Exact positions - create a definite position set
+                let pos_set = PositionSet::from_positions(span, positions.into_iter());
+                TernaryPositionSet::Definite(pos_set)
+            }
+            PositionList::ExactRanges(ranges) => {
+                // Exact ranges - create a definite position set from all positions in ranges
+                let pos_set = PositionSet::from_ranges(span, ranges.into_iter());
+                TernaryPositionSet::Definite(pos_set)
+            }
+            PositionList::ApproximateRanges(ranges) => {
+                // Approximate ranges - create a position set with unknowns (no definite trues)
+                let pos_set = PositionSet::from_ranges(span, ranges.into_iter());
+                TernaryPositionSet::Unknown(pos_set)
+            }
+            PositionList::Unknown => {
+                // Unknown - all positions are unknown (might contain the term)
+                TernaryPositionSet::make_unknown(span)
             }
         }
     }

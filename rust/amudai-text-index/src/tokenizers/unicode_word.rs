@@ -18,6 +18,7 @@ pub struct UnicodeWordTokenizer {
 
 impl UnicodeWordTokenizer {
     /// Create a new UnicodeWordTokenizer with custom max and min term lengths.
+    #[allow(dead_code)]
     pub fn with_lengths(max_term_length: usize, min_term_length: usize) -> Self {
         Self {
             max_term_length,

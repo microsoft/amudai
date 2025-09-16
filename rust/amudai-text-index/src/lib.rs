@@ -57,12 +57,11 @@
 //! All operations are designed to work efficiently with the Amudai storage
 //! format's columnar layout and compression strategies.
 
-// Re-export main entry points for convenient access
-pub use read::index::TextIndex;
-pub use write::builder::{TextIndexBuilder, TextIndexBuilderConfig};
+mod collation;
+mod pos_list;
+mod read;
+mod text_index;
+mod tokenizers;
+mod write;
 
-pub mod collation;
-pub mod pos_list;
-pub mod read;
-pub mod tokenizers;
-pub mod write;
+pub use text_index::TextIndexType;
