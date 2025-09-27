@@ -22,7 +22,7 @@ use std::sync::Arc;
 #[cfg(test)]
 mod boolean_tests {
     use super::*;
-    use arrow_array::BooleanArray;
+    use arrow_array::{Array, BooleanArray};
 
     #[test]
     fn test_boolean_field_encoder_with_statistics() -> Result<()> {
@@ -439,6 +439,184 @@ mod boolean_tests {
             !encoded_field.buffers.is_empty(),
             "Should have buffers for non-constant field"
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_boolean_field_encoder_mixed_null_and_false_no_optimization() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Boolean,
+            fixed_size: 0,
+            signed: false,
+            extended_type: Default::default(),
+        };
+
+        let mut encoder = BooleanFieldEncoder::create(&FieldEncoderParams {
+            basic_type,
+            temp_store,
+            encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
+        })?;
+
+        // Mix of false values and nulls - all non-null values are the same (false)
+        // but should NOT be optimized because of the presence of nulls
+        let array = Arc::new(BooleanArray::from(vec![
+            Some(false),
+            None,
+            Some(false),
+            Some(false),
+            None,
+        ]));
+        encoder.push_array(array)?;
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify that statistics were collected
+        assert!(encoded_field.statistics.is_present());
+        if let EncodedFieldStatistics::Boolean(stats) = encoded_field.statistics {
+            assert_eq!(stats.count, 5);
+            assert_eq!(stats.null_count, 2);
+            assert_eq!(stats.true_count, 0);
+            assert_eq!(stats.false_count, 3);
+            assert!(!stats.is_all_true());
+            assert!(stats.is_all_false()); // All non-null values are false
+        } else {
+            panic!("Expected boolean statistics");
+        }
+
+        // Should NOT be detected as constant because of mixed nulls and non-nulls
+        assert!(
+            encoded_field.constant_value.is_none(),
+            "Should not have constant value when there are mixed nulls and non-nulls"
+        );
+
+        // Should have buffers for non-constant fields
+        assert!(
+            !encoded_field.buffers.is_empty(),
+            "Should have buffers for non-constant field"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_boolean_field_encoder_mixed_null_and_true_no_optimization() -> Result<()> {
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Boolean,
+            fixed_size: 0,
+            signed: false,
+            extended_type: Default::default(),
+        };
+
+        let mut encoder = BooleanFieldEncoder::create(&FieldEncoderParams {
+            basic_type,
+            temp_store,
+            encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
+        })?;
+
+        // Mix of true values and nulls - all non-null values are the same (true)
+        // but should NOT be optimized because of the presence of nulls
+        let array = Arc::new(BooleanArray::from(vec![
+            Some(true),
+            None,
+            Some(true),
+            None,
+            Some(true),
+        ]));
+        encoder.push_array(array)?;
+
+        let encoded_field = encoder.finish()?;
+
+        // Verify that statistics were collected
+        assert!(encoded_field.statistics.is_present());
+        if let EncodedFieldStatistics::Boolean(stats) = encoded_field.statistics {
+            assert_eq!(stats.count, 5);
+            assert_eq!(stats.null_count, 2);
+            assert_eq!(stats.true_count, 3);
+            assert_eq!(stats.false_count, 0);
+            assert!(stats.is_all_true()); // All non-null values are true
+            assert!(!stats.is_all_false());
+        } else {
+            panic!("Expected boolean statistics");
+        }
+
+        // Should NOT be detected as constant because of mixed nulls and non-nulls
+        assert!(
+            encoded_field.constant_value.is_none(),
+            "Should not have constant value when there are mixed nulls and non-nulls"
+        );
+
+        // Should have buffers for non-constant fields
+        assert!(
+            !encoded_field.buffers.is_empty(),
+            "Should have buffers for non-constant field"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_boolean_field_encoder_mixed_null_and_false_round_trip() -> Result<()> {
+        use crate::read::field_decoder::boolean::BooleanFieldDecoder;
+
+        // Create test data: [false, null, false, null, false]
+        let test_data = vec![Some(false), None, Some(false), None, Some(false)];
+        let array = Arc::new(BooleanArray::from(test_data.clone()));
+
+        // Encode the data
+        let temp_store = temp_file_store::create_in_memory(16 * 1024 * 1024).unwrap();
+        let basic_type = BasicTypeDescriptor {
+            basic_type: BasicType::Boolean,
+            fixed_size: 0,
+            signed: false,
+            extended_type: Default::default(),
+        };
+
+        let mut encoder = BooleanFieldEncoder::create(&FieldEncoderParams {
+            basic_type: basic_type.clone(),
+            temp_store,
+            encoding_profile: Default::default(),
+            dictionary_encoding: DictionaryEncoding::Enabled,
+        })?;
+
+        encoder.push_array(array)?;
+        let encoded_field = encoder.finish()?;
+
+        // Decode the data back
+        let decoder = BooleanFieldDecoder::from_encoded_field(&encoded_field, basic_type, 5)?;
+
+        let mut reader = decoder.create_boolean_reader(std::iter::empty::<u64>())?;
+        let decoded_array = reader.read_array(0..5)?;
+
+        // Verify the round-trip worked correctly
+        assert_eq!(decoded_array.len(), 5);
+        assert_eq!(decoded_array.null_count(), 2);
+        assert_eq!(decoded_array.true_count(), 0);
+
+        // Check individual values match
+        for (i, expected) in test_data.iter().enumerate() {
+            if expected.is_some() {
+                assert!(
+                    !decoded_array.is_null(i),
+                    "Position {} should not be null",
+                    i
+                );
+                assert_eq!(
+                    decoded_array.value(i),
+                    expected.unwrap(),
+                    "Position {} value mismatch",
+                    i
+                );
+            } else {
+                assert!(decoded_array.is_null(i), "Position {} should be null", i);
+            }
+        }
 
         Ok(())
     }

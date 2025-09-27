@@ -24,6 +24,8 @@ pub struct BooleanFieldEncoder {
     presence_encoder: BitBufferEncoder,
     /// Statistics collector for gathering boolean field statistics
     stats_collector: Option<BooleanStatsCollector>,
+    /// Temporary file store
+    temp_store: Arc<dyn amudai_io::temp_file_store::TemporaryFileStore>,
 }
 
 impl BooleanFieldEncoder {
@@ -35,6 +37,7 @@ impl BooleanFieldEncoder {
             values_encoder: BitBufferEncoder::new(temp_store.clone(), params.encoding_profile),
             presence_encoder: BitBufferEncoder::new(temp_store.clone(), params.encoding_profile),
             stats_collector: Some(BooleanStatsCollector::new()),
+            temp_store,
         }))
     }
 }
@@ -98,25 +101,25 @@ impl FieldEncoderOps for BooleanFieldEncoder {
         };
 
         // Non-constant field - proceed with encoding
-        let mut buffers = Vec::new();
-
         // Finish the encoders
         let values_result = self.values_encoder.finish()?;
         let presence_result = self.presence_encoder.finish()?;
 
-        // Create values buffer - should always be Blocks since statistics confirmed non-constant values
+        // Create values buffer - handle both constant and block cases
         let mut values_buffer = match values_result {
-            EncodedBitBuffer::Constant(_, _) => {
-                // This should never happen since statistics confirmed the field values are not constant
-                unreachable!(
-                    "Values encoder returned constant result despite non-constant statistics"
-                )
+            EncodedBitBuffer::Constant(value, count) => {
+                // We will reach here if there are some null values, but all non-null values are the same (e.g., all true or all false)
+                // In this case the statistics won't classify it as fully constant, but we will also not switch to the blocks encoding
+                BitBufferEncoder::encode_blocks(count, value, self.temp_store.clone())?
             }
             EncodedBitBuffer::Blocks(values_buffer) => values_buffer,
         };
+
         values_buffer.descriptor.kind = shard::BufferKind::Data as i32;
         values_buffer.descriptor.embedded_presence = false;
         values_buffer.descriptor.embedded_offsets = false;
+
+        let mut buffers = Vec::new();
         buffers.push(values_buffer);
 
         match presence_result {
@@ -128,6 +131,7 @@ impl FieldEncoderOps for BooleanFieldEncoder {
                     )
                 }
                 // All values are non-null, no need for presence buffer (optimized away)
+                // In this case we expect mixed values- both true and false
             }
             EncodedBitBuffer::Blocks(mut presence_buffer) => {
                 presence_buffer.descriptor.kind = shard::BufferKind::Presence as i32;
