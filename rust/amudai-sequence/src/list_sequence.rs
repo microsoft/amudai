@@ -96,7 +96,7 @@ impl Sequence for ListSequence {
         self
     }
 
-    fn into_any(self: Box<Self>) -> Box<(dyn std::any::Any + Send + Sync + 'static)> {
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any + Send + Sync + 'static> {
         self
     }
 
@@ -123,7 +123,7 @@ impl Sequence for ListSequence {
         self.len() == 0
     }
 
-    fn to_value_sequence(&self) -> Cow<ValueSequence> {
+    fn to_value_sequence(&self) -> Cow<'_, ValueSequence> {
         let values = self.offsets.clone().into_inner();
         Cow::Owned(ValueSequence {
             values,

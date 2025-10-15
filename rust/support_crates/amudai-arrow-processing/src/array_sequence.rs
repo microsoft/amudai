@@ -282,7 +282,7 @@ impl ArraySequence {
     /// # Returns
     ///
     /// An iterator over the arrays in the sequence.
-    pub fn arrays(&self) -> std::collections::vec_deque::Iter<Arc<dyn Array>> {
+    pub fn arrays(&self) -> std::collections::vec_deque::Iter<'_, Arc<dyn Array>> {
         self.arrays.iter()
     }
 

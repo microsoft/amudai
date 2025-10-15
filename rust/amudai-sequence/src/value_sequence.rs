@@ -524,10 +524,6 @@ impl ValueSequence {
                 }
                 Self::from_binary(len, value, type_desc)
             }
-            None => Err(
-                "AnyValue has no kind specified. \
-                 This may indicate corrupted data from an untrusted stored shard.".to_string()
-            ),
             _ => Err(format!(
                 "Unsupported constant value kind for primitive field: {:?}. \
                  This may indicate corrupted data from an untrusted stored shard.",
@@ -950,7 +946,7 @@ impl Sequence for ValueSequence {
         self as _
     }
 
-    fn into_any(self: Box<Self>) -> Box<(dyn std::any::Any + Send + Sync + 'static)> {
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any + Send + Sync + 'static> {
         self
     }
 
@@ -974,7 +970,7 @@ impl Sequence for ValueSequence {
         ValueSequence::is_empty(self)
     }
 
-    fn to_value_sequence(&self) -> Cow<ValueSequence> {
+    fn to_value_sequence(&self) -> Cow<'_, ValueSequence> {
         Cow::Borrowed(self)
     }
 }

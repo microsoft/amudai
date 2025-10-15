@@ -212,7 +212,7 @@ impl DecimalIndexDecoder {
 }
 
 impl NumericIndexDecoder for DecimalIndexDecoder {
-    fn get_block_stats_array(&mut self) -> Result<BlockStatsArray> {
+    fn get_block_stats_array(&mut self) -> Result<BlockStatsArray<'_>> {
         self.ensure_min_values()?;
         self.ensure_max_values()?;
         self.ensure_invalid_counts()?;

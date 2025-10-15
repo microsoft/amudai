@@ -135,7 +135,7 @@ impl ObjectUrl {
     ///
     /// If the URL is already a container, returns a borrowed reference to self.
     /// Otherwise, returns a new `ObjectUrl` representing the parent container.
-    pub fn get_container(&self) -> amudai_common::Result<Cow<ObjectUrl>> {
+    pub fn get_container(&self) -> amudai_common::Result<Cow<'_, ObjectUrl>> {
         if self.path().ends_with('/') {
             Ok(Cow::Borrowed(self))
         } else {

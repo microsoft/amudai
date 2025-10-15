@@ -10,13 +10,12 @@ rust-version.workspace = true
 [dependencies]
 bitflags = { workspace = true }
 libc = { workspace = true }
-ord_subset = { optional = true, workspace = true }
 serde = { optional = true, workspace = true }
 num-traits = { workspace = true }
 dtoa = { workspace = true }
 
 [features]
-default = ["ord_subset", "serde"]
+default = ["serde"]
 
 [build-dependencies]
 cc = { workspace = true }

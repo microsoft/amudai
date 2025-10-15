@@ -389,7 +389,7 @@ impl<T: Default + Clone + PartialOrd> SharedRangeList<T> {
                 // Split at the found position
                 self.split_at_position_with_range_hint(position, Some(range_idx))
             }
-            None => {
+            _ => {
                 // count equals or exceeds total positions, return (self, empty)
                 (self.clone(), Self::empty())
             }
@@ -628,7 +628,7 @@ impl<T> SharedRangeList<T> {
     /// # Returns
     ///
     /// A `RangeListIter<T>` that yields each logical range, including trimming.
-    pub fn iter(&self) -> SharedRangeListIter<T> {
+    pub fn iter(&self) -> SharedRangeListIter<'_, T> {
         SharedRangeListIter {
             list: self,
             index: 0,
@@ -651,12 +651,12 @@ impl<T: Default + Clone> SharedRangeList<T> {
         let start = match range.start_bound() {
             Included(&n) => n,
             Excluded(&n) => n + 1,
-            Unbounded => 0,
+            _ => 0,
         };
         let end = match range.end_bound() {
             Included(&n) => n + 1,
             Excluded(&n) => n,
-            Unbounded => len,
+            _ => len,
         };
         assert!(start <= end && end <= len, "slice out of bounds");
 

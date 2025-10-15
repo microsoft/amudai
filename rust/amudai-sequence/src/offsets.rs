@@ -100,7 +100,7 @@ impl Offsets {
 
     /// Returns an iterator over the ranges of each item.
     #[inline]
-    pub fn ranges(&self) -> OffsetsIter {
+    pub fn ranges(&self) -> OffsetsIter<'_> {
         OffsetsIter::new(self)
     }
 

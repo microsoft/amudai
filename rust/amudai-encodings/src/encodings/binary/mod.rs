@@ -382,7 +382,7 @@ impl BinaryValuesSequence<'_> {
         self.len() == 0
     }
 
-    pub fn iter(&self) -> BinaryValuesSequenceIter {
+    pub fn iter(&self) -> BinaryValuesSequenceIter<'_, '_> {
         BinaryValuesSequenceIter::new(self)
     }
 
@@ -423,7 +423,7 @@ impl BinaryValuesSequence<'_> {
 
     /// Returns value offsets if values size is not fixed, otherwise returns `None`.
     /// If underlying offset type is i32, creates a new buffer containing translated to `u64` offsets.
-    fn offsets(&self) -> Option<Cow<[u64]>> {
+    fn offsets(&self) -> Option<Cow<'_, [u64]>> {
         match self {
             BinaryValuesSequence::ArrowBinaryArray(arr) => {
                 if arr.is_empty() {

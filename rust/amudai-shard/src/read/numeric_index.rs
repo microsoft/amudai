@@ -260,7 +260,7 @@ pub trait NumericIndexDecoder: Send + Sync + 'static {
     ///
     /// Returns `BlockStatsArray` containing min/max value arrays and null count array,
     /// or an error if reading or decoding fails.
-    fn get_block_stats_array(&mut self) -> Result<BlockStatsArray>;
+    fn get_block_stats_array(&mut self) -> Result<BlockStatsArray<'_>>;
 
     /// Gets the total number of logical blocks in the index.
     ///
@@ -561,7 +561,7 @@ impl<T: NumericIndexable> TypedNumericIndexDecoder<T> {
 }
 
 impl<T: NumericIndexable> NumericIndexDecoder for TypedNumericIndexDecoder<T> {
-    fn get_block_stats_array(&mut self) -> Result<BlockStatsArray> {
+    fn get_block_stats_array(&mut self) -> Result<BlockStatsArray<'_>> {
         self.ensure_min_values()?;
         self.ensure_max_values()?;
         self.ensure_invalid_counts()?;

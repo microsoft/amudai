@@ -477,7 +477,10 @@ impl BlockEncoder for PrimitiveBlockEncoder {
         })
     }
 
-    fn encode(&mut self, input: &dyn arrow_array::Array) -> amudai_common::Result<EncodedBlock> {
+    fn encode(
+        &mut self,
+        input: &dyn arrow_array::Array,
+    ) -> amudai_common::Result<EncodedBlock<'_>> {
         let mut buffer = self.context.buffers.get_buffer();
         let mut metadata = PrimitiveBlockEncoderMetadata::initialize(&mut buffer);
 

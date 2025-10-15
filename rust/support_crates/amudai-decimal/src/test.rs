@@ -1664,39 +1664,6 @@ mod comprehensive_tests {
         assert_eq!(d128::infinity() + d128!(1), d128::infinity());
     }
 
-    #[cfg(feature = "ord_subset")]
-    #[test]
-    #[should_panic]
-    fn test_ord_subset_nan() {
-        use ord_subset;
-        ord_subset::OrdVar::new(d128!(NaN));
-    }
-
-    #[cfg(feature = "ord_subset")]
-    #[test]
-    #[should_panic]
-    fn test_ord_subset_qnan() {
-        use ord_subset;
-        ord_subset::OrdVar::new(d128!(qNaN));
-    }
-
-    #[cfg(feature = "ord_subset")]
-    #[test]
-    fn test_ord_subset_zero() {
-        use ord_subset;
-        assert_eq!(*ord_subset::OrdVar::new(d128::zero()), d128::zero());
-    }
-
-    #[cfg(feature = "ord_subset")]
-    #[test]
-    fn test_into_for_btreemap() {
-        use ord_subset;
-        use std::collections::BTreeMap;
-        let mut m = BTreeMap::<ord_subset::OrdVar<d128>, i64>::new();
-        m.insert(d128!(1.1).into(), 1);
-        assert_eq!(m[&d128!(1.1).into()], 1);
-    }
-
     #[cfg(feature = "serde")]
     #[test]
     fn test_serde() {

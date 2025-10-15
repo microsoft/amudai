@@ -129,7 +129,7 @@ impl StripeContext {
     /// # Errors
     ///
     /// Returns an error if the properties cannot be loaded from storage.
-    pub fn fetch_properties(&self) -> Result<StripePropertyBag> {
+    pub fn fetch_properties(&self) -> Result<StripePropertyBag<'_>> {
         let props = self.fetch_properties_message()?;
         Ok(StripePropertyBag {
             _standard: PropertyBag::new(&props.standard_properties),

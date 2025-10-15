@@ -549,7 +549,7 @@ impl Segment {
     }
 
     /// Returns an iterator over all absolute positions in this segment.
-    pub fn positions(&self) -> PositionsIter {
+    pub fn positions(&self) -> PositionsIter<'_> {
         match self {
             Segment::Empty(_) => PositionsIter::Empty(std::iter::empty()),
             Segment::Full(segment) => PositionsIter::Full(segment.span()),
@@ -560,7 +560,7 @@ impl Segment {
     }
 
     /// Returns an iterator over absolute positions within the specified range.
-    pub fn positions_within(&self, range: Range<u64>) -> PositionsIter {
+    pub fn positions_within(&self, range: Range<u64>) -> PositionsIter<'_> {
         match self {
             Segment::Empty(_) => PositionsIter::Empty(std::iter::empty()),
             Segment::Full(segment) => PositionsIter::Full(segment.positions_within(range)),
@@ -571,7 +571,7 @@ impl Segment {
     }
 
     /// Returns an iterator over contiguous ranges of set positions.
-    pub fn ranges(&self) -> RangesIter {
+    pub fn ranges(&self) -> RangesIter<'_> {
         match self {
             Segment::Empty(_) => RangesIter::Empty(std::iter::empty()),
             Segment::Full(segment) => RangesIter::Full(Some(segment.span())),
@@ -582,7 +582,7 @@ impl Segment {
     }
 
     /// Returns an iterator over contiguous ranges within the specified absolute range.
-    pub fn ranges_within(&self, range: Range<u64>) -> RangesIter {
+    pub fn ranges_within(&self, range: Range<u64>) -> RangesIter<'_> {
         match self {
             Segment::Empty(_) => RangesIter::Empty(std::iter::empty()),
             Segment::Full(segment) => RangesIter::Full(segment.ranges_within(range)),
@@ -1007,7 +1007,7 @@ impl Segment {
     ///
     /// Semantics
     /// - Does not modify `self`.
-    pub fn to_bits(&self) -> Cow<BitSegment> {
+    pub fn to_bits(&self) -> Cow<'_, BitSegment> {
         match self {
             Segment::Empty(segment) => Cow::Owned(segment.to_bits()),
             Segment::Full(segment) => Cow::Owned(segment.to_bits()),

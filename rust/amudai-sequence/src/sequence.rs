@@ -40,7 +40,7 @@ pub trait Sequence: Send + Sync + 'static {
     /// trait object.
     ///
     /// Enables dynamic downcasting to concrete sequence types.
-    fn into_any(self: Box<Self>) -> Box<(dyn Any + Send + Sync + 'static)>;
+    fn into_any(self: Box<Self>) -> Box<dyn Any + Send + Sync + 'static>;
 
     /// Returns the `TypeId` of this sequence's concrete Rust type.
     ///
@@ -76,7 +76,7 @@ pub trait Sequence: Send + Sync + 'static {
     ///
     /// **Note:** This may incur additional memory allocation, copying, and in general,
     /// CPU-intensive decoding.
-    fn to_value_sequence(&self) -> Cow<ValueSequence>;
+    fn to_value_sequence(&self) -> Cow<'_, ValueSequence>;
 }
 
 /// Extension trait for `Sequence` trait objects to provide type-specific

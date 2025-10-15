@@ -54,10 +54,12 @@ pub trait Tokenizer: Send + Sync {
 
     /// Maximum length of a single term in bytes before exclusion.
     /// Terms longer than this will be excluded from the results entirely.
+    #[allow(dead_code)]
     fn max_term_length(&self) -> usize;
 
     /// Minimum length of a single term in bytes before exclusion.
     /// Terms shorter than this will be excluded from the results entirely.
+    #[allow(dead_code)]
     fn min_term_length(&self) -> usize;
 }
 

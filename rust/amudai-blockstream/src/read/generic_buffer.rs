@@ -172,7 +172,7 @@ impl<Decoder: BlockDecoder> GenericBufferReader<Decoder> {
     ///
     /// * `Ok((Cow<Sequence>, BlockDescriptor))` - The decoded sequence data and block descriptor
     /// * `Err` - If the block cannot be read or decoded
-    fn decode_block(&mut self, ordinal: usize) -> Result<Cow<DecodedBlock>> {
+    fn decode_block(&mut self, ordinal: usize) -> Result<Cow<'_, DecodedBlock>> {
         let cached_ordinal = self
             .cached_block
             .as_ref()

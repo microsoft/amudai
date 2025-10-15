@@ -447,6 +447,7 @@ macro_rules! impl_packing_unimpl {
 }
 
 // helper function executed at compile-time to speed up unpack_single at runtime
+#[allow(dead_code)]
 const fn lanes_by_index<T: FastLanes>() -> [u8; BLOCK_SIZE] {
     let mut lanes = [0u8; BLOCK_SIZE];
     const_for!(i in 0..BLOCK_SIZE => {
@@ -456,6 +457,7 @@ const fn lanes_by_index<T: FastLanes>() -> [u8; BLOCK_SIZE] {
 }
 
 // helper function executed at compile-time to speed up unpack_single at runtime
+#[allow(dead_code)]
 const fn rows_by_index<T: FastLanes>() -> [u8; BLOCK_SIZE] {
     let mut rows = [0u8; BLOCK_SIZE];
     const_for!(i in 0..BLOCK_SIZE => {

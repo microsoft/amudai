@@ -88,7 +88,7 @@ impl FieldContext {
     }
 
     /// Returns the field properties
-    pub fn properties(&self) -> FieldPropertyBag {
+    pub fn properties(&self) -> FieldPropertyBag<'_> {
         let descriptor = self.descriptor().field.as_ref().expect("field descriptor");
         FieldPropertyBag {
             _standard: PropertyBag::new(&descriptor.standard_properties),

@@ -130,7 +130,7 @@ impl<'a> Iterator for UnverifiedRangeIter<'a> {
 pub trait UnverifiedPosUtils {
     fn unverified_positions(&self) -> UnverifiedPosIter;
 
-    fn unverified_ranges(&self) -> UnverifiedRangeIter;
+    fn unverified_ranges(&self) -> UnverifiedRangeIter<'_>;
 
     /// Counts number of characters in the UTF-8 string.
     fn unverified_len(&self) -> usize;
@@ -148,7 +148,7 @@ impl UnverifiedPosUtils for [u8] {
         }
     }
 
-    fn unverified_ranges(&self) -> UnverifiedRangeIter {
+    fn unverified_ranges(&self) -> UnverifiedRangeIter<'_> {
         UnverifiedRangeIter {
             curr: 0,
             next: 0,
@@ -176,7 +176,7 @@ impl UnverifiedPosUtils for str {
         self.as_bytes().unverified_positions()
     }
 
-    fn unverified_ranges(&self) -> UnverifiedRangeIter {
+    fn unverified_ranges(&self) -> UnverifiedRangeIter<'_> {
         self.as_bytes().unverified_ranges()
     }
 

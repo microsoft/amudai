@@ -5,7 +5,6 @@ use super::Status;
 use crate::context::*;
 use libc::c_char;
 use num_traits::Zero;
-#[cfg(feature = "ord_subset")]
 #[cfg(feature = "serde")]
 use std::borrow::Borrow;
 use std::cell::RefCell;
@@ -61,20 +60,6 @@ struct decNumber {
 impl Default for d128 {
     fn default() -> Self {
         d128::zero()
-    }
-}
-
-#[cfg(feature = "ord_subset")]
-impl ord_subset::OrdSubset for d128 {
-    fn is_outside_order(&self) -> bool {
-        self.is_nan()
-    }
-}
-
-#[cfg(feature = "ord_subset")]
-impl From<d128> for ord_subset::OrdVar<d128> {
-    fn from(val: d128) -> Self {
-        ord_subset::OrdVar::new(val)
     }
 }
 

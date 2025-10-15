@@ -139,7 +139,7 @@ impl TextIndex {
     /// - **Streaming Results**: Memory usage scales with position list size, not result count
     /// - **Early Termination**: Iteration can stop without processing remaining matches
     /// - **Cache Friendly**: Sequential access patterns for position data retrieval
-    pub fn lookup_term(&self, term: &str) -> Result<TermPositionsIterator<'_, EntryIterator>> {
+    pub fn lookup_term(&self, term: &str) -> Result<TermPositionsIterator<'_, EntryIterator<'_>>> {
         Ok(TermPositionsIterator {
             entries_iter: self.btree.lookup_term(term)?,
             positions: &self.positions,
@@ -193,7 +193,7 @@ impl TextIndex {
     pub fn lookup_term_prefix(
         &self,
         prefix: &str,
-    ) -> Result<TermPositionsIterator<'_, ByPrefixEntryIterator>> {
+    ) -> Result<TermPositionsIterator<'_, ByPrefixEntryIterator<'_>>> {
         Ok(TermPositionsIterator {
             entries_iter: self.btree.lookup_term_prefix(prefix)?,
             positions: &self.positions,
@@ -301,7 +301,7 @@ where
                 })),
             },
             Some(Err(e)) => Some(Err(e)),
-            None => None,
+            _ => None,
         }
     }
 }

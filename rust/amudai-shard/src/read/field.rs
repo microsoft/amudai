@@ -69,7 +69,7 @@ impl Field {
     }
 
     /// Returns the field properties
-    pub fn properties(&self) -> FieldPropertyBag {
+    pub fn properties(&self) -> FieldPropertyBag<'_> {
         self.0.properties()
     }
 

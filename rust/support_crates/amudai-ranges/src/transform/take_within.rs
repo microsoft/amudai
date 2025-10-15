@@ -49,7 +49,7 @@ impl<'a, I: Iterator<Item = u64>> Iterator for TakeWithin<'a, I> {
                 self.inner.put_back(v);
                 None
             }
-            None => None,
+            _ => None,
         }
     }
 }
@@ -57,13 +57,13 @@ impl<'a, I: Iterator<Item = u64>> Iterator for TakeWithin<'a, I> {
 pub trait TakeWithinExt {
     type It: Iterator<Item = u64>;
 
-    fn take_within(&mut self, threshold: u64) -> TakeWithin<Self::It>;
+    fn take_within(&mut self, threshold: u64) -> TakeWithin<'_, Self::It>;
 }
 
 impl<I: Iterator<Item = u64>> TakeWithinExt for PutBack<I> {
     type It = I;
 
-    fn take_within(&mut self, threshold: u64) -> TakeWithin<Self::It> {
+    fn take_within(&mut self, threshold: u64) -> TakeWithin<'_, Self::It> {
         TakeWithin::new(self, threshold)
     }
 }
@@ -179,7 +179,7 @@ pub trait TakeRangesWithinExt {
     ///   pushes back `threshold..r.end`, and ends iteration.
     ///
     /// See [`TakeRangesWithin`] for details and complexity guarantees.
-    fn take_ranges_within(&mut self, threshold: u64) -> TakeRangesWithin<Self::It>;
+    fn take_ranges_within(&mut self, threshold: u64) -> TakeRangesWithin<'_, Self::It>;
 }
 
 /// Implements [`TakeRangesWithinExt`] for any `PutBack<I>` where `I` yields `Range<u64>`.
@@ -188,7 +188,7 @@ pub trait TakeRangesWithinExt {
 impl<I: Iterator<Item = Range<u64>>> TakeRangesWithinExt for PutBack<I> {
     type It = I;
 
-    fn take_ranges_within(&mut self, threshold: u64) -> TakeRangesWithin<Self::It> {
+    fn take_ranges_within(&mut self, threshold: u64) -> TakeRangesWithin<'_, Self::It> {
         TakeRangesWithin::new(self, threshold)
     }
 }

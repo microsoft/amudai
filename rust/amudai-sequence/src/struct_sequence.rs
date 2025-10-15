@@ -93,7 +93,7 @@ impl Sequence for StructSequence {
     }
 
     /// Converts the boxed self into a boxed Any for downcasting.
-    fn into_any(self: Box<Self>) -> Box<(dyn std::any::Any + Send + Sync + 'static)> {
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any + Send + Sync + 'static> {
         self
     }
 
@@ -126,7 +126,7 @@ impl Sequence for StructSequence {
     }
 
     /// Converts to a value sequence with empty values (structs are not stored as values).
-    fn to_value_sequence(&self) -> std::borrow::Cow<ValueSequence> {
+    fn to_value_sequence(&self) -> std::borrow::Cow<'_, ValueSequence> {
         Cow::Owned(ValueSequence {
             values: Values::new(),
             offsets: None,

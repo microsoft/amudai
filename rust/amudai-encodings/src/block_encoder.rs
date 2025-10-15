@@ -298,7 +298,8 @@ pub trait BlockEncoder: Send + Sync + 'static {
     ///
     /// A byte slice containing the encoded block, including the header, payload, and possibly
     /// a checksum suffix.
-    fn encode(&mut self, input: &dyn arrow_array::Array) -> amudai_common::Result<EncodedBlock>;
+    fn encode(&mut self, input: &dyn arrow_array::Array)
+    -> amudai_common::Result<EncodedBlock<'_>>;
 }
 
 /// Creation of the block encoder, separate from the main `BlockEncoder` trait

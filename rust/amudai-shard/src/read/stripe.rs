@@ -190,7 +190,7 @@ impl Stripe {
     /// # Errors
     ///
     /// Returns an error if the properties cannot be loaded from storage.
-    pub fn fetch_properties(&self) -> Result<StripePropertyBag> {
+    pub fn fetch_properties(&self) -> Result<StripePropertyBag<'_>> {
         self.0.fetch_properties()
     }
 

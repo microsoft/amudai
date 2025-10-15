@@ -105,7 +105,7 @@ impl Shard {
     /// # Errors
     ///
     /// Returns an error if the properties cannot be loaded from storage.
-    pub fn fetch_properties(&self) -> Result<ShardPropertyBag> {
+    pub fn fetch_properties(&self) -> Result<ShardPropertyBag<'_>> {
         self.0.fetch_properties()
     }
 

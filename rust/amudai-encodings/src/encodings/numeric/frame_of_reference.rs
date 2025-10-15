@@ -325,10 +325,15 @@ where
     ) -> amudai_common::Result<Option<AnalysisOutcome>> {
         let width = if let (Some(min), Some(max)) = (stats.min, stats.max) {
             let diff = max - min;
+            if diff == T::zero() {
+                return Ok(None);
+            }
+
             T::BITS_COUNT - diff.leading_zeros() as usize
         } else {
             return Ok(None);
         };
+
         let encoded_chunk_size = fastlanes::BLOCK_SIZE * width / T::BITS_COUNT;
         let encoded_size = 2
             + FFORMetadata::<T>::size()
@@ -347,7 +352,7 @@ where
     fn encode(
         &self,
         values: &[T],
-        _null_mask: &NullMask,
+        null_mask: &NullMask,
         target: &mut AlignedByteVec,
         _plan: &EncodingPlan,
         context: &EncodingContext,
@@ -357,7 +362,23 @@ where
             .fold((T::max_value(), T::min_value()), |(min, max), &v| {
                 (min.min(v), max.max(v))
             });
+
         let diff = max - min;
+        if diff == T::zero() {
+            // Fallback to SingleValue encoding if the diff is zero, which means that all values are the same.
+            return context.numeric_encoders.get::<T>().encode(
+                values,
+                null_mask,
+                target,
+                &EncodingPlan {
+                    encoding: EncodingKind::SingleValue,
+                    parameters: Default::default(),
+                    cascading_encodings: vec![],
+                },
+                context,
+            );
+        }
+
         let width = T::BITS_COUNT - diff.leading_zeros() as usize;
         let reference = min;
         let encoded_size = Self::encode_values(values, width, reference, target, context)?;
@@ -579,6 +600,50 @@ mod tests {
             for (a, b) in data.iter().zip(decoded.typed_data::<i64>()) {
                 assert_eq!(a, b);
             }
+        }
+    }
+
+    #[test]
+    fn test_ffor_direct_encode_decode_with_identical_values() {
+        use crate::encodings::numeric::NumericEncoding;
+
+        let context = EncodingContext::new();
+        let encoder = super::FFOREncoding::<u32>::new();
+
+        // All values are the same, which will result in diff = 0
+        let data: Vec<u32> = vec![12345; 1000];
+
+        // Create a plan that forces FFOR encoding (this bypasses the analyze phase)
+        let plan = EncodingPlan {
+            encoding: EncodingKind::FusedFrameOfReference,
+            parameters: Default::default(),
+            cascading_encodings: vec![],
+        };
+
+        let mut target = AlignedByteVec::new();
+        let encoded_size = encoder
+            .encode(&data, &NullMask::None, &mut target, &plan, &context)
+            .expect("Encode should succeed with fix");
+
+        assert!(encoded_size > 0, "Should have encoded some data");
+
+        // Verify we can decode it back using the general numeric encoder
+        let mut decoded = AlignedByteVec::new();
+        context
+            .numeric_encoders
+            .get::<u32>()
+            .decode(&target, data.len(), None, &mut decoded, &context)
+            .expect("Should be able to decode the data");
+
+        // Verify data integrity
+        let decoded_data = decoded.typed_data::<u32>();
+        assert_eq!(
+            data.len(),
+            decoded_data.len(),
+            "Decoded data should have same length"
+        );
+        for (original, decoded) in data.iter().zip(decoded_data) {
+            assert_eq!(original, decoded, "Data should round-trip correctly");
         }
     }
 }

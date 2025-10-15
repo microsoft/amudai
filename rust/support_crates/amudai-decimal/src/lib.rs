@@ -3,8 +3,6 @@ extern crate bitflags;
 extern crate dtoa;
 extern crate libc;
 extern crate num_traits;
-#[cfg(feature = "ord_subset")]
-extern crate ord_subset;
 #[cfg(feature = "serde")]
 extern crate serde;
 #[cfg(feature = "serde")]
