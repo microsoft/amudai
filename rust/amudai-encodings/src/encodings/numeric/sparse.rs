@@ -70,17 +70,20 @@ where
 
         encoded_size = encoded_size.next_multiple_of(ALIGNMENT_BYTES);
 
-        let values_outcome = context.numeric_encoders.get::<T>().analyze(
-            valid_values.typed_data::<T>(),
-            &NullMask::None,
-            &config.make_cascading_config(),
-            context,
-        )?;
-        if let Some(cascading_outcome) = values_outcome {
-            encoded_size += cascading_outcome.encoded_size;
-            cascading_encodings[1] = Some(cascading_outcome);
-        } else {
-            encoded_size += valid_values.len();
+        // Only analyze values if we have non-null values
+        if !valid_values.is_empty() {
+            let values_outcome = context.numeric_encoders.get::<T>().analyze(
+                valid_values.typed_data::<T>(),
+                &NullMask::None,
+                &config.make_cascading_config(),
+                context,
+            )?;
+            if let Some(cascading_outcome) = values_outcome {
+                encoded_size += cascading_outcome.encoded_size;
+                cascading_encodings[1] = Some(cascading_outcome);
+            } else {
+                encoded_size += valid_values.len();
+            }
         }
 
         Ok(Some(AnalysisOutcome {
@@ -134,18 +137,20 @@ where
         let alignment = target.len().next_multiple_of(ALIGNMENT_BYTES);
         target.resize(alignment, 0);
 
-        // Encode non-null values.
-        if let Some(values_plan) = plan.cascading_encodings[1].as_ref() {
-            context.numeric_encoders.get::<T>().encode(
-                valid_values.typed_data::<T>(),
-                &NullMask::None,
-                target,
-                values_plan,
-                context,
-            )?;
-            metadata.values_cascading = true;
-        } else {
-            target.extend_from_slice(valid_values.as_slice());
+        // Encode non-null values, if any
+        if !valid_values.is_empty() {
+            if let Some(values_plan) = plan.cascading_encodings[1].as_ref() {
+                context.numeric_encoders.get::<T>().encode(
+                    valid_values.typed_data::<T>(),
+                    &NullMask::None,
+                    target,
+                    values_plan,
+                    context,
+                )?;
+                metadata.values_cascading = true;
+            } else {
+                target.extend_from_slice(valid_values.as_slice());
+            }
         }
 
         metadata.finalize(target);
@@ -180,35 +185,38 @@ where
         } else {
             positions.extend_from_slice(encoded_positions);
         }
-        let positions = positions.typed_data::<u32>();
 
         let values_offset = metadata.positions_size.next_multiple_of(ALIGNMENT_BYTES);
         let values_buffer = &buffer[values_offset..];
 
-        // Decode non-null values.
-        let mut valid_values = context.buffers.get_buffer();
-        if metadata.values_cascading {
-            context.numeric_encoders.get::<T>().decode(
-                values_buffer,
-                metadata.positions_count,
-                None,
-                &mut valid_values,
-                context,
-            )?;
-        } else {
-            let values_count = metadata.positions_count;
-            let values_size = values_count * T::SIZE;
-            if values_buffer.len() < values_size {
-                return Err(Error::invalid_format("Encoded buffer size is too small"));
-            }
-            valid_values.extend_from_slice(&values_buffer[..values_size]);
-        };
-        let valid_values = valid_values.typed_data::<T>();
-
         target.resize_zeroed::<T>(value_count);
-        let target_slice = target.typed_data_mut::<T>();
-        for (&pos, &value) in positions.iter().zip(valid_values) {
-            target_slice[pos as usize] = value;
+
+        // Decode and populate non-null values, if any
+        if metadata.positions_count > 0 {
+            let mut valid_values = context.buffers.get_buffer();
+            if metadata.values_cascading {
+                context.numeric_encoders.get::<T>().decode(
+                    values_buffer,
+                    metadata.positions_count,
+                    None,
+                    &mut valid_values,
+                    context,
+                )?;
+            } else {
+                let values_count = metadata.positions_count;
+                let values_size = values_count * T::SIZE;
+                if values_buffer.len() < values_size {
+                    return Err(Error::invalid_format("Encoded buffer size is too small"));
+                }
+                valid_values.extend_from_slice(&values_buffer[..values_size]);
+            }
+
+            let positions = positions.typed_data::<u32>();
+            let valid_values = valid_values.typed_data::<T>();
+            let target_slice = target.typed_data_mut::<T>();
+            for (&pos, &value) in positions.iter().zip(valid_values) {
+                target_slice[pos as usize] = value;
+            }
         }
 
         Ok(())
@@ -382,6 +390,55 @@ mod tests {
             .unwrap();
         for (a, b) in data.iter().zip(decoded.typed_data::<i64>()) {
             assert_eq!(a, b);
+        }
+    }
+
+    #[test]
+    fn test_all_null_values() {
+        let context = EncodingContext::new();
+
+        // Create data where all values are null
+        let data_len = 1000;
+        let data: Vec<i64> = (0..data_len).map(|_| 0).collect();
+        let nulls = arrow_buffer::NullBuffer::new_null(data_len);
+        let null_mask = NullMask::from(Some(&nulls));
+
+        let plan = EncodingPlan {
+            encoding: EncodingKind::Sparse,
+            parameters: Default::default(),
+            cascading_encodings: vec![
+                None, // positions encoding
+                Some(EncodingPlan {
+                    encoding: EncodingKind::SingleValue,
+                    parameters: Default::default(),
+                    cascading_encodings: vec![],
+                }),
+            ],
+        };
+
+        let mut encoded = AlignedByteVec::new();
+        let encoded_size = context
+            .numeric_encoders
+            .get::<i64>()
+            .encode(&data, &null_mask, &mut encoded, &plan, &context)
+            .unwrap();
+
+        // ensure encoding size is greater than zero (metadata should be present)
+        assert!(encoded_size > 0);
+
+        // Test round-trip decode
+        let mut decoded = AlignedByteVec::new();
+        context
+            .numeric_encoders
+            .get::<i64>()
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
+            .unwrap();
+
+        // All decoded values should be zero (since all were null)
+        let decoded_data = decoded.typed_data::<i64>();
+        assert_eq!(decoded_data.len(), data_len);
+        for &value in decoded_data {
+            assert_eq!(value, 0); // Default value for null entries
         }
     }
 }
