@@ -20,10 +20,10 @@ pub enum EncodingKind {
     Delta = 5,
     RunLength = 6,
     SingleValue = 7,
-    TruncateU8 = 8,
-    TruncateU16 = 9,
-    TruncateU32 = 10,
-    TruncateU64 = 11,
+    // TruncateU8 = 8,
+    // TruncateU16 = 9,
+    // TruncateU32 = 10,
+    // TruncateU64 = 11,
     Alp = 12,
     AlpRd = 13,
     BlockDictionary = 14,
@@ -46,10 +46,10 @@ impl TryFrom<u16> for EncodingKind {
             5 => Ok(EncodingKind::Delta),
             6 => Ok(EncodingKind::RunLength),
             7 => Ok(EncodingKind::SingleValue),
-            8 => Ok(EncodingKind::TruncateU8),
-            9 => Ok(EncodingKind::TruncateU16),
-            10 => Ok(EncodingKind::TruncateU32),
-            11 => Ok(EncodingKind::TruncateU64),
+            // 8 => Ok(EncodingKind::TruncateU8),
+            // 9 => Ok(EncodingKind::TruncateU16),
+            // 10 => Ok(EncodingKind::TruncateU32),
+            // 11 => Ok(EncodingKind::TruncateU64),
             12 => Ok(EncodingKind::Alp),
             13 => Ok(EncodingKind::AlpRd),
             14 => Ok(EncodingKind::BlockDictionary),
@@ -127,10 +127,10 @@ impl EncodingConfig {
         EncodingKind::FLBitPack,
         EncodingKind::RunLength,
         EncodingKind::SingleValue,
-        EncodingKind::TruncateU8,
-        EncodingKind::TruncateU16,
-        EncodingKind::TruncateU32,
-        EncodingKind::TruncateU64,
+        // EncodingKind::TruncateU8,
+        // EncodingKind::TruncateU16,
+        // EncodingKind::TruncateU32,
+        // EncodingKind::TruncateU64,
     ];
 
     /// Create a configuration for a next cascading level encoding.
@@ -147,6 +147,7 @@ impl EncodingConfig {
         if !self.cascading_use_all_encodings {
             config = config.with_allowed_encodings(Self::DEFAULT_CASCADING_LEVEL_ENCODINGS);
         }
+
         config
     }
 

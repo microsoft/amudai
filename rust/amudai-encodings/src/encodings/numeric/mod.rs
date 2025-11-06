@@ -25,10 +25,10 @@ use std::{
     collections::HashMap,
     sync::Arc,
 };
-use truncation::{
-    TruncatableSInteger, TruncateU8Encoding, TruncateU16Encoding, TruncateU32Encoding,
-    TruncateU64Encoding,
-};
+// use truncation::{
+//     TruncatableSInteger, TruncateU8Encoding, TruncateU16Encoding, TruncateU32Encoding,
+//     TruncateU64Encoding,
+// };
 use value::{DecimalValue, FloatValue, NumericValue, SIntegerValue, UIntegerValue, ValueReader};
 use zigzag::ZigZagEncoding;
 
@@ -45,7 +45,7 @@ mod run_length;
 mod single_value;
 mod sparse;
 mod stats;
-mod truncation;
+//mod truncation;
 pub(crate) mod value;
 mod zigzag;
 
@@ -412,9 +412,9 @@ impl NumericEncodingsPool {
     /// Initialize encodings set for signed integer type `T`.
     fn create_sinteger_encodings<T>() -> NumericEncodings<T>
     where
-        T: SIntegerValue + TruncatableSInteger,
+        T: SIntegerValue, // + TruncatableSInteger,
     {
-        let mut encodings = vec![
+        let encodings = vec![
             Arc::new(FFOREncoding::<T>::new()) as Arc<dyn NumericEncoding<T>>,
             // TODO: is there a need for having both FOR and FFOR?
             Arc::new(FOREncoding::<T>::new()),
@@ -428,18 +428,18 @@ impl NumericEncodingsPool {
             Arc::new(ZigZagEncoding::<T>::new()),
             Arc::new(SparseEncoding::<T>::new()),
         ];
-        if T::SIZE > 1 {
-            encodings.push(Arc::new(TruncateU8Encoding::<T>::new()));
-        }
-        if T::SIZE > 2 {
-            encodings.push(Arc::new(TruncateU16Encoding::<T>::new()));
-        }
-        if T::SIZE > 4 {
-            encodings.push(Arc::new(TruncateU32Encoding::<T>::new()));
-        }
-        if T::SIZE > 8 {
-            encodings.push(Arc::new(TruncateU64Encoding::<T>::new()));
-        }
+        // if T::SIZE > 1 {
+        //     encodings.push(Arc::new(TruncateU8Encoding::<T>::new()));
+        // }
+        // if T::SIZE > 2 {
+        //     encodings.push(Arc::new(TruncateU16Encoding::<T>::new()));
+        // }
+        // if T::SIZE > 4 {
+        //     encodings.push(Arc::new(TruncateU32Encoding::<T>::new()));
+        // }
+        // if T::SIZE > 8 {
+        //     encodings.push(Arc::new(TruncateU64Encoding::<T>::new()));
+        // }
         NumericEncodings::new(encodings, Arc::new(IntegerStatsCollector::<T>::new()) as _)
     }
 
@@ -542,22 +542,18 @@ mod tests {
             .unwrap();
         assert!(outcome.is_some());
         let outcome = outcome.unwrap();
-        assert!(outcome.compression_ratio >= 23000.0);
+        assert!(outcome.compression_ratio >= 19500.0);
         let encoded_size1 = outcome.encoded_size;
         let plan = outcome.into_plan();
 
         assert_eq!(
             EncodingPlan {
-                encoding: EncodingKind::TruncateU32,
+                encoding: EncodingKind::Delta,
                 parameters: Default::default(),
                 cascading_encodings: vec![Some(EncodingPlan {
-                    encoding: EncodingKind::Delta,
+                    encoding: EncodingKind::SingleValue,
                     parameters: Default::default(),
-                    cascading_encodings: vec![Some(EncodingPlan {
-                        encoding: EncodingKind::SingleValue,
-                        parameters: Default::default(),
-                        cascading_encodings: vec![],
-                    }),],
+                    cascading_encodings: vec![],
                 })]
             },
             plan,

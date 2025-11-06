@@ -357,16 +357,12 @@ mod tests {
                 parameters: Default::default(),
                 cascading_encodings: vec![
                     Some(EncodingPlan {
-                        encoding: EncodingKind::TruncateU16,
+                        encoding: EncodingKind::Delta,
                         parameters: Default::default(),
                         cascading_encodings: vec![Some(EncodingPlan {
-                            encoding: EncodingKind::Delta,
+                            encoding: EncodingKind::SingleValue,
                             parameters: Default::default(),
-                            cascading_encodings: vec![Some(EncodingPlan {
-                                encoding: EncodingKind::SingleValue,
-                                parameters: Default::default(),
-                                cascading_encodings: vec![]
-                            })]
+                            cascading_encodings: vec![]
                         })]
                     }),
                     Some(EncodingPlan {
