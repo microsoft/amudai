@@ -146,6 +146,22 @@ where
         plan: &EncodingPlan,
         context: &EncodingContext,
     ) -> amudai_common::Result<usize> {
+        // Quickly check whether the values are truncatable to u8.
+        // If some values are not, fallback to truncation to u16.
+        if values.iter().any(|v| !v.can_truncate_to_u8()) {
+            return context.numeric_encoders.get::<T>().encode(
+                values,
+                null_mask,
+                target,
+                &EncodingPlan {
+                    encoding: EncodingKind::TruncateU16,
+                    parameters: plan.parameters.clone(),
+                    cascading_encodings: plan.cascading_encodings.clone(),
+                },
+                context,
+            );
+        }
+
         let mut truncated_values = context.buffers.get_buffer();
         truncated_values.reserve(values.len() * std::mem::size_of::<u8>());
         for value in values {
@@ -278,6 +294,22 @@ where
         plan: &EncodingPlan,
         context: &EncodingContext,
     ) -> amudai_common::Result<usize> {
+        // Quickly check whether the values are truncatable to u16.
+        // If some values are not, fallback to truncation to u32.
+        if values.iter().any(|v| !v.can_truncate_to_u16()) {
+            return context.numeric_encoders.get::<T>().encode(
+                values,
+                null_mask,
+                target,
+                &EncodingPlan {
+                    encoding: EncodingKind::TruncateU32,
+                    parameters: plan.parameters.clone(),
+                    cascading_encodings: plan.cascading_encodings.clone(),
+                },
+                context,
+            );
+        }
+
         let mut truncated_values = context.buffers.get_buffer();
         truncated_values.reserve(values.len() * std::mem::size_of::<u16>());
         for value in values {
@@ -412,6 +444,22 @@ where
         plan: &EncodingPlan,
         context: &EncodingContext,
     ) -> amudai_common::Result<usize> {
+        // Quickly check whether the values are truncatable to u32.
+        // If some values are not, fallback to truncation to u64.
+        if values.iter().any(|v| !v.can_truncate_to_u32()) {
+            return context.numeric_encoders.get::<T>().encode(
+                values,
+                null_mask,
+                target,
+                &EncodingPlan {
+                    encoding: EncodingKind::TruncateU64,
+                    parameters: plan.parameters.clone(),
+                    cascading_encodings: plan.cascading_encodings.clone(),
+                },
+                context,
+            );
+        }
+
         let mut truncated_values = context.buffers.get_buffer();
         truncated_values.reserve(values.len() * std::mem::size_of::<u32>());
         for value in values {
@@ -546,6 +594,22 @@ where
         plan: &EncodingPlan,
         context: &EncodingContext,
     ) -> amudai_common::Result<usize> {
+        // Quickly check whether the values are truncatable to u64.
+        // If some values are not, fallback to plain encoding.
+        if values.iter().any(|v| !v.can_truncate_to_u64()) {
+            return context.numeric_encoders.get::<T>().encode(
+                values,
+                null_mask,
+                target,
+                &EncodingPlan {
+                    encoding: EncodingKind::Plain,
+                    parameters: Default::default(),
+                    cascading_encodings: vec![],
+                },
+                context,
+            );
+        }
+
         let mut truncated_values = context.buffers.get_buffer();
         truncated_values.reserve(values.len() * std::mem::size_of::<u64>());
         for value in values {
@@ -786,6 +850,95 @@ mod tests {
             .inspect(&encoded, &context)
             .unwrap();
         assert_eq!(plan, inspect_plan);
+
+        let mut decoded = AlignedByteVec::new();
+        context
+            .numeric_encoders
+            .get::<i128>()
+            .decode(&encoded, data.len(), None, &mut decoded, &context)
+            .unwrap();
+        for (a, b) in data.iter().zip(decoded.typed_data()) {
+            assert_eq!(a, b);
+        }
+    }
+
+    #[test]
+    fn test_truncate_u8_fallback() {
+        let config = EncodingConfig::default().with_allowed_encodings(&[
+            EncodingKind::TruncateU8,
+            EncodingKind::TruncateU16,
+            EncodingKind::TruncateU32,
+            EncodingKind::TruncateU64,
+        ]);
+        let context = EncodingContext::new();
+        let sample: Vec<i128> = (-127..128)
+            .flat_map(|i| (0..250).map(move |_| i as i128))
+            .collect();
+        // Real data contains values that cannot be truncated to u8.
+        let data: Vec<i128> = (-320..320)
+            .flat_map(|i| (0..100).map(move |_| i * i32::MAX as i128))
+            .collect();
+        let outcome = context
+            .numeric_encoders
+            .get::<i128>()
+            .analyze(&sample, &NullMask::None, &config, &context)
+            .unwrap();
+        assert!(outcome.is_some());
+        let outcome = outcome.unwrap();
+        let plan = outcome.into_plan();
+
+        assert_eq!(
+            EncodingPlan {
+                encoding: EncodingKind::TruncateU8,
+                parameters: Default::default(),
+                cascading_encodings: vec![Some(EncodingPlan {
+                    encoding: EncodingKind::RunLength,
+                    parameters: Default::default(),
+                    cascading_encodings: vec![
+                        None,
+                        Some(EncodingPlan {
+                            encoding: EncodingKind::SingleValue,
+                            parameters: Default::default(),
+                            cascading_encodings: vec![]
+                        })
+                    ]
+                })]
+            },
+            plan
+        );
+
+        let mut encoded = AlignedByteVec::new();
+        context
+            .numeric_encoders
+            .get::<i128>()
+            .encode(&data, &NullMask::None, &mut encoded, &plan, &context)
+            .unwrap();
+
+        // Validate that inspect() returns the same encoding plan as used for encoding
+        let inspect_plan = context
+            .numeric_encoders
+            .get::<i128>()
+            .inspect(&encoded, &context)
+            .unwrap();
+        assert_eq!(
+            EncodingPlan {
+                encoding: EncodingKind::TruncateU64,
+                parameters: Default::default(),
+                cascading_encodings: vec![Some(EncodingPlan {
+                    encoding: EncodingKind::RunLength,
+                    parameters: Default::default(),
+                    cascading_encodings: vec![
+                        None,
+                        Some(EncodingPlan {
+                            encoding: EncodingKind::SingleValue,
+                            parameters: Default::default(),
+                            cascading_encodings: vec![]
+                        })
+                    ]
+                })]
+            },
+            inspect_plan
+        );
 
         let mut decoded = AlignedByteVec::new();
         context

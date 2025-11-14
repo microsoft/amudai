@@ -354,7 +354,14 @@ mod tests {
             EncodingPlan {
                 encoding: EncodingKind::Sparse,
                 parameters: Default::default(),
-                cascading_encodings: vec![None, None]
+                cascading_encodings: vec![
+                    None,
+                    Some(EncodingPlan {
+                        encoding: EncodingKind::TruncateU16,
+                        parameters: None,
+                        cascading_encodings: vec![None]
+                    })
+                ]
             },
             plan
         );
