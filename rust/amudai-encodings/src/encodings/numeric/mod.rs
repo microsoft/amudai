@@ -430,14 +430,12 @@ impl NumericEncodingsPool {
         ];
         if T::SIZE > 1 {
             encodings.push(Arc::new(TruncateU8Encoding::<T>::new()));
-        }
-        if T::SIZE > 2 {
             encodings.push(Arc::new(TruncateU16Encoding::<T>::new()));
         }
-        if T::SIZE > 4 {
+        if T::SIZE > 2 {
             encodings.push(Arc::new(TruncateU32Encoding::<T>::new()));
         }
-        if T::SIZE > 8 {
+        if T::SIZE > 4 {
             encodings.push(Arc::new(TruncateU64Encoding::<T>::new()));
         }
         NumericEncodings::new(encodings, Arc::new(IntegerStatsCollector::<T>::new()) as _)
