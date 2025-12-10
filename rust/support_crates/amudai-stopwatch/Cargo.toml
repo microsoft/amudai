@@ -1,5 +1,5 @@
 [package]
-name = "amudai-workflow"
+name = "amudai-stopwatch"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,6 +8,10 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-amudai-collections = { workspace = true }
-amudai-request = { workspace = true }
-amudai-guid = { workspace = true }
+
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }

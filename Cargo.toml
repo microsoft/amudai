@@ -34,7 +34,9 @@ members = [
     "rust/support_crates/amudai-page-alloc",
     "rust/support_crates/amudai-position-set",
     "rust/support_crates/amudai-ranges",
+    "rust/support_crates/amudai-request",
     "rust/support_crates/amudai-shared-vec",
+    "rust/support_crates/amudai-stopwatch",
     "rust/support_crates/amudai-unicode",
     "rust/support_crates/amudai-value-conversions",
     "rust/support_crates/amudai-workflow",
@@ -163,9 +165,11 @@ amudai-objectstore = { version = "0.2.54", path = "rust/amudai-objectstore" }
 amudai-page-alloc = { version = "0.2.54", path = "rust/support_crates/amudai-page-alloc" }
 amudai-position-set = { version = "0.2.54", path = "rust/support_crates/amudai-position-set" }
 amudai-ranges = { version = "0.2.54", path = "rust/support_crates/amudai-ranges" }
+amudai-request = { version = "0.2.54", path = "rust/support_crates/amudai-request" }
 amudai-sequence = { version = "0.2.54", path = "rust/amudai-sequence" }
 amudai-shard = { version = "0.2.54", path = "rust/amudai-shard" }
 amudai-shared-vec = { version = "0.2.54", path = "rust/support_crates/amudai-shared-vec" }
+amudai-stopwatch = { version = "0.2.54", path = "rust/support_crates/amudai-stopwatch" }
 amudai-spill-data = { version = "0.2.54", path = "rust/amudai-spill-data" }
 amudai-testkit = { version = "0.2.54", path = "rust/amudai-testkit" }
 amudai-text-index = { version = "0.2.54", path = "rust/amudai-text-index" }

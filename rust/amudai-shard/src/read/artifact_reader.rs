@@ -6,6 +6,7 @@ use amudai_bytes::Bytes;
 use amudai_common::{Result, error::ErrorKind, verify_data};
 use amudai_io::{ReadAt, StorageProfile};
 use amudai_objectstore::url::ObjectUrl;
+use amudai_request::RequestContext;
 
 /// A reader for an artifact, providing methods to access its content.
 ///
@@ -56,6 +57,7 @@ impl ArtifactReader {
     /// * `range` - The range of bytes to read, convertible to `Range<u64>`.
     pub fn read_at(&self, range: impl Into<Range<u64>>) -> Result<Bytes> {
         let bytes = self.inner.read_at(range.into())?;
+        RequestContext::report_read(bytes.len() as u64);
         Ok(bytes)
     }
 

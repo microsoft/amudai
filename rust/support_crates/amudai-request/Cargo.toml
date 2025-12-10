@@ -1,5 +1,5 @@
 [package]
-name = "amudai-workflow"
+name = "amudai-request"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,6 +8,5 @@ description.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-amudai-collections = { workspace = true }
-amudai-request = { workspace = true }
 amudai-guid = { workspace = true }
+amudai-stopwatch = { workspace = true }

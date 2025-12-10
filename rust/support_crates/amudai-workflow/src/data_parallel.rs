@@ -12,6 +12,7 @@
 //! and fall back to sequential processing for small collections or when parallelism is disabled.
 
 use crate::eager_pool::EagerPool;
+use amudai_request::RequestContext;
 
 /// Executes a function for each item in an iterator, optionally in parallel.
 ///
@@ -49,9 +50,16 @@ where
             f(item);
         }
     } else {
+        let parent_req = RequestContext::active();
         EagerPool::global().restricted_scope(max_degree.unwrap_or(usize::MAX), |scope| {
             for item in items {
-                scope.spawn(|| f(item));
+                let parent = parent_req.clone();
+                scope.spawn(|| {
+                    let _guard = parent
+                        .map(|p| p.spawn(amudai_guid::Guid::new_v4()))
+                        .map(RequestContext::set_scoped);
+                    f(item);
+                });
             }
         });
     }
@@ -113,10 +121,18 @@ where
         }
         results.into_iter()
     } else {
+        let parent_req = RequestContext::active();
+
         EagerPool::global().restricted_scope(max_degree.unwrap_or(usize::MAX), |scope| {
             let mut deferred = Vec::new();
             for item in items {
-                let res = scope.spawn(|| f(item));
+                let parent = parent_req.clone();
+                let res = scope.spawn(|| {
+                    let _guard = parent
+                        .map(|p| p.spawn(amudai_guid::Guid::new_v4()))
+                        .map(RequestContext::set_scoped);
+                    f(item)
+                });
                 deferred.push(res);
             }
             deferred

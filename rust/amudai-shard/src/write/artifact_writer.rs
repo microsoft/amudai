@@ -5,6 +5,7 @@ use std::ops::Range;
 
 use amudai_format::defs::{AMUDAI_FOOTER, AMUDAI_HEADER, common::DataRef};
 use amudai_io::{ReadAt, SealingWrite, StorageProfile};
+use amudai_request::RequestContext;
 
 /// A writer designed for appending data to an artifact, such as a file, blob,
 /// or stream.
@@ -87,6 +88,9 @@ impl ArtifactWriter {
     pub fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
         self.inner.write_all(buf)?;
         self.pos += buf.len() as u64;
+        
+        RequestContext::report_write(buf.len() as u64);
+        
         Ok(())
     }
 
@@ -136,12 +140,16 @@ impl ArtifactWriter {
         let target_start = self.position();
         let mut source_pos = range.start;
         let end_pos = range.end;
+        
         while source_pos < end_pos {
             let next_pos = std::cmp::min(source_pos + block_size, end_pos);
             let buffer = source.read_at(source_pos..next_pos)?;
             if buffer.is_empty() {
                 break;
             }
+            
+            RequestContext::report_read(buffer.len() as u64);
+            
             self.write_all(&buffer)?;
             source_pos += buffer.len() as u64;
         }
