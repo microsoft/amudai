@@ -50,7 +50,7 @@ exclude = []
 resolver = "2"
 
 [workspace.package]
-version = "0.2.55"
+version = "0.2.56"
 edition = "2024"
 authors = ["Kusto Devs"]
 readme = "README.md"
@@ -62,17 +62,17 @@ rust-version = "1.88"
 ahash = "0.8"
 anyhow = "1"
 arrayref = "0.3"
-arrow = "55"
-arrow-arith = "55"
-arrow-array = "55"
-arrow-buffer = "55"
-arrow-cast = "55"
-arrow-csv = "55"
-arrow-data = "55"
-arrow-ipc = "55"
-arrow-json = "55"
-arrow-schema = "55"
-arrow-select = "55"
+arrow = "57.1.0"
+arrow-arith = "57.1.0"
+arrow-array = "57.1.0"
+arrow-buffer = "57.1.0"
+arrow-cast = "57.1.0"
+arrow-csv = "57.1.0"
+arrow-data = "57.1.0"
+arrow-ipc = "57.1.0"
+arrow-json = "57.1.0"
+arrow-schema = "57.1.0"
+arrow-select = "57.1.0"
 async-trait = "0.1"
 bincode = { version = "2", features = ["derive", "serde"] }
 bitflags = "2.6"
@@ -135,47 +135,47 @@ xshell = "0.2"
 xxhash-rust = { version = "0.8", features = ["xxh64", "xxh3"] }
 zstd = { version = "0.13" }
 
-amudai = { version = "0.2.55", path = "rust/amudai" }
-amudai-arrow = { version = "0.2.55", path = "rust/amudai-arrow" }
-amudai-arrow-builders = { version = "0.2.55", path = "rust/support_crates/amudai-arrow-builders" }
-amudai-arrow-builders-macros = { version = "0.2.55", path = "rust/support_crates/amudai-arrow-builders-macros" }
-amudai-arrow-compat = { version = "0.2.55", path = "rust/amudai-arrow-compat" }
-amudai-arrow-processing = { version = "0.2.55", path = "rust/support_crates/amudai-arrow-processing" }
-amudai-blockstream = { version = "0.2.55", path = "rust/amudai-blockstream" }
-amudai-bloom-filters = { version = "0.2.55", path = "rust/support_crates/amudai-bloom-filters" }
-amudai-budget-tracker = { version = "0.2.55", path = "rust/support_crates/amudai-budget-tracker" }
-amudai-bits = { version = "0.2.55", path = "rust/support_crates/amudai-bits" }
-amudai-bytes = { version = "0.2.55", path = "rust/support_crates/amudai-bytes" }
-amudai-collections = { version = "0.2.55", path = "rust/support_crates/amudai-collections" }
-amudai-common = { version = "0.2.55", path = "rust/amudai-common" }
-amudai-common-traits = { version = "0.2.55", path = "rust/support_crates/amudai-common-traits" }
-amudai-data-stats = { version = "0.2.55", path = "rust/amudai-data-stats" }
-amudai-datetime = { version = "0.2.55", path = "rust/support_crates/amudai-datetime" }
-amudai-decimal = { version = "0.2.55", path = "rust/support_crates/amudai-decimal" }
-amudai-guid = { version = "0.2.55", path = "rust/support_crates/amudai-guid" }
-amudai-encodings = { version = "0.2.55", path = "rust/amudai-encodings" }
-amudai-format = { version = "0.2.55", path = "rust/amudai-format" }
-amudai-hashmap-index = { version = "0.2.55", path = "rust/amudai-hashmap-index" }
-amudai-hll = { version = "0.2.55", path = "rust/support_crates/amudai-hll" }
-amudai-index-core = { version = "0.2.55", path = "rust/amudai-index-core" }
-amudai-io = { version = "0.2.55", path = "rust/amudai-io" }
-amudai-io-impl = { version = "0.2.55", path = "rust/amudai-io-impl" }
-amudai-keyed-vector = { version = "0.2.55", path = "rust/support_crates/amudai-keyed-vector" }
-amudai-objectstore = { version = "0.2.55", path = "rust/amudai-objectstore" }
-amudai-page-alloc = { version = "0.2.55", path = "rust/support_crates/amudai-page-alloc" }
-amudai-position-set = { version = "0.2.55", path = "rust/support_crates/amudai-position-set" }
-amudai-ranges = { version = "0.2.55", path = "rust/support_crates/amudai-ranges" }
-amudai-request = { version = "0.2.55", path = "rust/support_crates/amudai-request" }
-amudai-sequence = { version = "0.2.55", path = "rust/amudai-sequence" }
-amudai-shard = { version = "0.2.55", path = "rust/amudai-shard" }
-amudai-shared-vec = { version = "0.2.55", path = "rust/support_crates/amudai-shared-vec" }
-amudai-stopwatch = { version = "0.2.55", path = "rust/support_crates/amudai-stopwatch" }
-amudai-spill-data = { version = "0.2.55", path = "rust/amudai-spill-data" }
-amudai-testkit = { version = "0.2.55", path = "rust/amudai-testkit" }
-amudai-text-index = { version = "0.2.55", path = "rust/amudai-text-index" }
-amudai-unicode = { version = "0.2.55", path = "rust/support_crates/amudai-unicode" }
-amudai-value-conversions = { version = "0.2.55", path = "rust/support_crates/amudai-value-conversions" }
-amudai-workflow = { version = "0.2.55", path = "rust/support_crates/amudai-workflow" }
+amudai = { version = "0.2.56", path = "rust/amudai" }
+amudai-arrow = { version = "0.2.56", path = "rust/amudai-arrow" }
+amudai-arrow-builders = { version = "0.2.56", path = "rust/support_crates/amudai-arrow-builders" }
+amudai-arrow-builders-macros = { version = "0.2.56", path = "rust/support_crates/amudai-arrow-builders-macros" }
+amudai-arrow-compat = { version = "0.2.56", path = "rust/amudai-arrow-compat" }
+amudai-arrow-processing = { version = "0.2.56", path = "rust/support_crates/amudai-arrow-processing" }
+amudai-blockstream = { version = "0.2.56", path = "rust/amudai-blockstream" }
+amudai-bloom-filters = { version = "0.2.56", path = "rust/support_crates/amudai-bloom-filters" }
+amudai-budget-tracker = { version = "0.2.56", path = "rust/support_crates/amudai-budget-tracker" }
+amudai-bits = { version = "0.2.56", path = "rust/support_crates/amudai-bits" }
+amudai-bytes = { version = "0.2.56", path = "rust/support_crates/amudai-bytes" }
+amudai-collections = { version = "0.2.56", path = "rust/support_crates/amudai-collections" }
+amudai-common = { version = "0.2.56", path = "rust/amudai-common" }
+amudai-common-traits = { version = "0.2.56", path = "rust/support_crates/amudai-common-traits" }
+amudai-data-stats = { version = "0.2.56", path = "rust/amudai-data-stats" }
+amudai-datetime = { version = "0.2.56", path = "rust/support_crates/amudai-datetime" }
+amudai-decimal = { version = "0.2.56", path = "rust/support_crates/amudai-decimal" }
+amudai-guid = { version = "0.2.56", path = "rust/support_crates/amudai-guid" }
+amudai-encodings = { version = "0.2.56", path = "rust/amudai-encodings" }
+amudai-format = { version = "0.2.56", path = "rust/amudai-format" }
+amudai-hashmap-index = { version = "0.2.56", path = "rust/amudai-hashmap-index" }
+amudai-hll = { version = "0.2.56", path = "rust/support_crates/amudai-hll" }
+amudai-index-core = { version = "0.2.56", path = "rust/amudai-index-core" }
+amudai-io = { version = "0.2.56", path = "rust/amudai-io" }
+amudai-io-impl = { version = "0.2.56", path = "rust/amudai-io-impl" }
+amudai-keyed-vector = { version = "0.2.56", path = "rust/support_crates/amudai-keyed-vector" }
+amudai-objectstore = { version = "0.2.56", path = "rust/amudai-objectstore" }
+amudai-page-alloc = { version = "0.2.56", path = "rust/support_crates/amudai-page-alloc" }
+amudai-position-set = { version = "0.2.56", path = "rust/support_crates/amudai-position-set" }
+amudai-ranges = { version = "0.2.56", path = "rust/support_crates/amudai-ranges" }
+amudai-request = { version = "0.2.56", path = "rust/support_crates/amudai-request" }
+amudai-sequence = { version = "0.2.56", path = "rust/amudai-sequence" }
+amudai-shard = { version = "0.2.56", path = "rust/amudai-shard" }
+amudai-shared-vec = { version = "0.2.56", path = "rust/support_crates/amudai-shared-vec" }
+amudai-stopwatch = { version = "0.2.56", path = "rust/support_crates/amudai-stopwatch" }
+amudai-spill-data = { version = "0.2.56", path = "rust/amudai-spill-data" }
+amudai-testkit = { version = "0.2.56", path = "rust/amudai-testkit" }
+amudai-text-index = { version = "0.2.56", path = "rust/amudai-text-index" }
+amudai-unicode = { version = "0.2.56", path = "rust/support_crates/amudai-unicode" }
+amudai-value-conversions = { version = "0.2.56", path = "rust/support_crates/amudai-value-conversions" }
+amudai-workflow = { version = "0.2.56", path = "rust/support_crates/amudai-workflow" }
 
 [profile.devrel]
 inherits = "release"
@@ -183,3 +183,4 @@ lto = "thin"
 opt-level = 3
 codegen-units = 16
 debug = true
+
