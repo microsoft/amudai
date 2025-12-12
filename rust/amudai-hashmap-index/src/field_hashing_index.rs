@@ -67,7 +67,7 @@ impl FieldHashingIndexType {
     /// # Panics
     ///
     /// Panics if the weak reference cannot be upgraded (should never happen in practice)
-    fn shared_from_self(&self) -> Arc<FieldHashingIndexType> {
+    pub fn shared_from_self(&self) -> Arc<dyn IndexType> {
         self.this.upgrade().expect("upgrade")
     }
 

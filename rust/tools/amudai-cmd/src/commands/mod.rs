@@ -7,6 +7,7 @@ use std::path::Path;
 use url::Url;
 
 pub mod consume;
+pub mod head;
 pub mod inferschema;
 pub mod ingest;
 pub mod inspect;

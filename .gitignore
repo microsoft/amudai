@@ -69,3 +69,6 @@ bin-dotnet/
 *.a
 *.so
 *.o
+
+# demo output
+**/demo_output/*

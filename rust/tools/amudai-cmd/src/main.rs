@@ -80,6 +80,15 @@ enum Commands {
         /// Shard URL or path to consume
         shard_path: String,
     },
+    /// Print the first N records from a shard
+    Head {
+        /// Number of records to print (default is 1)
+        #[arg(short, long, default_value = "1")]
+        count: Option<u64>,
+
+        /// Shard URL or path to read from
+        shard_path: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -103,5 +112,6 @@ fn main() -> Result<()> {
             iterations,
             shard_path,
         } => commands::consume::run(count, iterations, shard_path),
+        Commands::Head { count, shard_path } => commands::head::run(count, shard_path),
     }
 }

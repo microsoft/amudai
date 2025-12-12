@@ -57,7 +57,7 @@ impl FieldHashingIndexBuilder {
     /// Validates that required object stores are available since the underlying
     /// hashmap builder requires persistent storage for partition management
     /// and temporary storage for intermediate data during construction.
-    pub fn new(params: Parameters, index_type: Arc<FieldHashingIndexType>) -> Result<Self> {
+    pub fn new(params: Parameters, index_type: Arc<dyn IndexType>) -> Result<Self> {
         // Require object_store & temp_store for the underlying shard builder.
         let object_store: Arc<dyn ObjectStore> =
             params.object_store.as_ref().cloned().ok_or_else(|| {

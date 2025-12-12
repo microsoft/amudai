@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-arrow = { workspace = true, features = ["json", "csv"] }
+arrow = { workspace = true, features = ["json", "csv", "prettyprint"] }
 arrow-csv = { workspace = true }
 arrow-json = { workspace = true }
 arrow-schema = { workspace = true, features = ["serde"] }
@@ -33,6 +33,8 @@ amudai-objectstore = { workspace = true }
 amudai-ranges = { workspace = true }
 amudai-shard = { workspace = true }
 amudai-text-index = { workspace = true }
+amudai-hashmap-index = { workspace = true}
+amudai-index-core = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
